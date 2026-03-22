@@ -27,6 +27,14 @@ Agents do not just walk freely; the environment fights back.
 - **Elevation Penalties:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement and dramatically drains their gathered resources, while walking downhill provides a speed boost.
 - **Ocean Traversal:** Deep water is impassable unless an agent has passively gathered enough resources on land to overcome the "boat threshold," allowing them to cross oceans at a high resource cost.
 
+### 🧬 Biological Lifecycle & Genetics
+Agents are subject to the harsh realities of life. They constantly burn baseline resources to survive. If they run out of resources, they will starve and eventually die, leaving behind a corpse. 
+Healthy, wealthy agents will automatically reproduce, burning resources to pass their mutated neural weights (and even entirely new structural nodes) down to their offspring. If an entire generation goes extinct, the simulation automatically restarts with a fresh population.
+
+### ⚙️ Real-Time Configuration (`sim_config.json`)
+On its first run, the simulation generates a `sim_config.json` file, mapping the environment to realistic metrics (e.g., 1 Resource = $1 USD, 1 Tick = 1 Minute).
+You can freely tweak base speeds, climbing penalties, boat costs, reproduction costs, and more without recompiling the project.
+
 ### 📊 Real-Time Telemetry
 The `macroquad` UI tracks engine performance precisely, displaying:
 - Live Population Counts
@@ -55,6 +63,7 @@ cargo run --release
 - **Mouse Left Click & Drag:** Pan the camera
 - **Mouse Scroll Wheel:** Zoom in and out
 - **Spacebar:** Pause / Resume the simulation
+- **R Key:** Toggle Logarithmic Resource View (depleted paths glow red, abundant resources glow green)
 - **Up Arrow:** Exponentially increase simulation speed (compute loops per frame)
 - **Down Arrow:** Exponentially decrease simulation speed
 

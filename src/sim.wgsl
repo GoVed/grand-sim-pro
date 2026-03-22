@@ -5,13 +5,34 @@ struct Agent {
     speed: f32,
     hidden_count: u32,
     w1: array<f32, 64>,
-    w2: array<f32, 32>,
+    w2: array<f32, 48>,
     inventory: f32,
-    pad: array<f32, 2>,
+    health: f32,
+    age: f32,
+}
+
+struct SimConfig {
+    base_speed: f32,
+    baseline_cost: f32,
+    move_cost_per_unit: f32,
+    climb_penalty: f32,
+    base_gather_rate: f32,
+    max_gather_rate: f32,
+    max_tile_resource: f32,
+    boat_cost: f32,
+    drop_amount: f32,
+    regen_rate: f32,
+    max_age: f32,
+    max_health: f32,
+    starvation_rate: f32,
+    reproduction_cost: f32,
+    pad: vec2<f32>,
 }
 
 @group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
 @group(0) @binding(1) var<storage, read> map_heights: array<f32>;
+@group(0) @binding(2) var<storage, read_write> map_resources: array<f32>;
+@group(0) @binding(3) var<uniform> cfg: SimConfig;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -19,6 +40,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (idx >= arrayLength(&agents)) { return; }
 
     var agent = agents[idx];
+    
+    if (agent.health <= 0.0) {
+        return; // Agent is dead, skip processing
+    }
+    agent.age = agent.age + 1.0;
+    
     let map_width = 800u;
 
     // 1. Neural Net Processing
@@ -33,17 +60,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         hidden[h] = tanh(sum);
     }
 
-    var outputs = array<f32, 2>();
-    for (var o = 0u; o < 2u; o = o + 1u) {
+    var outputs = array<f32, 3>();
+    for (var o = 0u; o < 3u; o = o + 1u) {
         var sum = 0.0;
         for (var h = 0u; h < agent.hidden_count; h = h + 1u) {
-            sum = sum + hidden[h] * agent.w2[h * 2u + o];
+            sum = sum + hidden[h] * agent.w2[h * 3u + o];
         }
         outputs[o] = tanh(sum);
     }
 
     agent.heading = agent.heading + outputs[0] * 0.5;
-    let base_speed = clamp(outputs[1] * 1.5 + 1.5, 0.1, 3.0);
+    let speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0); // Normalize 0 to 1
+    let base_speed = speed_intent * cfg.base_speed;
 
     // Get current elevation
     let current_idx = u32(agent.y) * map_width + u32(agent.x);
@@ -63,7 +91,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Height Factor: Uphill slows down, downhill speeds up
     let slope = next_height - current_height;
-    let height_multiplier = 1.0 - clamp(slope * 4.0, -0.5, 0.8);
+    let height_multiplier = 1.0 - clamp(slope * cfg.climb_penalty, -0.5, 0.9);
     let actual_speed = base_speed * height_multiplier;
 
     // Recalculate true next position with slope-adjusted speed
@@ -77,9 +105,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let final_height = map_heights[safe_final_idx];
 
     // Resource & Terrain Mechanics
+    var local_resource = map_resources[safe_current_idx];
+
     if (current_height >= 0.0) {
-        agent.inventory = min(agent.inventory + 0.1, 150.0); // Passive gathering on land
+        let drop_desire = outputs[2];
+        if (drop_desire > 0.5 && agent.inventory > 10.0) {
+            // Community Logic: Drop 5.0 resources to the current tile
+            agent.inventory = agent.inventory - 5.0;
+            local_resource = min(local_resource + 5.0, 200.0);
+        } else {
+            // Selfish Logic: Gather resources from the tile
+            if (local_resource > 0.1) {
+                let gathered = min(0.5, local_resource); // Max 0.5 extraction per tick
+                agent.inventory = min(agent.inventory + gathered, 150.0);
+                local_resource = local_resource - gathered;
+            }
+        }
+        
+        // Slow environmental regeneration on land
+        local_resource = min(local_resource + 0.01, 100.0);
     }
+    map_resources[safe_current_idx] = local_resource;
 
     // Calculate climbing exertion: positive slopes drastically increase the movement cost
     let climb_penalty = max(0.0, slope) * 20.0; 
@@ -102,6 +148,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         } else {
             agent.speed = 0.0; // Exhausted (must rest to gather)
         }
+    }
+    
+    if (agent.age > cfg.max_age) {
+        agent.health = agent.health - (cfg.starvation_rate * 2.0); // Rapid health decline
     }
     agents[idx] = agent;
 }

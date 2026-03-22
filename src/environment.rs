@@ -1,18 +1,18 @@
 use noise::{NoiseFn, Perlin, Fbm};
 
 pub struct Environment {
-    pub width: u32,
-    pub height: u32,
     pub map_data: Vec<u8>,
     pub height_map: Vec<f32>,
+    pub map_resources: Vec<f32>,
 }
 
 impl Environment {
-    pub fn new(width: u32, height: u32, seed: u32) -> Self {
+    pub fn new(width: u32, height: u32, seed: u32, config: &crate::config::SimConfig) -> Self {
         let fbm = Fbm::<Perlin>::new(seed);
         
         let mut map_data = Vec::with_capacity((width * height * 4) as usize);
         let mut height_map = Vec::with_capacity((width * height) as usize);
+        let mut map_resources = Vec::with_capacity((width * height) as usize);
 
         // Calculate the radius for our 4D mapping to match the original noise scale
         let radius_x = width as f64 / (150.0 * 2.0 * std::f64::consts::PI);
@@ -45,8 +45,12 @@ impl Environment {
 
                 map_data.extend_from_slice(&color);
                 height_map.push(val as f32);
+                
+                // Initialize land based on max configured economic scale
+                let base_res = if val >= 0.0 { config.max_tile_resource } else { 0.0 };
+                map_resources.push(base_res);
             }
         }
-        Self { width, height, map_data, height_map }
+        Self { map_data, height_map, map_resources }
     }
 }
