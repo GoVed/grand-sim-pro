@@ -10,6 +10,7 @@ use gpu_engine::GpuEngine;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 
 fn window_conf() -> Conf {
     Conf {
@@ -59,8 +60,8 @@ async fn main() {
     
     let initial_agents = sim_thread_data.lock().unwrap().sim.agents.clone();
     let height_map = sim_thread_data.lock().unwrap().sim.env.height_map.clone();
-    let init_resources = sim_thread_data.lock().unwrap().sim.env.map_resources.clone();
-    let gpu = Arc::new(GpuEngine::new(&initial_agents, &height_map, &init_resources, &loaded_config));
+    let init_cells = sim_thread_data.lock().unwrap().sim.env.map_cells.clone();
+    let gpu = Arc::new(GpuEngine::new(&initial_agents, &height_map, &init_cells, &loaded_config));
 
     // Spawn background simulation thread
     thread::spawn(move || loop {
@@ -74,25 +75,55 @@ async fn main() {
                 gpu.compute_ticks(data.ticks_per_loop);
                 
                 // Download updated positions and map state precisely when needed
-                let (agents, resources) = gpu.fetch_state();
+                let (agents, cells) = gpu.fetch_state();
                 data.sim.agents = agents;
-                data.sim.env.map_resources = resources;
+                data.sim.env.map_cells = cells;
 
-                // --- CPU Genetics & Reproduction Pass ---
-                let mut parents = Vec::new();
+                // --- CPU Sexual Genetics Pass ---
+                let mut cell_occupants: HashMap<usize, Vec<usize>> = HashMap::new();
                 let mut dead_indices = Vec::new();
+                
                 for i in 0..data.sim.agents.len() {
                     let a = &data.sim.agents[i];
-                    if a.health <= 0.0 { dead_indices.push(i); } 
-                    else if a.health > data.config.max_health * 0.5 && a.inventory >= data.config.reproduction_cost { parents.push(i); }
+                    if a.health <= 0.0 {
+                        dead_indices.push(i);
+                    } else {
+                        let idx = (a.y as usize).clamp(0, 599) * 800 + (a.x as usize).clamp(0, 799);
+                        cell_occupants.entry(idx).or_default().push(i);
+                    }
                 }
 
                 let mut modifications = false;
                 let reproduction_cost = data.config.reproduction_cost;
-                for (parent_idx, dead_idx) in parents.into_iter().zip(dead_indices.into_iter()) {
-                    let child = data.sim.agents[parent_idx].reproduce(reproduction_cost);
-                    data.sim.agents[dead_idx] = child; // Overwrite dead slot with mutated child
-                    modifications = true;
+                let mut dead_iter = dead_indices.into_iter();
+                
+                for (_cell_idx, occupants) in cell_occupants {
+                    if occupants.len() < 2 { continue; } // Need at least 2 people to mate
+
+                    let mut males = Vec::new();
+                    let mut females = Vec::new();
+
+                    for &idx in &occupants {
+                        let a = &data.sim.agents[idx];
+                        if a.reproduce_desire > 0.5 && a.inventory >= reproduction_cost / 2.0 && a.health > data.config.max_health * 0.5 {
+                            if a.gender > 0.5 { males.push(idx); } else { females.push(idx); }
+                        }
+                    }
+
+                    // Pair them up
+                    while let (Some(m_idx), Some(f_idx)) = (males.pop(), females.pop()) {
+                        if let Some(dead_idx) = dead_iter.next() {
+                            let mut p1 = data.sim.agents[m_idx].clone();
+                            let mut p2 = data.sim.agents[f_idx].clone();
+                            
+                            let child = crate::agent::Person::reproduce_sexual(&mut p1, &mut p2, reproduction_cost);
+                            
+                            data.sim.agents[m_idx] = p1; // Deduct money from parents
+                            data.sim.agents[f_idx] = p2;
+                            data.sim.agents[dead_idx] = child; // Place child in corpse slot
+                            modifications = true;
+                        } else { break; }
+                    }
                 }
 
                 // Send mutated population back to VRAM
@@ -112,16 +143,36 @@ async fn main() {
                     thread::sleep(Duration::from_millis(1000));
                     
                     let mut data = sim_thread_data.lock().unwrap();
-                    data.sim.agents = (0..data.sim.agents.len()).map(|_| crate::agent::Person::new(400.0, 300.0)).collect();
+                    
+                    // Sort agents by age descending to find the 8 longest-living survivors
+                    data.sim.agents.sort_by(|a, b| b.age.partial_cmp(&a.age).unwrap_or(std::cmp::Ordering::Equal));
+                    
+                    let mut new_population = Vec::with_capacity(4000);
+                    let founders_count = 8.min(data.sim.agents.len());
+                    let children_per_founder = 4000 / founders_count;
+                    
+                    for i in 0..founders_count {
+                        let founder = &data.sim.agents[i];
+                        for _ in 0..children_per_founder {
+                            new_population.push(founder.clone_as_descendant());
+                        }
+                    }
+                    while new_population.len() < 4000 { new_population.push(data.sim.agents[0].clone_as_descendant()); }
+                    data.sim.agents = new_population;
+                    
                     let max_res = data.config.max_tile_resource;
                     for i in 0..data.sim.env.height_map.len() {
                         let h = data.sim.env.height_map[i];
-                        data.sim.env.map_resources[i] = if h >= 0.0 { max_res } else { 0.0 };
+                        data.sim.env.map_cells[i].res_value = if h >= 0.0 { max_res } else { 0.0 };
+                        data.sim.env.map_cells[i].population = 0.0;
+                        data.sim.env.map_cells[i].avg_speed = 0.0;
+                        data.sim.env.map_cells[i].avg_share = 0.0;
+                        data.sim.env.map_cells[i].avg_reproduce = 0.0;
                     }
                     data.total_ticks = 0;
                     data.restart_message_active = false;
                     gpu.update_agents(&data.sim.agents);
-                    gpu.update_resources(&data.sim.env.map_resources);
+                    gpu.update_cells(&data.sim.env.map_cells);
                 }
             }
         }
@@ -202,7 +253,8 @@ async fn main() {
             local_map_data.clear();
             if show_resources {
                 let max_res_ln = (data.config.max_tile_resource + 1.0).ln();
-                for &res in &data.sim.env.map_resources {
+                for cell in &data.sim.env.map_cells {
+                    let res = cell.res_value;
                     let mut r = 10; let mut g = 50; let mut b = 150; // Base Water
                     if res > 0.0 {
                         let ratio = ((res + 1.0).ln() / max_res_ln).clamp(0.0, 1.0);

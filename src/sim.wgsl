@@ -4,11 +4,15 @@ struct Agent {
     heading: f32,
     speed: f32,
     hidden_count: u32,
-    w1: array<f32, 64>,
-    w2: array<f32, 48>,
+    gender: f32,
+    reproduce_desire: f32,
+    pad: f32,
+    w1: array<f32, 384>,
+    w2: array<f32, 128>,
     inventory: f32,
     health: f32,
     age: f32,
+    pad2: f32,
 }
 
 struct SimConfig {
@@ -29,9 +33,18 @@ struct SimConfig {
     pad: vec2<f32>,
 }
 
+struct CellState {
+    res_value: f32,
+    population: f32,
+    avg_speed: f32,
+    avg_share: f32,
+    avg_reproduce: f32,
+    pad: vec3<f32>,
+}
+
 @group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
 @group(0) @binding(1) var<storage, read> map_heights: array<f32>;
-@group(0) @binding(2) var<storage, read_write> map_resources: array<f32>;
+@group(0) @binding(2) var<storage, read_write> map_cells: array<CellState>;
 @group(0) @binding(3) var<uniform> cfg: SimConfig;
 
 @compute @workgroup_size(64)
@@ -47,24 +60,41 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.age = agent.age + 1.0;
     
     let map_width = 800u;
+    let current_idx = u32(agent.y) * map_width + u32(agent.x);
+    let safe_current_idx = clamp(current_idx, 0u, 479999u);
+    
+    var local_cell = map_cells[safe_current_idx];
+
+    // Generate chaos/noise using the agent's spatial position
+    let pseudo_rand = fract(sin(dot(vec2<f32>(agent.x, agent.y), vec2<f32>(12.9898, 78.233))) * 43758.5453);
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 4>(1.0, agent.x / 800.0, agent.y / 600.0, 0.5);
+    var inputs = array<f32, 12>(
+        1.0, agent.x / 800.0, agent.y / 600.0, local_cell.res_value / 1000.0,
+        local_cell.population,
+        local_cell.avg_speed + (pseudo_rand * 0.1 - 0.05), // Some noise injected
+        local_cell.avg_share + (pseudo_rand * 0.1 - 0.05),
+        local_cell.avg_reproduce + (pseudo_rand * 0.1 - 0.05),
+        agent.health / cfg.max_health,
+        agent.inventory / cfg.boat_cost, // Normalize by boat cost since it's the biggest target
+        agent.age / cfg.max_age,
+        agent.gender
+    );
 
-    var hidden = array<f32, 16>();
+    var hidden = array<f32, 32>();
     for (var h = 0u; h < agent.hidden_count; h = h + 1u) {
         var sum = 0.0;
-        for (var i = 0u; i < 4u; i = i + 1u) {
-            sum = sum + inputs[i] * agent.w1[h * 4u + i];
+        for (var i = 0u; i < 12u; i = i + 1u) {
+            sum = sum + inputs[i] * agent.w1[h * 12u + i];
         }
         hidden[h] = tanh(sum);
     }
 
-    var outputs = array<f32, 3>();
-    for (var o = 0u; o < 3u; o = o + 1u) {
+    var outputs = array<f32, 4>();
+    for (var o = 0u; o < 4u; o = o + 1u) {
         var sum = 0.0;
         for (var h = 0u; h < agent.hidden_count; h = h + 1u) {
-            sum = sum + hidden[h] * agent.w2[h * 3u + o];
+            sum = sum + hidden[h] * agent.w2[h * 4u + o];
         }
         outputs[o] = tanh(sum);
     }
@@ -72,10 +102,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.heading = agent.heading + outputs[0] * 0.5;
     let speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0); // Normalize 0 to 1
     let base_speed = speed_intent * cfg.base_speed;
+    agent.reproduce_desire = clamp(outputs[3] * 0.5 + 0.5, 0.0, 1.0);
 
     // Get current elevation
-    let current_idx = u32(agent.y) * map_width + u32(agent.x);
-    let safe_current_idx = clamp(current_idx, 0u, 479999u);
     let current_height = map_heights[safe_current_idx];
 
     // Evaluate intended destination to gauge the slope
@@ -105,27 +134,42 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let final_height = map_heights[safe_final_idx];
 
     // Resource & Terrain Mechanics
-    var local_resource = map_resources[safe_current_idx];
+    agent.inventory = agent.inventory - cfg.baseline_cost;
+    if (agent.inventory < 0.0) {
+        agent.inventory = 0.0;
+        agent.health = agent.health - cfg.starvation_rate;
+    } else if (agent.inventory > cfg.baseline_cost && agent.health < cfg.max_health) {
+        // Heal if we have enough resources
+        agent.health = min(agent.health + cfg.starvation_rate, cfg.max_health);
+        agent.inventory = agent.inventory - cfg.baseline_cost; 
+    }
 
     if (current_height >= 0.0) {
         let drop_desire = outputs[2];
-        if (drop_desire > 0.5 && agent.inventory > 10.0) {
-            // Community Logic: Drop 5.0 resources to the current tile
-            agent.inventory = agent.inventory - 5.0;
-            local_resource = min(local_resource + 5.0, 200.0);
+        if (drop_desire > 0.5 && agent.inventory > (cfg.drop_amount + 100.0)) {
+            // Community Logic: Drop resources to the current tile
+            agent.inventory = agent.inventory - cfg.drop_amount;
+            local_cell.res_value = min(local_cell.res_value + cfg.drop_amount, cfg.max_tile_resource);
         } else {
-            // Selfish Logic: Gather resources from the tile
-            if (local_resource > 0.1) {
-                let gathered = min(0.5, local_resource); // Max 0.5 extraction per tick
-                agent.inventory = min(agent.inventory + gathered, 150.0);
-                local_resource = local_resource - gathered;
+            if (local_cell.res_value > 0.1) {
+                let max_mult = (cfg.max_gather_rate / cfg.base_gather_rate) - 1.0;
+                let tool_multiplier = 1.0 + min(sqrt(agent.inventory) * 0.1, max_mult);
+                
+                let gathered = min(cfg.base_gather_rate * tool_multiplier, local_cell.res_value);
+                agent.inventory = agent.inventory + gathered;
+                local_cell.res_value = local_cell.res_value - gathered;
             }
         }
         
-        // Slow environmental regeneration on land
-        local_resource = min(local_resource + 0.01, 100.0);
+        local_cell.res_value = min(local_cell.res_value + cfg.regen_rate, cfg.max_tile_resource);
+        
+        // Mix our intent into the cell's pheromone trace
+        local_cell.population = local_cell.population * 0.99 + 1.0; // Automatically decays to zero if abandoned
+        local_cell.avg_speed = mix(local_cell.avg_speed, speed_intent, 0.1);
+        local_cell.avg_share = mix(local_cell.avg_share, drop_desire, 0.1);
+        local_cell.avg_reproduce = mix(local_cell.avg_reproduce, agent.reproduce_desire, 0.1);
     }
-    map_resources[safe_current_idx] = local_resource;
+    map_cells[safe_current_idx] = local_cell;
 
     // Calculate climbing exertion: positive slopes drastically increase the movement cost
     let climb_penalty = max(0.0, slope) * 20.0; 

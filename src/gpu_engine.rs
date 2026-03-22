@@ -8,13 +8,13 @@ pub struct GpuEngine {
     bind_group: wgpu::BindGroup,
     agent_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
-    resource_buffer: wgpu::Buffer,
-    staging_resource_buffer: wgpu::Buffer,
+    cell_buffer: wgpu::Buffer,
+    staging_cell_buffer: wgpu::Buffer,
     agent_count: u32,
 }
 
 impl GpuEngine {
-    pub fn new(agents: &[crate::agent::Person], map_heights: &[f32], map_resources: &[f32], config: &crate::config::SimConfig) -> Self {
+    pub fn new(agents: &[crate::agent::Person], map_heights: &[f32], map_cells: &[crate::environment::CellState], config: &crate::config::SimConfig) -> Self {
         block_on(async {
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::PRIMARY,
@@ -43,16 +43,16 @@ impl GpuEngine {
                 usage: wgpu::BufferUsages::STORAGE,
             });
             
-            let resource_bytes = bytemuck::cast_slice(map_resources);
-            let resource_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Resource Buffer"),
-                contents: resource_bytes,
+            let cell_bytes = bytemuck::cast_slice(map_cells);
+            let cell_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Cell Buffer"),
+                contents: cell_bytes,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
             });
 
-            let staging_resource_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Staging Resource Buffer"),
-                size: resource_bytes.len() as wgpu::BufferAddress,
+            let staging_cell_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Staging Cell Buffer"),
+                size: cell_bytes.len() as wgpu::BufferAddress,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -75,12 +75,12 @@ impl GpuEngine {
                 entries: &[
                     wgpu::BindGroupEntry { binding: 0, resource: agent_buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 1, resource: height_buffer.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 2, resource: resource_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: cell_buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 3, resource: config_buffer.as_entire_binding() },
                 ],
             });
 
-            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, resource_buffer, staging_resource_buffer, agent_count: agents.len() as u32 }
+            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, cell_buffer, staging_cell_buffer, agent_count: agents.len() as u32 }
         })
     }
 
@@ -106,24 +106,24 @@ impl GpuEngine {
         self.queue.write_buffer(&self.agent_buffer, 0, bytemuck::cast_slice(agents));
     }
 
-    pub fn update_resources(&self, resources: &[f32]) {
-        self.queue.write_buffer(&self.resource_buffer, 0, bytemuck::cast_slice(resources));
+    pub fn update_cells(&self, cells: &[crate::environment::CellState]) {
+        self.queue.write_buffer(&self.cell_buffer, 0, bytemuck::cast_slice(cells));
     }
 
-    pub fn fetch_state(&self) -> (Vec<crate::agent::Person>, Vec<f32>) {
+    pub fn fetch_state(&self) -> (Vec<crate::agent::Person>, Vec<crate::environment::CellState>) {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         encoder.copy_buffer_to_buffer(&self.agent_buffer, 0, &self.staging_buffer, 0, self.staging_buffer.size());
-        encoder.copy_buffer_to_buffer(&self.resource_buffer, 0, &self.staging_resource_buffer, 0, self.staging_resource_buffer.size());
+        encoder.copy_buffer_to_buffer(&self.cell_buffer, 0, &self.staging_cell_buffer, 0, self.staging_cell_buffer.size());
         self.queue.submit(Some(encoder.finish()));
 
         let slice = self.staging_buffer.slice(..);
-        let res_slice = self.staging_resource_buffer.slice(..);
+        let cell_slice = self.staging_cell_buffer.slice(..);
         
         let (tx, rx) = std::sync::mpsc::channel();
         let tx1 = tx.clone();
         
         slice.map_async(wgpu::MapMode::Read, move |v| tx1.send(v).unwrap());
-        res_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        cell_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
         
         self.device.poll(wgpu::Maintain::Wait);
         rx.recv().unwrap().unwrap();
@@ -134,11 +134,11 @@ impl GpuEngine {
         drop(data);
         self.staging_buffer.unmap();
         
-        let res_data = res_slice.get_mapped_range();
-        let resources: Vec<f32> = bytemuck::cast_slice(&res_data).to_vec();
-        drop(res_data);
-        self.staging_resource_buffer.unmap();
+        let cell_data = cell_slice.get_mapped_range();
+        let cells: Vec<crate::environment::CellState> = bytemuck::cast_slice(&cell_data).to_vec();
+        drop(cell_data);
+        self.staging_cell_buffer.unmap();
         
-        (agents, resources)
+        (agents, cells)
     }
 }

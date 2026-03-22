@@ -1,9 +1,20 @@
 use noise::{NoiseFn, Perlin, Fbm};
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CellState {
+    pub res_value: f32,
+    pub population: f32,     // Leaves a trace when agents step here
+    pub avg_speed: f32,      // Running average of agent speeds
+    pub avg_share: f32,      // Running average of sharing output
+    pub avg_reproduce: f32,  // Running average of reproduce desire
+    pub pad: [f32; 3],       // Exactly 32 bytes to strictly align with GPU memory rules
+}
+
 pub struct Environment {
     pub map_data: Vec<u8>,
     pub height_map: Vec<f32>,
-    pub map_resources: Vec<f32>,
+    pub map_cells: Vec<CellState>,
 }
 
 impl Environment {
@@ -12,7 +23,7 @@ impl Environment {
         
         let mut map_data = Vec::with_capacity((width * height * 4) as usize);
         let mut height_map = Vec::with_capacity((width * height) as usize);
-        let mut map_resources = Vec::with_capacity((width * height) as usize);
+        let mut map_cells = Vec::with_capacity((width * height) as usize);
 
         // Calculate the radius for our 4D mapping to match the original noise scale
         let radius_x = width as f64 / (150.0 * 2.0 * std::f64::consts::PI);
@@ -48,9 +59,16 @@ impl Environment {
                 
                 // Initialize land based on max configured economic scale
                 let base_res = if val >= 0.0 { config.max_tile_resource } else { 0.0 };
-                map_resources.push(base_res);
+                map_cells.push(CellState {
+                    res_value: base_res,
+                    population: 0.0,
+                    avg_speed: 0.0,
+                    avg_share: 0.0,
+                    avg_reproduce: 0.0,
+                    pad: [0.0; 3],
+                });
             }
         }
-        Self { map_data, height_map, map_resources }
+        Self { map_data, height_map, map_cells }
     }
 }
