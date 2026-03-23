@@ -15,21 +15,23 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains an advanced, dynamic multi-layer neural network evaluating 24 distinct sensory inputs (including Look-Ahead Vision, Spatial location, Cell Pheromones, personal Health, Food, Water, Stamina, Age, Gender, and Seasonal Temperature). The brain can organically mutate and grow up to 32 hidden nodes and drive 8 complex output intents (Speed, Turn, Share, Reproduce, Signal, Attack, and Rest). All matrix multiplications and `tanh` activation functions are resolved instantly across thousands of GPU cores.
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **32 distinct sensory inputs** (including Look-Ahead Vision, Spatial location, Encumbrance, Crowding, personal Health, Food, Water, Stamina, Age, Gender, and Seasonal Temperature). The brain evaluates over 2,300 synaptic weights and drives **10 complex output intents** (Turn, Speed, Share, Reproduce, Attack, Rest, and 4 Abstract Communication Channels). All matrix multiplications and `tanh` activation functions are resolved instantly across thousands of GPU cores.
 
 ### 🌍 Procedural Topography & 4D Wrapping
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
 - **Seamless Wrapping:** 2D map coordinates are mapped to 4D mathematical angles, guaranteeing that moving off the right edge of the map wraps perfectly to the left edge like a true globe.
 - **Topological Contours:** The generator extracts exact heightmap elevations and visualizes them using dynamic contour lines on the rendered texture.
 
-### 🗺️ Pheromone Grid & Spatial Awareness
-The map doesn't just store resources—it acts as a biological grid. As agents traverse the tiles, they leave behind continuously decaying "pheromone" traces of their speed, community-sharing intent, active acoustic signals, aggression, and pregnancy status. Agents sense these traces, allowing them to track other groups, hunt, or actively search for mates without expensive CPU-side collision loops.
+### 🗺️ Pheromone Grid, Spatial Awareness & Communication
+The map doesn't just store resources—it acts as a biological grid. As agents traverse the tiles, they leave behind continuously decaying "pheromone" traces of their speed, community-sharing intent, aggression, and pregnancy status.
+- **Pseudo-Communication:** Agents feature 4 dedicated abstract output channels (`comm1..4`). These signals mix directly into the tile's pheromones, which are then read by neighboring agents on the next frame. The neural networks must autonomously figure out how to invent and decode their own localized languages!
 
 ### ⛰️ Advanced Terrain Physics & Resource Mechanics
 Agents do not just walk freely; the environment fights back.
 - **Elevation & Seasons:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement. Additionally, a global seasonal clock dictates temperatures. Poles and high elevations are freezing, burning agent calories exponentially faster.
 - **Hydration & Satiation:** Biological needs are split. Agents must gather Food from the land and return to the coastline to drink Water. 
 - **Ocean Traversal:** Deep water is impassable unless an agent has passively gathered enough resources on land to overcome the "boat threshold," allowing them to cross oceans.
+- **Encumbrance & Crowding:** Inventory represents physical weight. Hoarding hundreds of kilograms of food and water severely encumbers agents, slowing their movement speed. Additionally, high populations on a single tile create a physical crowding penalty, organically forcing herds to spread out.
 
 ### 🧬 Biological Lifecycle & Genetics
 Agents are subject to the harsh realities of life mapped to a realistic timeline (Years/Months). They constantly burn baseline calories to survive, and running depletes Stamina, forcing them to rest. If they run out of resources, they will starve and eventually die. 

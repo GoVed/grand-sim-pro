@@ -6,12 +6,16 @@ struct Agent {
     hidden_count: u32,
     gender: f32,
     reproduce_desire: f32,
-    signal_emit: f32,
     attack_intent: f32,
     rest_intent: f32,
-    pad1: array<f32, 2>,
-    w1: array<f32, 768>,
-    w2: array<f32, 256>,
+    comm1: f32,
+    comm2: f32,
+    comm3: f32,
+    comm4: f32,
+    pad1: array<f32, 3>,
+    w1: array<f32, 1024>,
+    w2: array<f32, 1024>,
+    w3: array<f32, 320>,
     food: f32,
     water: f32,
     stamina: f32,
@@ -58,9 +62,15 @@ struct CellState {
     avg_speed: f32,
     avg_share: f32,
     avg_reproduce: f32,
-    avg_signal: f32,
     avg_aggression: f32,
     avg_pregnancy: f32,
+    avg_turn: f32,
+    avg_rest: f32,
+    comm1: f32,
+    comm2: f32,
+    comm3: f32,
+    comm4: f32,
+    pad1: array<f32, 3>,
 }
 
 @group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
@@ -112,14 +122,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_height = map_heights[look_idx];
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 24>(
+    var inputs = array<f32, 32>(
         1.0, agent.x / map_w_f32, agent.y / map_h_f32, local_cell.res_value / 1000.0,
         local_cell.population,
         local_cell.avg_speed + (pseudo_rand * 0.1 - 0.05), // Some noise injected
         local_cell.avg_share + (pseudo_rand * 0.1 - 0.05),
         local_cell.avg_reproduce + (pseudo_rand * 0.1 - 0.05),
-        local_cell.avg_signal,
         local_cell.avg_aggression,
+        local_cell.avg_pregnancy,
+        local_cell.avg_turn,
+        local_cell.avg_rest,
+        local_cell.comm1, local_cell.comm2, local_cell.comm3, local_cell.comm4,
         agent.health / cfg.max_health,
         agent.food / cfg.boat_cost, 
         agent.water / cfg.max_water,
@@ -132,34 +145,60 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         local_temp,
         season_sine,
         agent.is_pregnant, 
-        local_cell.avg_pregnancy, 
-        0.0
+        (agent.food + agent.water) / 250.0,
+        local_cell.population / 15.0,
+        0.0, 0.0
     );
 
-    var hidden = array<f32, 32>();
-    for (var h = 0u; h < agent.hidden_count; h = h + 1u) {
+    var hidden1 = array<f32, 32>();
+    for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
         var sum = 0.0;
-        for (var i = 0u; i < 24u; i = i + 1u) {
-            sum = sum + inputs[i] * agent.w1[h * 24u + i];
+        if (h1 < agent.hidden_count) {
+            for (var i = 0u; i < 32u; i = i + 1u) {
+                sum = sum + inputs[i] * agent.w1[h1 * 32u + i];
+            }
+            hidden1[h1] = tanh(sum);
+        } else {
+            hidden1[h1] = 0.0;
         }
-        hidden[h] = tanh(sum);
     }
 
-    var outputs = array<f32, 8>();
-    for (var o = 0u; o < 8u; o = o + 1u) {
+    var hidden2 = array<f32, 32>();
+    for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
         var sum = 0.0;
-        for (var h = 0u; h < agent.hidden_count; h = h + 1u) {
-            sum = sum + hidden[h] * agent.w2[h * 8u + o];
+        if (h2 < agent.hidden_count) {
+            for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
+                if (h1 < agent.hidden_count) {
+                    sum = sum + hidden1[h1] * agent.w2[h1 * 32u + h2];
+                }
+            }
+            hidden2[h2] = tanh(sum);
+        } else {
+            hidden2[h2] = 0.0;
+        }
+    }
+
+    var outputs = array<f32, 10>();
+    for (var o = 0u; o < 10u; o = o + 1u) {
+        var sum = 0.0;
+        for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
+            if (h2 < agent.hidden_count) {
+                sum = sum + hidden2[h2] * agent.w3[h2 * 10u + o];
+            }
         }
         outputs[o] = tanh(sum);
     }
 
-    agent.heading = agent.heading + outputs[0] * 0.5;
+    let turn_intent = outputs[0];
+    agent.heading = agent.heading + turn_intent * 0.5;
     let speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0); // Normalize 0 to 1
     agent.reproduce_desire = clamp(outputs[3] * 0.5 + 0.5, 0.0, 1.0);
-    agent.signal_emit = clamp(outputs[4], -1.0, 1.0);
-    agent.attack_intent = clamp(outputs[5] * 0.5 + 0.5, 0.0, 1.0);
-    let rest_intent = clamp(outputs[6] * 0.5 + 0.5, 0.0, 1.0);
+    agent.attack_intent = clamp(outputs[4] * 0.5 + 0.5, 0.0, 1.0);
+    let rest_intent = clamp(outputs[5] * 0.5 + 0.5, 0.0, 1.0);
+    agent.comm1 = clamp(outputs[6], -1.0, 1.0);
+    agent.comm2 = clamp(outputs[7], -1.0, 1.0);
+    agent.comm3 = clamp(outputs[8], -1.0, 1.0);
+    agent.comm4 = clamp(outputs[9], -1.0, 1.0);
     
     var base_speed = speed_intent * cfg.base_speed;
     var resting = false;
@@ -183,7 +222,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Height Factor: Uphill slows down, downhill speeds up
     let slope = next_height - current_height;
     let height_multiplier = 1.0 - clamp(slope * cfg.climb_penalty, -0.5, 0.9);
-    var actual_speed = base_speed * height_multiplier;
+    
+    let total_weight = agent.food + agent.water;
+    let encumbrance_mult = clamp(1.0 - (total_weight / 250.0), 0.1, 1.0);
+    let crowding_mult = clamp(1.0 - (local_cell.population / 15.0), 0.1, 1.0);
+    
+    var actual_speed = base_speed * height_multiplier * encumbrance_mult * crowding_mult;
 
     if (agent.gestation_timer > 0.0) {
         agent.gestation_timer = agent.gestation_timer - 1.0;
@@ -263,9 +307,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         local_cell.avg_speed = mix(local_cell.avg_speed, speed_intent, 0.1);
         local_cell.avg_share = mix(local_cell.avg_share, drop_desire, 0.1);
         local_cell.avg_reproduce = mix(local_cell.avg_reproduce, agent.reproduce_desire, 0.1);
-        local_cell.avg_signal = mix(local_cell.avg_signal, agent.signal_emit, 0.1);
         local_cell.avg_aggression = mix(local_cell.avg_aggression, agent.attack_intent, 0.1);
         local_cell.avg_pregnancy = mix(local_cell.avg_pregnancy, agent.is_pregnant, 0.1);
+        local_cell.avg_turn = mix(local_cell.avg_turn, turn_intent, 0.1);
+        local_cell.avg_rest = mix(local_cell.avg_rest, rest_intent, 0.1);
+        local_cell.comm1 = mix(local_cell.comm1, agent.comm1, 0.1);
+        local_cell.comm2 = mix(local_cell.comm2, agent.comm2, 0.1);
+        local_cell.comm3 = mix(local_cell.comm3, agent.comm3, 0.1);
+        local_cell.comm4 = mix(local_cell.comm4, agent.comm4, 0.1);
     }
     map_cells[safe_current_idx] = local_cell;
 

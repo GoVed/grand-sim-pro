@@ -8,9 +8,15 @@ pub struct CellState {
     pub avg_speed: f32,      // Running average of agent speeds
     pub avg_share: f32,      // Running average of sharing output
     pub avg_reproduce: f32,  // Running average of reproduce desire
-    pub avg_signal: f32,     // Active communication calls
     pub avg_aggression: f32, // Hostile intent traces
     pub avg_pregnancy: f32,  // Signals males to protect rather than attack
+    pub avg_turn: f32,       // Abstract herd direction
+    pub avg_rest: f32,       // Abstract encampment state
+    pub comm1: f32,          // Abstract communication channel 1
+    pub comm2: f32,          // Abstract communication channel 2
+    pub comm3: f32,          // Abstract communication channel 3
+    pub comm4: f32,          // Abstract communication channel 4
+    pub pad1: [f32; 3],      // Exactly 64 bytes total for GPU strict alignment
 }
 
 pub struct Environment {
@@ -67,9 +73,15 @@ impl Environment {
                     avg_speed: 0.0,
                     avg_share: 0.0,
                     avg_reproduce: 0.0,
-                    avg_signal: 0.0,
                     avg_aggression: 0.0,
                     avg_pregnancy: 0.0,
+                    avg_turn: 0.0,
+                    avg_rest: 0.0,
+                    comm1: 0.0,
+                    comm2: 0.0,
+                    comm3: 0.0,
+                    comm4: 0.0,
+                    pad1: [0.0; 3],
                 });
             }
         }

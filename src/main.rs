@@ -240,9 +240,15 @@ async fn main() {
                         data.sim.env.map_cells[i].avg_speed = 0.0;
                         data.sim.env.map_cells[i].avg_share = 0.0;
                         data.sim.env.map_cells[i].avg_reproduce = 0.0;
-                        data.sim.env.map_cells[i].avg_signal = 0.0;
                         data.sim.env.map_cells[i].avg_aggression = 0.0;
                         data.sim.env.map_cells[i].avg_pregnancy = 0.0;
+                        data.sim.env.map_cells[i].avg_turn = 0.0;
+                        data.sim.env.map_cells[i].avg_rest = 0.0;
+                        data.sim.env.map_cells[i].comm1 = 0.0;
+                        data.sim.env.map_cells[i].comm2 = 0.0;
+                        data.sim.env.map_cells[i].comm3 = 0.0;
+                        data.sim.env.map_cells[i].comm4 = 0.0;
+                        data.sim.env.map_cells[i].pad1 = [0.0; 3];
                     }
                     data.total_ticks = 0;
                     data.restart_message_active = false;
@@ -533,33 +539,43 @@ async fn main() {
                 
                 draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.1} | H2O {:.1} | Sta {:.0}", format_time(a.age as u64, loaded_config.tick_to_mins), a.health, a.food, a.water, a.stamina), 160.0, 80.0, 20.0, WHITE);
 
-                let start_x = 60.0;
-                let start_y = 150.0;
-                let cs = 14.0; // Cell size
+                let start_x = 50.0;
+                let start_y = 180.0;
+                let cs = 10.0; // Fit the massive grids!
 
-                draw_text("Inputs (24) -> Hidden Layer", start_x, start_y - 50.0, 16.0, WHITE);
-                draw_text("1:Bias 2:X 3:Y 4:Res 5:Pop 6:Spd 7:Shr 8:Rep", start_x, start_y - 35.0, 14.0, GRAY);
-                draw_text("9:Sig 10:Atk 11:HP 12:Food 13:H2O 14:Sta 15:Age 16:Gen", start_x, start_y - 20.0, 14.0, GRAY);
-                draw_text("17:L-Res 18:L-Elv 19:L-Pop 20:Tmp 21:Sea 22:Prg 23:L-Prg 24:-", start_x, start_y - 5.0, 14.0, GRAY);
-                
+                draw_text("Inputs (32) -> H1", start_x, start_y - 65.0, 16.0, WHITE);
+                draw_text("1:Bias 2:X 3:Y 4:Res 5:Pop 6:Spd 7:Shr 8:Rep 9:Atk 10:Prg", start_x, start_y - 50.0, 14.0, GRAY);
+                draw_text("11:Trn 12:Rst 13:C1 14:C2 15:C3 16:C4 17:HP 18:Fd 19:H2O 20:Sta", start_x, start_y - 35.0, 14.0, GRAY);
+                draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31,32:-", start_x, start_y - 20.0, 14.0, GRAY);
+
                 for h in 0..a.hidden_count as usize {
-                    for i in 0..24 {
-                        let w = a.w1[h * 24 + i];
+                    for i in 0..32 {
+                        let w = a.w1[h * 32 + i];
                         let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                         draw_rectangle(start_x + i as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
                     }
                 }
 
-                let start_x2 = start_x + 26.0 * cs;
-                draw_text("Hidden Layer -> Outputs (8)", start_x2, start_y - 50.0, 16.0, WHITE);
-                draw_text("1:Trn 2:Spd 3:Shr 4:Rep", start_x2, start_y - 35.0, 14.0, GRAY);
-                draw_text("5:Sig 6:Atk 7:Rst 8:-", start_x2, start_y - 20.0, 14.0, GRAY);
-
-                for o in 0..8 {
-                    for h in 0..a.hidden_count as usize {
-                        let w = a.w2[h * 8 + o];
+                let start_x2 = start_x + 34.0 * cs;
+                draw_text("H1 -> H2", start_x2, start_y - 65.0, 16.0, WHITE);
+                for h2 in 0..a.hidden_count as usize {
+                    for h1 in 0..a.hidden_count as usize {
+                        let w = a.w2[h1 * 32 + h2];
                         let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
-                        draw_rectangle(start_x2 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
+                        draw_rectangle(start_x2 + h1 as f32 * cs, start_y + h2 as f32 * cs, cs - 1.0, cs - 1.0, color);
+                    }
+                }
+                
+                let start_x3 = start_x2 + 34.0 * cs;
+                draw_text("H2 -> Outputs (10)", start_x3, start_y - 65.0, 16.0, WHITE);
+                draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk", start_x3, start_y - 50.0, 14.0, GRAY);
+                draw_text("6:Rst 7:C1 8:C2 9:C3 10:C4", start_x3, start_y - 35.0, 14.0, GRAY);
+                
+                for o in 0..10 {
+                    for h in 0..a.hidden_count as usize {
+                        let w = a.w3[h * 10 + o];
+                        let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
+                        draw_rectangle(start_x3 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
                     }
                 }
             } else {
@@ -612,8 +628,8 @@ async fn main() {
                     draw_text(if a.gender > 0.5 { "M" } else { "F" }, 330.0, y, 16.0, WHITE);
                     
                     let spd = (a.speed / loaded_config.base_speed).clamp(0.0, 1.0);
-                    let out_str = format!("S:{:.1} R:{:.1} A:{:.1} Z:{:.1}", spd, a.reproduce_desire, a.attack_intent, a.rest_intent);
-                    draw_text(&out_str, 380.0, y, 16.0, WHITE);
+                    let out_str = format!("S:{:.1} R:{:.1} A:{:.1} Z:{:.1} C1..4: {:.1} {:.1} {:.1} {:.1}", spd, a.reproduce_desire, a.attack_intent, a.rest_intent, a.comm1, a.comm2, a.comm3, a.comm4);
+                    draw_text(&out_str, 370.0, y, 16.0, WHITE);
                 }
                 
                 draw_text(&format!("Showing {} - {} of {}", inspector_scroll, (inspector_scroll + visible).min(inspector_agents.len()), inspector_agents.len()), 60.0, 550.0, 16.0, GRAY);
