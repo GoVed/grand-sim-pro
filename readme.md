@@ -15,7 +15,7 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains an advanced, dynamic multi-layer neural network evaluating 12 distinct sensory inputs (including Spatial location, Cell Pheromones, personal Health, Inventory, Age, and Gender). The brain can organically mutate and grow up to 32 hidden nodes. All matrix multiplications and `tanh` activation functions are resolved instantly across thousands of GPU cores.
+Every agent contains an advanced, dynamic multi-layer neural network evaluating 24 distinct sensory inputs (including Look-Ahead Vision, Spatial location, Cell Pheromones, personal Health, Food, Water, Stamina, Age, Gender, and Seasonal Temperature). The brain can organically mutate and grow up to 32 hidden nodes and drive 8 complex output intents (Speed, Turn, Share, Reproduce, Signal, Attack, and Rest). All matrix multiplications and `tanh` activation functions are resolved instantly across thousands of GPU cores.
 
 ### 🌍 Procedural Topography & 4D Wrapping
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
@@ -23,16 +23,18 @@ The environment is generated using Fractal Brownian Motion (FBM) layered over Pe
 - **Topological Contours:** The generator extracts exact heightmap elevations and visualizes them using dynamic contour lines on the rendered texture.
 
 ### 🗺️ Pheromone Grid & Spatial Awareness
-The map doesn't just store resources—it acts as a biological grid. As agents traverse the tiles, they leave behind continuously decaying "pheromone" traces of their speed, community-sharing intent, and desire to reproduce. Agents sense these traces, allowing them to track other groups or actively search for mates without expensive CPU-side collision loops.
+The map doesn't just store resources—it acts as a biological grid. As agents traverse the tiles, they leave behind continuously decaying "pheromone" traces of their speed, community-sharing intent, active acoustic signals, aggression, and pregnancy status. Agents sense these traces, allowing them to track other groups, hunt, or actively search for mates without expensive CPU-side collision loops.
 
 ### ⛰️ Advanced Terrain Physics & Resource Mechanics
 Agents do not just walk freely; the environment fights back.
-- **Elevation Penalties:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement and dramatically drains their gathered resources, while walking downhill provides a speed boost.
-- **Ocean Traversal:** Deep water is impassable unless an agent has passively gathered enough resources on land to overcome the "boat threshold," allowing them to cross oceans at a high resource cost.
+- **Elevation & Seasons:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement. Additionally, a global seasonal clock dictates temperatures. Poles and high elevations are freezing, burning agent calories exponentially faster.
+- **Hydration & Satiation:** Biological needs are split. Agents must gather Food from the land and return to the coastline to drink Water. 
+- **Ocean Traversal:** Deep water is impassable unless an agent has passively gathered enough resources on land to overcome the "boat threshold," allowing them to cross oceans.
 
 ### 🧬 Biological Lifecycle & Genetics
-Agents are subject to the harsh realities of life. They constantly burn baseline resources to survive and age over time. If they run out of resources, they will starve and eventually die, leaving behind a corpse. 
-- **Sexual Reproduction:** Agents possess a male/female gender. If a healthy Male and Female stand on the same tile and both signal a high neural desire to reproduce, they will mate, pool their resources, and spawn a child with a genetic crossover of their neural weights.
+Agents are subject to the harsh realities of life mapped to a realistic timeline (Years/Months). They constantly burn baseline calories to survive, and running depletes Stamina, forcing them to rest. If they run out of resources, they will starve and eventually die. 
+- **Combat & Parasitism:** Agents can evolve to output an "Attack" intent, actively stealing food from abstract populations on their current tile, simulating predator/prey dynamics.
+- **Sexual Reproduction & Gestation:** Agents possess a male/female gender and must reach puberty to mate. If a healthy Male and Female mate, the female becomes pregnant, entering a Gestation period where she moves slower and consumes significantly more food/water before birthing the genetically crossed child.
 - **Extinction Founder System:** If an entire generation goes extinct, the simulation doesn't just throw away the progress. It sorts the dead population by age, extracts the top 8 longest-surviving "Founders", and repopulates the new world with 4,000 slightly mutated descendants of those evolutionary champions.
 
 ### ⚙️ Real-Time Configuration (`sim_config.json`)
@@ -44,7 +46,8 @@ The `macroquad` UI tracks engine performance precisely, displaying:
 - Live Population Counts
 - Compute Latency (ms per loop)
 - Dynamic Simulation Speed Multipliers
-- Average FPS & 1% Lows
+- Formatted Biological Timeline
+- Average FPS & 1% Lows 
 
 ## Prerequisites
 
@@ -65,9 +68,10 @@ cargo run --release
 ### Controls
 
 - **Mouse Left Click & Drag:** Pan the camera
-- **Mouse Scroll Wheel:** Zoom in and out
+- **Mouse Scroll Wheel:** Zoom in and out (when Inspector is closed)
 - **Spacebar:** Pause / Resume the simulation
-- **R Key:** Toggle Logarithmic Resource View (depleted paths glow red, abundant resources glow green)
+- **R Key:** Open Visuals Panel to toggle map views (Resources, Age, Gender, Pregnancy overlays)
+- **TAB Key:** Open the Live Inspector to view tabular data and inspect active Neural Network connections
 - **Up Arrow:** Exponentially increase simulation speed (compute loops per frame)
 - **Down Arrow:** Exponentially decrease simulation speed
 

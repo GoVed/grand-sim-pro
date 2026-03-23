@@ -10,6 +10,7 @@ pub struct GpuEngine {
     staging_buffer: wgpu::Buffer,
     cell_buffer: wgpu::Buffer,
     staging_cell_buffer: wgpu::Buffer,
+    config_buffer: wgpu::Buffer,
     agent_count: u32,
 }
 
@@ -61,7 +62,7 @@ impl GpuEngine {
             let config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Config Buffer"),
                 contents: config_bytes,
-                usage: wgpu::BufferUsages::UNIFORM,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
             let shader = device.create_shader_module(wgpu::include_wgsl!("sim.wgsl"));
@@ -80,7 +81,7 @@ impl GpuEngine {
                 ],
             });
 
-            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, cell_buffer, staging_cell_buffer, agent_count: agents.len() as u32 }
+            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, cell_buffer, staging_cell_buffer, config_buffer, agent_count: agents.len() as u32 }
         })
     }
 
@@ -104,6 +105,10 @@ impl GpuEngine {
 
     pub fn update_agents(&self, agents: &[crate::agent::Person]) {
         self.queue.write_buffer(&self.agent_buffer, 0, bytemuck::cast_slice(agents));
+    }
+
+    pub fn update_config(&self, config: &crate::config::SimConfig) {
+        self.queue.write_buffer(&self.config_buffer, 0, bytemuck::bytes_of(config));
     }
 
     pub fn update_cells(&self, cells: &[crate::environment::CellState]) {

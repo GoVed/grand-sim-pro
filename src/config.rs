@@ -17,7 +17,19 @@ pub struct SimConfig {
     pub max_health: f32,          // Baseline health points
     pub starvation_rate: f32,     // Health lost per tick when starving
     pub reproduction_cost: f32,   // USD burned to spawn an offspring
-    pub pad: [f32; 2],            // WGSL Uniform buffers require 16-byte alignment
+    pub map_width: u32,           // Number of procedural tiles on X axis
+    pub map_height: u32,          // Number of procedural tiles on Y axis
+    pub display_width: u32,       // Resolution width of the Macroquad window
+    pub display_height: u32,      // Resolution height of the Macroquad window
+    pub agent_count: u32,         // Total fixed target population to simulate
+    pub current_tick: u32,        // Tracks global seasons
+    pub max_stamina: f32,
+    pub max_water: f32,
+    pub puberty_age: f32,         // Minimum age to mate
+    pub menopause_age: f32,       // Maximum age to mate
+    pub gestation_period: f32,    // Time female carries the child
+    pub tick_to_mins: f32,        // Conversion rate
+    pub pad1: [u32; 2],           // Strict 16-byte uniform alignment pad
 }
 
 impl Default for SimConfig {
@@ -33,11 +45,23 @@ impl Default for SimConfig {
             boat_cost: 5000.0,        // $5,000 to construct a viable watercraft
             drop_amount: 1.0,         // Donate $1 chunks per tick
             regen_rate: 0.01,         // Nature regrows $0.01 per minute ($14/day)
-            max_age: 100000.0,        // Dies of old age after ~100k ticks
+            max_age: 4204800.0,       // Dies of old age after ~80 years
             max_health: 100.0,        // Max HP
             starvation_rate: 0.1,     // Loses 0.1 HP per tick when broke
             reproduction_cost: 500.0, // Takes $500 to raise a child
-            pad: [0.0; 2],
+            map_width: 800,           // Default 800 tiles wide
+            map_height: 600,          // Default 600 tiles tall
+            display_width: 1280,      // Scale up default window size
+            display_height: 720,
+            agent_count: 4000,        // 4k initial default population
+            current_tick: 0,
+            max_stamina: 100.0,
+            max_water: 100.0,
+            puberty_age: 630720.0,    // 12 years
+            menopause_age: 2628000.0, // 50 years
+            gestation_period: 38880.0,// 9 months
+            tick_to_mins: 10.0,       // 1 tick = 10 minutes
+            pad1: [0; 2],
         }
     }
 }
