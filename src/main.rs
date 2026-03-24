@@ -1,3 +1,13 @@
+/*
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
+ */
+
 mod agent;
 mod environment;
 mod simulation;
@@ -85,7 +95,7 @@ async fn main() {
         config: loaded_config,
         is_paused: false,
         restart_message_active: false,
-        ticks_per_loop: 2000,
+        ticks_per_loop: 200,
         total_ticks: 0,
         last_compute_time_ms: 0,
     }));
@@ -543,20 +553,20 @@ async fn main() {
                 let start_y = 180.0;
                 let cs = 10.0; // Fit the massive grids!
 
-                draw_text("Inputs (32) -> H1", start_x, start_y - 65.0, 16.0, WHITE);
+                draw_text("Inputs (36) -> H1", start_x, start_y - 65.0, 16.0, WHITE);
                 draw_text("1:Bias 2:X 3:Y 4:Res 5:Pop 6:Spd 7:Shr 8:Rep 9:Atk 10:Prg", start_x, start_y - 50.0, 14.0, GRAY);
                 draw_text("11:Trn 12:Rst 13:C1 14:C2 15:C3 16:C4 17:HP 18:Fd 19:H2O 20:Sta", start_x, start_y - 35.0, 14.0, GRAY);
-                draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31,32:-", start_x, start_y - 20.0, 14.0, GRAY);
+                draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31..34:Mem 35..:-", start_x, start_y - 20.0, 14.0, GRAY);
 
                 for h in 0..a.hidden_count as usize {
-                    for i in 0..32 {
-                        let w = a.w1[h * 32 + i];
+                    for i in 0..36 {
+                        let w = a.w1[h * 36 + i];
                         let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                         draw_rectangle(start_x + i as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
                     }
                 }
 
-                let start_x2 = start_x + 34.0 * cs;
+                let start_x2 = start_x + 38.0 * cs;
                 draw_text("H1 -> H2", start_x2, start_y - 65.0, 16.0, WHITE);
                 for h2 in 0..a.hidden_count as usize {
                     for h1 in 0..a.hidden_count as usize {
@@ -567,13 +577,13 @@ async fn main() {
                 }
                 
                 let start_x3 = start_x2 + 34.0 * cs;
-                draw_text("H2 -> Outputs (10)", start_x3, start_y - 65.0, 16.0, WHITE);
-                draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk", start_x3, start_y - 50.0, 14.0, GRAY);
-                draw_text("6:Rst 7:C1 8:C2 9:C3 10:C4", start_x3, start_y - 35.0, 14.0, GRAY);
+                draw_text("H2 -> Outputs (15)", start_x3, start_y - 65.0, 16.0, WHITE);
+                draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk 6:Rst 7:C1 8:C2", start_x3, start_y - 50.0, 14.0, GRAY);
+                draw_text("9:C3 10:C4 11:Lrn 12:M1 13:M2 14:M3 15:M4", start_x3, start_y - 35.0, 14.0, GRAY);
                 
-                for o in 0..10 {
+                for o in 0..15 {
                     for h in 0..a.hidden_count as usize {
-                        let w = a.w3[h * 10 + o];
+                        let w = a.w3[h * 15 + o];
                         let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                         draw_rectangle(start_x3 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
                     }
