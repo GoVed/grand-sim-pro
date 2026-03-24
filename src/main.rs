@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
+use ::rand::Rng;
 
 // Translates 10-minute ticks into realistic Years and Months
 fn format_time(ticks: u64, tick_to_mins: f32) -> String {
@@ -58,17 +59,18 @@ fn window_conf() -> Conf {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum VisualMode { Default, Resources, Age, Gender, Pregnancy }
+enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice }
 
 #[derive(PartialEq, Clone, Copy)]
-enum SortCol { Index, Age, Health, Food, Gender, Outputs }
+enum SortCol { Index, Age, Health, Food, Wealth, Gender, Speed, Heading, State, Outputs }
 
 struct AgentRenderData {
     x: f32,
     y: f32,
-    food: f32,
     health: f32,
+    food: f32,
     age: f32,
+    wealth: f32,
     gender: f32,
     is_pregnant: f32,
 }
@@ -90,8 +92,10 @@ async fn main() {
     let map_height = loaded_config.map_height;
     let agent_count = loaded_config.agent_count;
 
+    let random_seed = ::rand::thread_rng().r#gen::<u32>();
+
     let shared_data = Arc::new(Mutex::new(SharedData {
-        sim: SimulationManager::new(map_width, map_height, 1234, agent_count, &loaded_config),
+        sim: SimulationManager::new(map_width, map_height, random_seed, agent_count, &loaded_config),
         config: loaded_config,
         is_paused: false,
         restart_message_active: false,
@@ -182,7 +186,7 @@ async fn main() {
                     for &idx in &occupants {
                         let a = &data.sim.agents[idx];
                         let is_mature = a.age >= puberty && a.age <= menopause;
-                        if is_mature && a.reproduce_desire > 0.5 && a.food >= reproduction_cost / 2.0 && a.health > data.config.max_health * 0.5 {
+                        if is_mature && a.reproduce_desire > 0.5 && a.wealth >= reproduction_cost / 2.0 && a.health > data.config.max_health * 0.5 {
                             if a.gender > 0.5 { males.push(idx); } else if a.gestation_timer <= 0.0 && !data.sim.pending_births.contains_key(&a.id) { females.push(idx); }
                         }
                     }
@@ -258,7 +262,11 @@ async fn main() {
                         data.sim.env.map_cells[i].comm2 = 0.0;
                         data.sim.env.map_cells[i].comm3 = 0.0;
                         data.sim.env.map_cells[i].comm4 = 0.0;
-                        data.sim.env.map_cells[i].pad1 = [0.0; 3];
+                        data.sim.env.map_cells[i].avg_ask = 1.0;
+                        data.sim.env.map_cells[i].avg_bid = 1.0;
+                        data.sim.env.map_cells[i].market_food = 50.0;
+                        data.sim.env.map_cells[i].market_wealth = max_res;
+                        data.sim.env.map_cells[i].pad1 = [0.0; 1];
                     }
                     data.total_ticks = 0;
                     data.restart_message_active = false;
@@ -306,6 +314,9 @@ async fn main() {
     let mut inspector_scroll: usize = 0;
     let mut selected_agent: Option<crate::agent::Person> = None;
     let mut inspector_agents: Vec<(usize, crate::agent::Person)> = Vec::with_capacity(agent_count as usize);
+    
+    let mut followed_agent_id: Option<u32> = None;
+    let mut followed_agent: Option<crate::agent::Person> = None;
 
     loop {
         // Register UI inputs instantly
@@ -327,7 +338,7 @@ async fn main() {
             if mouse_wheel_y > 0.0 { zoom *= 1.1; }
             if mouse_wheel_y < 0.0 { zoom *= 0.9; }
             
-            if is_mouse_button_down(MouseButton::Left) {
+            if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() {
                 let mut hit_ui = false;
                 if show_visuals_panel && mx > 280.0 && mx < 440.0 && my > 10.0 && my < 170.0 { hit_ui = true; }
                 
@@ -364,26 +375,35 @@ async fn main() {
             
             // Dynamic map generation based on toggle state
             local_map_data.clear();
-            if current_visual_mode == VisualMode::Resources {
-                let max_res_ln = (data.config.max_tile_resource + 1.0).ln();
-                for cell in &data.sim.env.map_cells {
-                    let res = cell.res_value;
-                    let mut r = 10; let mut g = 50; let mut b = 150; // Base Water
-                    if res > 0.0 {
-                        let ratio = ((res + 1.0).ln() / max_res_ln).clamp(0.0, 1.0);
-                        r = ((1.0 - ratio) * 255.0) as u8;
-                        g = (ratio * 255.0) as u8;
-                        b = 0;
+            match current_visual_mode {
+                VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice => {
+                    let max_res_ln = (data.config.max_tile_resource + 1.0).ln();
+                    let max_price_ln = 11.0_f32.ln(); // Market prices cap around $10
+                    for cell in &data.sim.env.map_cells {
+                        let (val, max_ln) = match current_visual_mode {
+                            VisualMode::Resources => (cell.res_value, max_res_ln),
+                            VisualMode::MarketWealth => (cell.market_wealth, max_res_ln),
+                            VisualMode::MarketFood => (cell.market_food, max_res_ln),
+                            VisualMode::AskPrice => (cell.avg_ask, max_price_ln),
+                            VisualMode::BidPrice => (cell.avg_bid, max_price_ln),
+                            _ => (0.0, 1.0),
+                        };
+                        let mut r = 10; let mut g = 50; let mut b = 150; // Base Water
+                        if val > 0.0 {
+                            let ratio = ((val + 1.0).ln() / max_ln).clamp(0.0, 1.0);
+                            r = ((1.0 - ratio) * 255.0) as u8;
+                            g = (ratio * 255.0) as u8;
+                            b = 0;
+                        }
+                        local_map_data.extend_from_slice(&[r, g, b, 255]);
                     }
-                    local_map_data.extend_from_slice(&[r, g, b, 255]);
-                }
-            } else {
-                local_map_data.extend_from_slice(&data.sim.env.map_data);
+                },
+                _ => local_map_data.extend_from_slice(&data.sim.env.map_data),
             }
 
             local_agent_coords.clear();
             local_agent_coords.extend(data.sim.agents.iter().map(|a| AgentRenderData {
-                x: a.x, y: a.y, food: a.food, health: a.health, age: a.age, gender: a.gender, is_pregnant: a.is_pregnant
+                x: a.x, y: a.y, health: a.health, food: a.food, age: a.age, wealth: a.wealth, gender: a.gender, is_pregnant: a.is_pregnant
             }));
             
             // Sync data for the inspector UI
@@ -395,6 +415,17 @@ async fn main() {
                     }
                 }
             }
+            
+            if let Some(fid) = followed_agent_id {
+                followed_agent = data.sim.agents.iter().find(|a| a.id == fid).cloned();
+            } else {
+                followed_agent = None;
+            }
+        }
+
+        if let Some(ref a) = followed_agent {
+            offset_x = map_width as f32 / 2.0 - a.x;
+            offset_y = map_height as f32 / 2.0 - a.y;
         }
 
         // --- Rendering ---
@@ -427,8 +458,9 @@ async fn main() {
             let radius = 1.0 + (a.age / loaded_config.puberty_age).min(1.0) * 1.0;
             
             let color = match current_visual_mode {
-                VisualMode::Resources => {
-                    let ratio = ((a.food.max(0.0) + 1.0).ln() / max_inv_ln).clamp(0.0, 1.0);
+                VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice => {
+                    let val = if current_visual_mode == VisualMode::MarketFood { a.food } else { a.wealth };
+                    let ratio = ((val.max(0.0) + 1.0).ln() / max_inv_ln).clamp(0.0, 1.0);
                     Color::new(1.0 - ratio, ratio, 0.0, 1.0)
                 },
                 VisualMode::Age => {
@@ -440,6 +472,10 @@ async fn main() {
                 VisualMode::Default => WHITE,
             };
             draw_circle(a.x, a.y, radius, color);
+        }
+
+        if let Some(ref a) = followed_agent {
+            draw_circle_lines(a.x, a.y, 8.0, 2.0, YELLOW); // Highlight the tracked agent
         }
 
         // 3. Render UI / Metrics
@@ -493,6 +529,10 @@ async fn main() {
             VisualMode::Age => "Age",
             VisualMode::Gender => "Gender",
             VisualMode::Pregnancy => "Pregnancy",
+            VisualMode::MarketWealth => "Market Wealth",
+            VisualMode::MarketFood => "Market Food",
+            VisualMode::AskPrice => "Ask Price",
+            VisualMode::BidPrice => "Bid Price",
         };
         draw_text(&format!("Visuals [R]: {}", mode_str), 20.0, y, 16.0, WHITE);
         y += dy;
@@ -510,8 +550,8 @@ async fn main() {
 
         // --- Visuals Toggle Overlay ---
         if show_visuals_panel {
-            draw_rectangle(280.0, 10.0, 160.0, 160.0, Color::new(0.0, 0.04, 0.04, 0.9));
-            draw_rectangle_lines(280.0, 10.0, 160.0, 160.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+            draw_rectangle(280.0, 10.0, 160.0, 240.0, Color::new(0.0, 0.04, 0.04, 0.9));
+            draw_rectangle_lines(280.0, 10.0, 160.0, 240.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
             draw_text("VISUALS", 290.0, 30.0, 16.0, Color::new(0.0, 1.0, 0.8, 1.0));
             
             let modes = [
@@ -520,6 +560,10 @@ async fn main() {
                 (VisualMode::Age, "3. Age"),
                 (VisualMode::Gender, "4. Gender"),
                 (VisualMode::Pregnancy, "5. Pregnancy"),
+                (VisualMode::MarketWealth, "6. Market Wealth"),
+                (VisualMode::MarketFood, "7. Market Food"),
+                (VisualMode::AskPrice, "8. Ask Price"),
+                (VisualMode::BidPrice, "9. Bid Price"),
             ];
             
             let mut vy = 55.0;
@@ -547,26 +591,26 @@ async fn main() {
                 draw_text("<- BACK", 65.0, 80.0, 20.0, WHITE);
                 if left_clicked && is_hover_back { selected_agent = None; }
                 
-                draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.1} | H2O {:.1} | Sta {:.0}", format_time(a.age as u64, loaded_config.tick_to_mins), a.health, a.food, a.water, a.stamina), 160.0, 80.0, 20.0, WHITE);
+                draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.1} | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, loaded_config.tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
 
                 let start_x = 50.0;
                 let start_y = 180.0;
                 let cs = 10.0; // Fit the massive grids!
 
-                draw_text("Inputs (36) -> H1", start_x, start_y - 65.0, 16.0, WHITE);
+                draw_text("Inputs (40) -> H1", start_x, start_y - 65.0, 16.0, WHITE);
                 draw_text("1:Bias 2:X 3:Y 4:Res 5:Pop 6:Spd 7:Shr 8:Rep 9:Atk 10:Prg", start_x, start_y - 50.0, 14.0, GRAY);
                 draw_text("11:Trn 12:Rst 13:C1 14:C2 15:C3 16:C4 17:HP 18:Fd 19:H2O 20:Sta", start_x, start_y - 35.0, 14.0, GRAY);
-                draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31..34:Mem 35..:-", start_x, start_y - 20.0, 14.0, GRAY);
+                draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31..34:Mem 35:Wlh 36:Ask 37:Bid", start_x, start_y - 20.0, 14.0, GRAY);
 
                 for h in 0..a.hidden_count as usize {
-                    for i in 0..36 {
-                        let w = a.w1[h * 36 + i];
+                    for i in 0..40 {
+                        let w = a.w1[h * 40 + i];
                         let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                         draw_rectangle(start_x + i as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
                     }
                 }
 
-                let start_x2 = start_x + 38.0 * cs;
+                let start_x2 = start_x + 42.0 * cs;
                 draw_text("H1 -> H2", start_x2, start_y - 65.0, 16.0, WHITE);
                 for h2 in 0..a.hidden_count as usize {
                     for h1 in 0..a.hidden_count as usize {
@@ -577,13 +621,13 @@ async fn main() {
                 }
                 
                 let start_x3 = start_x2 + 34.0 * cs;
-                draw_text("H2 -> Outputs (15)", start_x3, start_y - 65.0, 16.0, WHITE);
+                draw_text("H2 -> Outputs (20)", start_x3, start_y - 65.0, 16.0, WHITE);
                 draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk 6:Rst 7:C1 8:C2", start_x3, start_y - 50.0, 14.0, GRAY);
-                draw_text("9:C3 10:C4 11:Lrn 12:M1 13:M2 14:M3 15:M4", start_x3, start_y - 35.0, 14.0, GRAY);
+                draw_text("9:C3 10:C4 11:Lrn 12..15:M1..M4 16:Buy 17:Sel 18:Ask 19:Bid", start_x3, start_y - 35.0, 14.0, GRAY);
                 
-                for o in 0..15 {
+                for o in 0..20 {
                     for h in 0..a.hidden_count as usize {
-                        let w = a.w3[h * 15 + o];
+                        let w = a.w3[h * 20 + o];
                         let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                         draw_rectangle(start_x3 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
                     }
@@ -596,16 +640,32 @@ async fn main() {
                         SortCol::Age => a.1.age.partial_cmp(&b.1.age).unwrap_or(std::cmp::Ordering::Equal),
                         SortCol::Health => a.1.health.partial_cmp(&b.1.health).unwrap_or(std::cmp::Ordering::Equal),
                         SortCol::Food => a.1.food.partial_cmp(&b.1.food).unwrap_or(std::cmp::Ordering::Equal),
+                        SortCol::Wealth => a.1.wealth.partial_cmp(&b.1.wealth).unwrap_or(std::cmp::Ordering::Equal),
                         SortCol::Gender => a.1.gender.partial_cmp(&b.1.gender).unwrap_or(std::cmp::Ordering::Equal),
+                        SortCol::Speed => a.1.speed.partial_cmp(&b.1.speed).unwrap_or(std::cmp::Ordering::Equal),
+                        SortCol::Heading => a.1.heading.partial_cmp(&b.1.heading).unwrap_or(std::cmp::Ordering::Equal),
+                        SortCol::State => a.1.is_pregnant.partial_cmp(&b.1.is_pregnant).unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| a.1.rest_intent.partial_cmp(&b.1.rest_intent).unwrap_or(std::cmp::Ordering::Equal)),
                         SortCol::Outputs => a.1.reproduce_desire.partial_cmp(&b.1.reproduce_desire).unwrap_or(std::cmp::Ordering::Equal),
                     };
                     if sort_desc { cmp.reverse() } else { cmp }
                 });
 
-                let headers = [("ID", 60.0, SortCol::Index), ("Age", 140.0, SortCol::Age), ("Health", 210.0, SortCol::Health), ("Food", 270.0, SortCol::Food), ("Gen", 330.0, SortCol::Gender), ("Outputs (Sp,Rp,At,Rs)", 380.0, SortCol::Outputs)];
+                let headers = [
+                    ("ID", 60.0, SortCol::Index), 
+                    ("Age", 120.0, SortCol::Age), 
+                    ("HP", 180.0, SortCol::Health), 
+                    ("Fd", 230.0, SortCol::Food), 
+                    ("Wlth", 280.0, SortCol::Wealth), 
+                    ("Gen", 340.0, SortCol::Gender), 
+                    ("Spd", 390.0, SortCol::Speed), 
+                    ("Dir", 440.0, SortCol::Heading), 
+                    ("State", 480.0, SortCol::State), 
+                    ("Markets (Buy, Sel, Ask, Bid)", 580.0, SortCol::Outputs)
+                ];
 
                 for (label, hx, col) in headers.iter() {
-                    let is_hover = mx > *hx && mx < *hx + 60.0 && my > 50.0 && my < 80.0;
+                    let is_hover = mx > *hx && mx < *hx + 40.0 && my > 50.0 && my < 80.0;
                     let color = if sort_col == *col { Color::new(0.0, 1.0, 0.8, 1.0) } else if is_hover { GRAY } else { WHITE };
                     draw_text(label, *hx, 70.0, 20.0, color);
                     
@@ -626,25 +686,112 @@ async fn main() {
                     let (a_id, a) = &inspector_agents[idx];
                     let y = 100.0 + i as f32 * row_h;
                     
+                    let loc_x = 800.0;
+                    let is_hover_locate = mx > loc_x && mx < loc_x + 60.0 && my > y - 12.0 && my < y + 4.0;
+                    
                     if mx > 50.0 && mx < screen_width() - 50.0 && my > y - 15.0 && my < y + 5.0 {
                         draw_rectangle(50.0, y - 15.0, screen_width() - 100.0, row_h, Color::new(0.2, 0.2, 0.2, 0.8));
-                        if left_clicked { selected_agent = Some(*a); }
+                        if left_clicked {
+                            if is_hover_locate {
+                                followed_agent_id = Some(a.id);
+                                show_inspector = false;
+                                selected_agent = None;
+                            } else {
+                                selected_agent = Some(*a);
+                            }
+                        }
                     }
 
                     draw_text(&format!("{}", a_id), 60.0, y, 16.0, WHITE);
-                    draw_text(&format!("{}", format_time(a.age as u64, loaded_config.tick_to_mins)), 140.0, y, 16.0, WHITE);
-                    draw_text(&format!("{:.1}", a.health), 210.0, y, 16.0, WHITE);
-                    draw_text(&format!("{:.1}", a.food), 270.0, y, 16.0, WHITE);
-                    draw_text(if a.gender > 0.5 { "M" } else { "F" }, 330.0, y, 16.0, WHITE);
+                    draw_text(&format!("{}", format_time(a.age as u64, loaded_config.tick_to_mins)), 120.0, y, 16.0, WHITE);
+                    draw_text(&format!("{:.0}", a.health), 180.0, y, 16.0, WHITE);
+                    draw_text(&format!("{:.0}", a.food), 230.0, y, 16.0, WHITE);
+                    draw_text(&format!("${:.0}", a.wealth), 280.0, y, 16.0, WHITE);
+                    draw_text(if a.gender > 0.5 { "M" } else { "F" }, 340.0, y, 16.0, WHITE);
                     
-                    let spd = (a.speed / loaded_config.base_speed).clamp(0.0, 1.0);
-                    let out_str = format!("S:{:.1} R:{:.1} A:{:.1} Z:{:.1} C1..4: {:.1} {:.1} {:.1} {:.1}", spd, a.reproduce_desire, a.attack_intent, a.rest_intent, a.comm1, a.comm2, a.comm3, a.comm4);
-                    draw_text(&out_str, 370.0, y, 16.0, WHITE);
+                    // Speed Indicator (Text + Bar Graphic)
+                    draw_text(&format!("{:.1}", a.speed), 390.0, y, 16.0, WHITE);
+                    let spd_ratio = (a.speed / loaded_config.base_speed).clamp(0.0, 1.0);
+                    draw_rectangle(390.0, y + 4.0, spd_ratio * 25.0, 2.0, Color::new(0.0, 1.0, 0.5, 1.0));
+                    
+                    // Heading Indicator (Arrow Graphic)
+                    let dir_cx = 450.0;
+                    let dir_cy = y - 5.0;
+                    let dx = a.heading.cos() * 8.0;
+                    let dy = a.heading.sin() * 8.0;
+                    draw_line(dir_cx - dx, dir_cy - dy, dir_cx + dx, dir_cy + dy, 1.5, LIGHTGRAY);
+                    draw_circle(dir_cx + dx, dir_cy + dy, 2.0, WHITE);
+                    
+                    // State Indicator Tags
+                    let mut st_x = 480.0;
+                    if a.is_pregnant > 0.5 { draw_text("[PRG]", st_x, y, 14.0, YELLOW); st_x += 35.0; }
+                    if a.rest_intent > 0.5 { draw_text("[Zzz]", st_x, y, 14.0, SKYBLUE); st_x += 35.0; }
+                    if a.attack_intent > 0.5 { draw_text("[ATK]", st_x, y, 14.0, RED); }
+                    
+                    // Market Intents
+                    let out_str = format!("B:{:.1} S:{:.1} A:{:.1} B:{:.1}", a.buy_intent, a.sell_intent, a.ask_price, a.bid_price);
+                    draw_text(&out_str, 580.0, y, 16.0, WHITE);
+                    
+                    draw_text("[Locate]", loc_x, y, 16.0, if is_hover_locate { YELLOW } else { LIGHTGRAY });
                 }
                 
                 draw_text(&format!("Showing {} - {} of {}", inspector_scroll, (inspector_scroll + visible).min(inspector_agents.len()), inspector_agents.len()), 60.0, 550.0, 16.0, GRAY);
                 draw_text("Scroll to view more. Click row to inspect Neural Network.", 300.0, 550.0, 16.0, GRAY);
             }
+        } else if let Some(a) = &followed_agent {
+            let panel_w = 260.0;
+            let panel_h = 360.0;
+            let panel_x = screen_width() - panel_w - 20.0;
+            let panel_y = 20.0;
+
+            draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.0, 0.04, 0.04, 0.9));
+            draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+
+            // Close button
+            let close_x = panel_x + panel_w - 30.0;
+            let close_y = panel_y + 10.0;
+            let is_close_hover = mx > close_x && mx < close_x + 20.0 && my > close_y && my < close_y + 20.0;
+            draw_text("X", close_x, close_y + 15.0, 20.0, if is_close_hover { RED } else { GRAY });
+            if left_clicked && is_close_hover {
+                followed_agent_id = None;
+                show_inspector = true; // Reopen the inspector when closing tracker
+            }
+
+            let mut py = panel_y + 30.0;
+            let dy = 22.0;
+            draw_text("AGENT TRACKER", panel_x + 20.0, py, 18.0, Color::new(0.0, 1.0, 0.8, 1.0));
+            py += dy;
+            draw_text(&format!("ID: {}", a.id), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Age: {}", format_time(a.age as u64, loaded_config.tick_to_mins)), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Health: {:.1}", a.health), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Food: {:.1} | H2O: {:.1}", a.food, a.water), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Wealth: ${:.1}", a.wealth), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Gender: {}", if a.gender > 0.5 { "Male" } else { "Female" }), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Speed: {:.2}", a.speed), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            
+            let mut state_str = String::new();
+            if a.health <= 0.0 { state_str.push_str("[DEAD] "); }
+            if a.is_pregnant > 0.5 { state_str.push_str("[PRG] "); }
+            if a.rest_intent > 0.5 { state_str.push_str("[Zzz] "); }
+            if a.attack_intent > 0.5 { state_str.push_str("[ATK] "); }
+            if state_str.is_empty() { state_str.push_str("[IDLE]"); }
+            
+            draw_text(&format!("State: {}", state_str), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy + 10.0;
+            draw_text("INTENTS:", panel_x + 20.0, py, 16.0, GRAY);
+            py += dy;
+            draw_text(&format!("Buy: {:.2} | Sell: {:.2}", a.buy_intent, a.sell_intent), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Ask: {:.2} | Bid: {:.2}", a.ask_price, a.bid_price), panel_x + 20.0, py, 16.0, WHITE);
+            py += dy;
+            draw_text(&format!("Reproduce: {:.2}", a.reproduce_desire), panel_x + 20.0, py, 16.0, WHITE);
         }
 
         next_frame().await;

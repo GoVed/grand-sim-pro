@@ -31,10 +31,15 @@ pub struct Person {
     pub mem2: f32,
     pub mem3: f32,
     pub mem4: f32,
-    pub pad1: [f32; 3], // Perfect 80-byte structural header
-    pub w1: [f32; 1152], // 36 inputs * 32 hidden1
+    pub buy_intent: f32,
+    pub sell_intent: f32,
+    pub ask_price: f32,
+    pub bid_price: f32,
+    pub wealth: f32,
+    pub pad1: [f32; 2],  // Perfect 96-byte structural header
+    pub w1: [f32; 1280], // 40 inputs * 32 hidden1
     pub w2: [f32; 1024], // 32 hidden1 * 32 hidden2
-    pub w3: [f32; 480],  // 32 hidden2 * 15 outputs
+    pub w3: [f32; 640],  // 32 hidden2 * 20 outputs
     pub food: f32,      // Replaces simple inventory
     pub water: f32,
     pub stamina: f32,
@@ -48,11 +53,11 @@ pub struct Person {
 impl Person {
     pub fn new(x: f32, y: f32, config: &crate::config::SimConfig) -> Self {
         let hidden_count = 16; // Give the agents a bigger brain so Rayon has real work to do
-        let inputs = 36;      
-        let outputs = 15;
+        let inputs = 40;      
+        let outputs = 20;
 
         let mut rng = rand::thread_rng();
-        let mut w1 = [0.0; 1152];
+        let mut w1 = [0.0; 1280];
         for i in 0..(inputs * hidden_count) as usize {
             w1[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
@@ -61,7 +66,7 @@ impl Person {
         for i in 0..(hidden_count * hidden_count) as usize {
             w2[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
-        let mut w3 = [0.0; 480];
+        let mut w3 = [0.0; 640];
         for i in 0..(hidden_count * outputs) as usize {
             w3[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
@@ -84,11 +89,16 @@ impl Person {
             mem2: 0.0,
             mem3: 0.0,
             mem4: 0.0,
-            pad1: [0.0; 3],
+            buy_intent: 0.0,
+            sell_intent: 0.0,
+            ask_price: 1.0,
+            bid_price: 1.0,
+            wealth: 500.0,
+            pad1: [0.0; 2],
             w1,
             w2,
             w3,
-            food: 100.0, 
+            food: 50.0, 
             water: 100.0,
             stamina: 100.0,
             health: 100.0,
@@ -100,13 +110,14 @@ impl Person {
     }
 
     pub fn reproduce_sexual(parent1: &mut Self, parent2: &mut Self, cost: f32) -> Self {
-        parent1.food -= cost / 2.0; 
-        parent2.food -= cost / 2.0; 
+        parent1.wealth -= cost / 2.0; 
+        parent2.wealth -= cost / 2.0; 
         
         let mut child = *parent1;
         child.age = 0.0;
         child.health = 100.0;
-        child.food = cost / 2.0; 
+        child.food = 50.0; 
+        child.wealth = cost / 2.0; // Inherit seed money
         child.water = 100.0;
         child.stamina = 100.0;
         
@@ -123,6 +134,10 @@ impl Person {
         child.mem2 = 0.0;
         child.mem3 = 0.0;
         child.mem4 = 0.0;
+        child.buy_intent = 0.0;
+        child.sell_intent = 0.0;
+        child.ask_price = 1.0;
+        child.bid_price = 1.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -146,10 +161,10 @@ impl Person {
         // 2. Structural mutation
         if rng.r#gen::<f32>() < 0.05 && child.hidden_count < 32 {
             let h = child.hidden_count as usize;
-            for i in 0..36 { child.w1[h * 36 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
+            for i in 0..40 { child.w1[h * 40 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
             for i in 0..32 { child.w2[h * 32 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H1 out
             for i in 0..32 { child.w2[i * 32 + h] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H2 in
-            for i in 0..15 { child.w3[h * 15 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
+            for i in 0..20 { child.w3[h * 20 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
             child.hidden_count += 1;
         }
         
@@ -160,9 +175,10 @@ impl Person {
         let mut child = *self;
         child.age = 0.0;
         child.health = 100.0;
-        child.food = 100.0; 
+        child.food = 50.0; 
         child.water = 100.0;
         child.stamina = 100.0;
+        child.wealth = 500.0;
         child.x = map_w / 2.0;
         child.y = map_h / 2.0;
         
@@ -179,6 +195,10 @@ impl Person {
         child.mem2 = 0.0;
         child.mem3 = 0.0;
         child.mem4 = 0.0;
+        child.buy_intent = 0.0;
+        child.sell_intent = 0.0;
+        child.ask_price = 1.0;
+        child.bid_price = 1.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;

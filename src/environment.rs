@@ -26,7 +26,11 @@ pub struct CellState {
     pub comm2: f32,          // Abstract communication channel 2
     pub comm3: f32,          // Abstract communication channel 3
     pub comm4: f32,          // Abstract communication channel 4
-    pub pad1: [f32; 3],      // Exactly 64 bytes total for GPU strict alignment
+    pub avg_ask: f32,        // Average price asked to sell food
+    pub avg_bid: f32,        // Average price bid to buy food
+    pub market_food: f32,    // Physical food in cell liquidity pool
+    pub market_wealth: f32,  // Wealth available to buy food from agents
+    pub pad1: [f32; 1],      // Exactly 80 bytes total for GPU strict alignment
 }
 
 pub struct Environment {
@@ -91,7 +95,11 @@ impl Environment {
                     comm2: 0.0,
                     comm3: 0.0,
                     comm4: 0.0,
-                    pad1: [0.0; 3],
+                    avg_ask: 1.0,
+                    avg_bid: 1.0,
+                    market_food: 50.0,
+                    market_wealth: base_res, // Cells start with money to buy initial farmed crops
+                    pad1: [0.0; 1],
                 });
             }
         }
