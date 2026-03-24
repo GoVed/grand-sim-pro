@@ -1,3 +1,13 @@
+/*
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
+ */
+
 struct Agent {
     x: f32,
     y: f32,
@@ -12,10 +22,14 @@ struct Agent {
     comm2: f32,
     comm3: f32,
     comm4: f32,
+    mem1: f32,
+    mem2: f32,
+    mem3: f32,
+    mem4: f32,
     pad1: array<f32, 3>,
-    w1: array<f32, 1024>,
+    w1: array<f32, 1152>,
     w2: array<f32, 1024>,
-    w3: array<f32, 320>,
+    w3: array<f32, 480>,
     food: f32,
     water: f32,
     stamina: f32,
@@ -122,7 +136,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_height = map_heights[look_idx];
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 32>(
+    var inputs = array<f32, 36>(
         1.0, agent.x / map_w_f32, agent.y / map_h_f32, local_cell.res_value / 1000.0,
         local_cell.population,
         local_cell.avg_speed + (pseudo_rand * 0.1 - 0.05), // Some noise injected
@@ -147,6 +161,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         agent.is_pregnant, 
         (agent.food + agent.water) / 250.0,
         local_cell.population / 15.0,
+        agent.mem1, agent.mem2, agent.mem3, agent.mem4,
         0.0, 0.0
     );
 
@@ -154,8 +169,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
         var sum = 0.0;
         if (h1 < agent.hidden_count) {
-            for (var i = 0u; i < 32u; i = i + 1u) {
-                sum = sum + inputs[i] * agent.w1[h1 * 32u + i];
+            for (var i = 0u; i < 36u; i = i + 1u) {
+                sum = sum + inputs[i] * agent.w1[h1 * 36u + i];
             }
             hidden1[h1] = tanh(sum);
         } else {
@@ -178,12 +193,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    var outputs = array<f32, 10>();
-    for (var o = 0u; o < 10u; o = o + 1u) {
+    var outputs = array<f32, 15>();
+    for (var o = 0u; o < 15u; o = o + 1u) {
         var sum = 0.0;
         for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
             if (h2 < agent.hidden_count) {
-                sum = sum + hidden2[h2] * agent.w3[h2 * 10u + o];
+                sum = sum + hidden2[h2] * agent.w3[h2 * 15u + o];
             }
         }
         outputs[o] = tanh(sum);
@@ -199,6 +214,40 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.comm2 = clamp(outputs[7], -1.0, 1.0);
     agent.comm3 = clamp(outputs[8], -1.0, 1.0);
     agent.comm4 = clamp(outputs[9], -1.0, 1.0);
+    let learn_intent = outputs[10];
+    agent.mem1 = outputs[11];
+    agent.mem2 = outputs[12];
+    agent.mem3 = outputs[13];
+    agent.mem4 = outputs[14];
+
+    // Hebbian Learning: dynamically adjust weights during their lifetime!
+    if (abs(learn_intent) > 0.01) {
+        let lr = learn_intent * 0.001; 
+        
+        for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
+            if (h1 < agent.hidden_count) {
+                for (var i = 0u; i < 36u; i = i + 1u) {
+                    agent.w1[h1 * 36u + i] = clamp(agent.w1[h1 * 36u + i] + lr * inputs[i] * hidden1[h1], -2.0, 2.0);
+                }
+            }
+        }
+        for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
+            if (h2 < agent.hidden_count) {
+                for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
+                    if (h1 < agent.hidden_count) {
+                        agent.w2[h1 * 32u + h2] = clamp(agent.w2[h1 * 32u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
+                    }
+                }
+            }
+        }
+        for (var o = 0u; o < 15u; o = o + 1u) {
+            for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
+                if (h2 < agent.hidden_count) {
+                    agent.w3[h2 * 15u + o] = clamp(agent.w3[h2 * 15u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
+                }
+            }
+        }
+    }
     
     var base_speed = speed_intent * cfg.base_speed;
     var resting = false;
@@ -280,7 +329,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (current_height >= 0.0) {
         let drop_desire = outputs[2];
         
-        if (agent.attack_intent > 0.5 && local_cell.population > 1.0 && !resting) {
+        if (agent.attack_intent > 0.5 && local_cell.population > 1.0 && !resting && agent.age > cfg.puberty_age) {
             // Steal directly from abstract population
             let steal_amount = min((local_cell.population - 1.0) * 0.5, 5.0);
             agent.food = min(agent.food + steal_amount, cfg.boat_cost);
@@ -294,7 +343,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let max_mult = (cfg.max_gather_rate / cfg.base_gather_rate) - 1.0;
                 let tool_multiplier = 1.0 + min(sqrt(agent.food) * 0.1, max_mult);
                 
-                let gathered = min(cfg.base_gather_rate * tool_multiplier, local_cell.res_value);
+                // Newborns are weak and can only gather a fraction of what adults can
+                let maturity = clamp(agent.age / cfg.puberty_age, 0.2, 1.0); 
+                let gathered = min(cfg.base_gather_rate * tool_multiplier * maturity, local_cell.res_value);
                 agent.food = agent.food + gathered;
                 local_cell.res_value = local_cell.res_value - gathered;
             }

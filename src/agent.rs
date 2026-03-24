@@ -1,3 +1,13 @@
+/*
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
+ */
+
 use std::f32::consts::PI;
 use rand::Rng;
 
@@ -17,10 +27,14 @@ pub struct Person {
     pub comm2: f32,
     pub comm3: f32,
     pub comm4: f32,
-    pub pad1: [f32; 3], // Perfect 64-byte structural header
-    pub w1: [f32; 1024], // 32 inputs * 32 hidden1
+    pub mem1: f32,
+    pub mem2: f32,
+    pub mem3: f32,
+    pub mem4: f32,
+    pub pad1: [f32; 3], // Perfect 80-byte structural header
+    pub w1: [f32; 1152], // 36 inputs * 32 hidden1
     pub w2: [f32; 1024], // 32 hidden1 * 32 hidden2
-    pub w3: [f32; 320],  // 32 hidden2 * 10 outputs
+    pub w3: [f32; 480],  // 32 hidden2 * 15 outputs
     pub food: f32,      // Replaces simple inventory
     pub water: f32,
     pub stamina: f32,
@@ -34,11 +48,11 @@ pub struct Person {
 impl Person {
     pub fn new(x: f32, y: f32, config: &crate::config::SimConfig) -> Self {
         let hidden_count = 16; // Give the agents a bigger brain so Rayon has real work to do
-        let inputs = 32;      
-        let outputs = 10;
+        let inputs = 36;      
+        let outputs = 15;
 
         let mut rng = rand::thread_rng();
-        let mut w1 = [0.0; 1024];
+        let mut w1 = [0.0; 1152];
         for i in 0..(inputs * hidden_count) as usize {
             w1[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
@@ -47,7 +61,7 @@ impl Person {
         for i in 0..(hidden_count * hidden_count) as usize {
             w2[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
-        let mut w3 = [0.0; 320];
+        let mut w3 = [0.0; 480];
         for i in 0..(hidden_count * outputs) as usize {
             w3[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
@@ -66,6 +80,10 @@ impl Person {
             comm2: 0.0,
             comm3: 0.0,
             comm4: 0.0,
+            mem1: 0.0,
+            mem2: 0.0,
+            mem3: 0.0,
+            mem4: 0.0,
             pad1: [0.0; 3],
             w1,
             w2,
@@ -101,6 +119,10 @@ impl Person {
         child.comm2 = 0.0;
         child.comm3 = 0.0;
         child.comm4 = 0.0;
+        child.mem1 = 0.0;
+        child.mem2 = 0.0;
+        child.mem3 = 0.0;
+        child.mem4 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -124,10 +146,10 @@ impl Person {
         // 2. Structural mutation
         if rng.r#gen::<f32>() < 0.05 && child.hidden_count < 32 {
             let h = child.hidden_count as usize;
-            for i in 0..32 { child.w1[h * 32 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
+            for i in 0..36 { child.w1[h * 36 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
             for i in 0..32 { child.w2[h * 32 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H1 out
             for i in 0..32 { child.w2[i * 32 + h] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H2 in
-            for i in 0..10 { child.w3[h * 10 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
+            for i in 0..15 { child.w3[h * 15 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
             child.hidden_count += 1;
         }
         
@@ -153,6 +175,10 @@ impl Person {
         child.comm2 = 0.0;
         child.comm3 = 0.0;
         child.comm4 = 0.0;
+        child.mem1 = 0.0;
+        child.mem2 = 0.0;
+        child.mem3 = 0.0;
+        child.mem4 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;

@@ -15,7 +15,7 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **32 distinct sensory inputs** (including Look-Ahead Vision, Spatial location, Encumbrance, Crowding, personal Health, Food, Water, Stamina, Age, Gender, and Seasonal Temperature). The brain evaluates over 2,300 synaptic weights and drives **10 complex output intents** (Turn, Speed, Share, Reproduce, Attack, Rest, and 4 Abstract Communication Channels). All matrix multiplications and `tanh` activation functions are resolved instantly across thousands of GPU cores.
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **36 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 2,600 synaptic weights and drives **15 complex output intents** (Turn, Speed, Share, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, and 4 Recurrent Memory states). 
 
 ### 🌍 Procedural Topography & 4D Wrapping
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
@@ -85,3 +85,17 @@ cargo run --release
 * `noise` - Procedural 4D terrain generation
 * `rand` - Mathematical RNG utilities
 * `pollster` - Synchronous blocking for GPU initialization
+
+## Citation & Academic Use
+
+This project is an independent research initiative exploring neural plasticity and evolutionary dynamics in GPU-accelerated environments.
+
+If you utilize this engine, its neural architecture, or the simulation logic in an academic or professional capacity, please cite the work as follows:
+
+Suthar, V. H. (2026). Grand Sim Pro: A GPGPU Framework for Evolutionary Agent-Based Modeling. GitHub Repository. https://github.com/GoVed/grand-sim-pro
+
+## AI Assistance Acknowledgment
+
+In accordance with emerging standards for transparency in software development and academic research:
+
+This project was developed with the assistance of Google's Gemini AI for code generation, refactoring, and architectural brainstorming. All AI-generated outputs were rigorously reviewed, tested, and guided by the human author to ensure strict GPU memory alignment, computational accuracy, and alignment with the project's core research objectives. The author assumes full responsibility for the final codebase, architecture, and simulation logic.
