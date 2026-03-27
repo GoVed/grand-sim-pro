@@ -30,6 +30,7 @@ pub struct CellState {
     pub avg_bid: f32,        // Average price bid to buy food
     pub market_food: f32,    // Physical food in cell liquidity pool
     pub market_wealth: f32,  // Wealth available to buy food from agents
+    pub market_water: f32,   // Physical water in cell liquidity pool
     pub pad1: [f32; 1],      // Exactly 80 bytes total for GPU strict alignment
 }
 
@@ -97,8 +98,9 @@ impl Environment {
                     comm4: 0.0,
                     avg_ask: 1.0,
                     avg_bid: 1.0,
-                    market_food: 50.0,
+                    market_food: 50000.0,
                     market_wealth: base_res, // Cells start with money to buy initial farmed crops
+                    market_water: if val < -0.2 { config.max_tile_water } else { 0.0 }, // Coastlines start with water
                     pad1: [0.0; 1],
                 });
             }
