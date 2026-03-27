@@ -15,7 +15,7 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **40 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 2,900 synaptic weights and drives **20 complex output intents** (Turn, Speed, Share, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 4 Recurrent Memory states, and 4 Economic Trading intents). 
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **40 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 3,000 synaptic weights and drives **22 complex output intents** (Turn, Speed, Share, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 4 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.
@@ -33,24 +33,25 @@ The map doesn't just store resources—it acts as a biological grid. As agents t
 ### 💹 Localized AMM Economies & Trade
 The simulation implements an Automated Market Maker (AMM) style liquidity pool on every single tile, separating physical **Food** from weightless **Wealth** (USD).
 - **Micro-Economies:** Agents read the local `Ask` and `Bid` prices of the cell they stand on, and can output their own intended prices alongside a `Buy` or `Sell` intent.
-- **Capitalism & Survival:** Because hoarding heavy physical food severely encumbers movement, agents are organically incentivized to invent commerce—farming food, carrying it to a profitable market tile, selling it for weightless USD, and using that Wealth to pay for boat travel or reproduction without being crushed by weight penalties.
+- **Food Spoilage:** Physical organic food rots over time (accelerated by warm temperatures), limiting how much can be passively hoarded.
+- **Capitalism & Survival:** Because hoarding physical food causes encumbrance and inevitably rots, agents are organically incentivized to invent commerce—farming food, carrying it to a profitable market tile, selling it for weightless, non-perishable USD, and using that Wealth to pay for life-extending healthcare, boat travel, or reproduction.
 
 ### ⛰️ Advanced Terrain Physics & Resource Mechanics
 Agents do not just walk freely; the environment fights back.
 - **Elevation & Seasons:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement. Additionally, a global seasonal clock dictates temperatures. Poles and high elevations are freezing, burning agent calories exponentially faster.
-- **Hydration & Satiation:** Biological needs are split. Agents must gather Food from the land and return to the coastline to drink Water. 
+- **Hydration & Satiation:** Biological needs are strictly mapped to real-world metrics (Grams of Food, Kg of Water). Coastlines provide baseline water, but tiles themselves possess dynamic water storage capacities. Agents use Neural Network intents to explicitly pick up or drop water into local tiles, effectively allowing them to build inland reservoirs.
 - **Ocean Traversal:** Deep water is impassable unless an agent has passively gathered enough resources on land to overcome the "boat threshold," allowing them to cross oceans.
-- **Encumbrance & Crowding:** Inventory represents physical weight. Hoarding hundreds of kilograms of food severely encumbers agents, slowing their movement speed. Additionally, high populations on a single tile create a physical crowding penalty, organically forcing herds to spread out.
+- **Encumbrance & Crowding:** Inventory represents physical mass. Carrying large amounts of food and water severely encumbers agents, slowing their movement speed. Additionally, high populations on a single tile create a physical crowding penalty, organically forcing herds to spread out.
 
 ### 🧬 Biological Lifecycle & Genetics
 Agents are subject to the harsh realities of life mapped to a realistic timeline (Years/Months). They constantly burn baseline calories to survive, and running depletes Stamina, forcing them to rest. If they run out of resources, they will starve and eventually die. 
 - **Combat & Parasitism:** Agents can evolve to output an "Attack" intent, actively stealing food from abstract populations on their current tile, simulating predator/prey dynamics.
 - **Sexual Reproduction & Gestation:** Agents possess a male/female gender and must reach puberty to mate. If a healthy Male and Female mate, the female becomes pregnant, entering a Gestation period where she moves slower and consumes significantly more food/water before birthing the genetically crossed child.
-- **Extinction Founder System:** If an entire generation goes extinct, the simulation doesn't just throw away the progress. It sorts the dead population by age, extracts the top 8 longest-surviving "Founders", and repopulates the new world with 4,000 slightly mutated descendants of those evolutionary champions.
+- **Extinction Founder System & Map Regeneration:** If an entire generation goes extinct, the simulation doesn't just throw away the progress. It extracts the longest-surviving "Founders" (configurable, e.g., top 100) and procedurally generates an entirely **new global map**. It then repopulates the new world with mutated descendants and a configurable percentage of entirely random agents, clustering them into "tribes" on viable land.
 
 ### ⚙️ Real-Time Configuration (`sim_config.json`)
 On its first run, the simulation generates a `sim_config.json` file, mapping the environment to realistic metrics (e.g., 1 Resource = $1 USD, 1 Tick = 1 Minute).
-You can freely tweak base speeds, climbing penalties, boat costs, reproduction costs, and more without recompiling the project.
+You can freely tweak base speeds, climbing penalties, boat costs, genetic mutation rates, spawn cluster sizes, and reproduction limits dynamically without recompiling the project.
 
 ### 📊 Real-Time Telemetry
 The `macroquad` UI tracks engine performance precisely, displaying:

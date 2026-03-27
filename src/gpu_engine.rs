@@ -11,6 +11,7 @@ pub struct GpuEngine {
     cell_buffer: wgpu::Buffer,
     staging_cell_buffer: wgpu::Buffer,
     config_buffer: wgpu::Buffer,
+    height_buffer: wgpu::Buffer,
     agent_count: u32,
 }
 
@@ -41,7 +42,7 @@ impl GpuEngine {
             let height_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Height Buffer"),
                 contents: bytemuck::cast_slice(map_heights),
-                usage: wgpu::BufferUsages::STORAGE,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
             
             let cell_bytes = bytemuck::cast_slice(map_cells);
@@ -81,7 +82,7 @@ impl GpuEngine {
                 ],
             });
 
-            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, cell_buffer, staging_cell_buffer, config_buffer, agent_count: agents.len() as u32 }
+            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, cell_buffer, staging_cell_buffer, config_buffer, height_buffer, agent_count: agents.len() as u32 }
         })
     }
 
@@ -109,6 +110,10 @@ impl GpuEngine {
 
     pub fn update_config(&self, config: &crate::config::SimConfig) {
         self.queue.write_buffer(&self.config_buffer, 0, bytemuck::bytes_of(config));
+    }
+
+    pub fn update_heights(&self, heights: &[f32]) {
+        self.queue.write_buffer(&self.height_buffer, 0, bytemuck::cast_slice(heights));
     }
 
     pub fn update_cells(&self, cells: &[crate::environment::CellState]) {

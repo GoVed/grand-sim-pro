@@ -1,0 +1,263 @@
+/*
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
+ */
+
+use macroquad::prelude::*;
+use crate::shared::{VisualMode, SortCol, format_time};
+
+pub fn draw_metrics(
+    pop_count: usize, compute_time: u128, speed: usize, ticks: u64, tick_to_mins: f32,
+    fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool,
+    paused: bool, restart_msg: bool
+) {
+    draw_rectangle(10.0, 10.0, 260.0, 240.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(10.0, 10.0, 260.0, 240.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    
+    let mut y = 30.0;
+    let dy = 20.0;
+    
+    draw_text("REAL-TIME METRICS", 20.0, y, 16.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    y += dy;
+    draw_text(&format!("Population: {}", pop_count), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Compute: {}ms/loop", compute_time), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Speed: {}x (Up/Down)", speed), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Sim Time: {}", format_time(ticks, tick_to_mins)), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("FPS: {}", fps), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Avg FPS: {:.1}", avg_fps), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("1% Low: {:.1}", low_1_fps), 20.0, y, 16.0, WHITE);
+    y += dy;
+    let mode_str = match current_visual_mode {
+        VisualMode::Default => "Default",
+        VisualMode::Resources => "Resources",
+        VisualMode::Age => "Age",
+        VisualMode::Gender => "Gender",
+        VisualMode::Pregnancy => "Pregnancy",
+        VisualMode::MarketWealth => "Market Wealth",
+        VisualMode::MarketFood => "Market Food",
+        VisualMode::AskPrice => "Ask Price",
+        VisualMode::BidPrice => "Bid Price",
+    };
+    draw_text(&format!("Visuals [R]: {}", mode_str), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Inspector [TAB]: {}", if show_inspector { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
+
+    if paused { draw_text("PAUSED", screen_width() / 2.0 - 50.0, 30.0, 30.0, RED); }
+    
+    if restart_msg {
+        let text = "ALL DIED, RESTARTING...";
+        let text_dims = measure_text(text, None, 40, 1.0);
+        draw_text(text, screen_width() / 2.0 - text_dims.width / 2.0, screen_height() / 2.0, 40.0, RED);
+    }
+}
+
+pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_mode: &mut VisualMode) {
+    draw_rectangle(280.0, 10.0, 160.0, 240.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(280.0, 10.0, 160.0, 240.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_text("VISUALS", 290.0, 30.0, 16.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    
+    let modes = [
+        (VisualMode::Default, "1. Default"),
+        (VisualMode::Resources, "2. Resources"),
+        (VisualMode::Age, "3. Age"),
+        (VisualMode::Gender, "4. Gender"),
+        (VisualMode::Pregnancy, "5. Pregnancy"),
+        (VisualMode::MarketWealth, "6. Market Wealth"),
+        (VisualMode::MarketFood, "7. Market Food"),
+        (VisualMode::AskPrice, "8. Ask Price"),
+        (VisualMode::BidPrice, "9. Bid Price"),
+    ];
+    
+    let mut vy = 55.0;
+    for (mode, label) in modes.iter() {
+        let is_hover = mx > 290.0 && mx < 430.0 && my > vy - 12.0 && my < vy + 4.0;
+        let color = if *current_visual_mode == *mode { WHITE } else if is_hover { GRAY } else { DARKGRAY };
+        draw_text(label, 290.0, vy, 16.0, color);
+        if left_clicked && is_hover { *current_visual_mode = *mode; }
+        vy += 22.0;
+    }
+}
+
+pub fn draw_inspector(
+    mx: f32, my: f32, left_clicked: bool, mouse_wheel_y: f32,
+    inspector_agents: &mut Vec<(usize, crate::agent::Person)>,
+    sort_col: &mut SortCol, sort_desc: &mut bool,
+    inspector_scroll: &mut usize,
+    selected_agent: &mut Option<crate::agent::Person>,
+    followed_agent_id: &mut Option<u32>,
+    show_inspector: &mut bool,
+    tick_to_mins: f32, base_speed: f32
+) {
+    draw_rectangle(40.0, 40.0, screen_width() - 80.0, screen_height() - 80.0, Color::new(0.05, 0.05, 0.05, 0.95));
+    draw_rectangle_lines(40.0, 40.0, screen_width() - 80.0, screen_height() - 80.0, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    
+    if let Some(a) = *selected_agent {
+        let is_hover_back = mx > 60.0 && mx < 140.0 && my > 60.0 && my < 90.0;
+        draw_rectangle(60.0, 60.0, 80.0, 30.0, if is_hover_back { Color::new(0.4, 0.4, 0.4, 1.0) } else { Color::new(0.2, 0.2, 0.2, 1.0) });
+        draw_text("<- BACK", 65.0, 80.0, 20.0, WHITE);
+        if left_clicked && is_hover_back { *selected_agent = None; }
+        
+        draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.0}g | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
+        let start_x = 50.0; let start_y = 180.0; let cs = 10.0;
+        draw_text("Inputs (40) -> H1 (32)", start_x, start_y - 65.0, 16.0, WHITE);
+        draw_text("1:Bias 2:X 3:Y 4:Res 5:Pop 6:Spd 7:Shr 8:Rep 9:Atk 10:Prg", start_x, start_y - 50.0, 14.0, GRAY);
+        draw_text("11:Trn 12:Rst 13:C1 14:C2 15:C3 16:C4 17:HP 18:Fd 19:H2O 20:Sta", start_x, start_y - 35.0, 14.0, GRAY);
+        draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31..34:Mem 35:Wlh 36:Ask 37:Bid", start_x, start_y - 20.0, 14.0, GRAY);
+        for h in 0..a.hidden_count as usize {
+            for i in 0..40 {
+                let w = a.w1[h * 40 + i];
+                let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
+                draw_rectangle(start_x + i as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
+            }
+        }
+        let start_x2 = start_x + 42.0 * cs;
+        draw_text("H1 -> H2", start_x2, start_y - 65.0, 16.0, WHITE);
+        for h2 in 0..a.hidden_count as usize {
+            for h1 in 0..a.hidden_count as usize {
+                let w = a.w2[h1 * 32 + h2];
+                let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
+                draw_rectangle(start_x2 + h1 as f32 * cs, start_y + h2 as f32 * cs, cs - 1.0, cs - 1.0, color);
+            }
+        }
+        let start_x3 = start_x2 + 34.0 * cs;
+        draw_text("H2 (32) -> Outputs (22)", start_x3, start_y - 65.0, 16.0, WHITE);
+        draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk 6:Rst 7:C1 8:C2", start_x3, start_y - 50.0, 14.0, GRAY);
+        draw_text("9:C3 10:C4 11:Lrn 12..15:M1..M4 16:Buy 17:Sel 18:Ask 19:Bid 20:DropH2O 21:PickH2O", start_x3, start_y - 35.0, 14.0, GRAY);
+        for o in 0..22 { // Adjusted for 22 outputs
+            for h in 0..a.hidden_count as usize {
+                let w = a.w3[h * 20 + o];
+                let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
+                draw_rectangle(start_x3 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
+            }
+        }
+    } else {
+        inspector_agents.sort_by(|a, b| {
+            let cmp = match *sort_col {
+                SortCol::Index => a.0.cmp(&b.0),
+                SortCol::Age => a.1.age.partial_cmp(&b.1.age).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::Health => a.1.health.partial_cmp(&b.1.health).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::Food => a.1.food.partial_cmp(&b.1.food).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::Wealth => a.1.wealth.partial_cmp(&b.1.wealth).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::Gender => a.1.gender.partial_cmp(&b.1.gender).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::Speed => a.1.speed.partial_cmp(&b.1.speed).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::Heading => a.1.heading.partial_cmp(&b.1.heading).unwrap_or(std::cmp::Ordering::Equal),
+                SortCol::State => a.1.is_pregnant.partial_cmp(&b.1.is_pregnant).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.1.rest_intent.partial_cmp(&b.1.rest_intent).unwrap_or(std::cmp::Ordering::Equal)),
+                SortCol::Outputs => a.1.reproduce_desire.partial_cmp(&b.1.reproduce_desire).unwrap_or(std::cmp::Ordering::Equal),
+            };
+            if *sort_desc { cmp.reverse() } else { cmp }
+        });
+
+        let headers = [
+            ("ID", 60.0, SortCol::Index), ("Age", 120.0, SortCol::Age), ("HP", 180.0, SortCol::Health), 
+            ("Fd", 230.0, SortCol::Food), ("Wlth", 300.0, SortCol::Wealth), ("Gen", 360.0, SortCol::Gender), 
+            ("Spd", 410.0, SortCol::Speed), ("Dir", 460.0, SortCol::Heading), ("State", 500.0, SortCol::State), 
+            ("Markets (Buy, Sel, Ask, Bid)", 600.0, SortCol::Outputs)
+        ];
+
+        for (label, hx, col) in headers.iter() {
+            let is_hover = mx > *hx && mx < *hx + 40.0 && my > 50.0 && my < 80.0;
+            let color = if *sort_col == *col { Color::new(0.0, 1.0, 0.8, 1.0) } else if is_hover { GRAY } else { WHITE };
+            draw_text(label, *hx, 70.0, 20.0, color);
+            if left_clicked && is_hover {
+                if *sort_col == *col { *sort_desc = !*sort_desc; } else { *sort_col = *col; *sort_desc = true; }
+            }
+        }
+
+        let row_h = 20.0;
+        let visible = 22;
+        if mouse_wheel_y < 0.0 { *inspector_scroll = inspector_scroll.saturating_add(1); }
+        if mouse_wheel_y > 0.0 { *inspector_scroll = inspector_scroll.saturating_sub(1); }
+        *inspector_scroll = (*inspector_scroll).min(inspector_agents.len().saturating_sub(visible));
+
+        for i in 0..visible {
+            let idx = *inspector_scroll + i;
+            if idx >= inspector_agents.len() { break; }
+            let (a_id, a) = &inspector_agents[idx];
+            let y = 100.0 + i as f32 * row_h;
+            
+            let loc_x = 800.0;
+            let is_hover_locate = mx > loc_x && mx < loc_x + 60.0 && my > y - 12.0 && my < y + 4.0;
+            
+            if mx > 50.0 && mx < screen_width() - 50.0 && my > y - 15.0 && my < y + 5.0 {
+                draw_rectangle(50.0, y - 15.0, screen_width() - 100.0, row_h, Color::new(0.2, 0.2, 0.2, 0.8));
+                if left_clicked {
+                    if is_hover_locate { *followed_agent_id = Some(a.id); *show_inspector = false; *selected_agent = None; } 
+                    else { *selected_agent = Some(*a); }
+                }
+            }
+
+            draw_text(&format!("{}", a_id), 60.0, y, 16.0, WHITE);
+            draw_text(&format!("{}", format_time(a.age as u64, tick_to_mins)), 120.0, y, 16.0, WHITE);
+            draw_text(&format!("{:.0}", a.health), 180.0, y, 16.0, WHITE);
+            draw_text(&format!("{:.0}g", a.food), 230.0, y, 16.0, WHITE);
+            draw_text(&format!("${:.0}", a.wealth), 300.0, y, 16.0, WHITE);
+            draw_text(if a.gender > 0.5 { "M" } else { "F" }, 360.0, y, 16.0, WHITE);
+            
+            draw_text(&format!("{:.1}", a.speed), 410.0, y, 16.0, WHITE);
+            let spd_ratio = (a.speed / base_speed).clamp(0.0, 1.0);
+            draw_rectangle(410.0, y + 4.0, spd_ratio * 25.0, 2.0, Color::new(0.0, 1.0, 0.5, 1.0));
+            
+            let dir_cx = 470.0; let dir_cy = y - 5.0;
+            let dx = a.heading.cos() * 8.0; let dy = a.heading.sin() * 8.0;
+            draw_line(dir_cx - dx, dir_cy - dy, dir_cx + dx, dir_cy + dy, 1.5, LIGHTGRAY);
+            draw_circle(dir_cx + dx, dir_cy + dy, 2.0, WHITE);
+            
+            let mut st_x = 500.0;
+            if a.is_pregnant > 0.5 { draw_text("[PRG]", st_x, y, 14.0, YELLOW); st_x += 35.0; }
+            if a.rest_intent > 0.5 { draw_text("[Zzz]", st_x, y, 14.0, SKYBLUE); st_x += 35.0; }
+            if a.attack_intent > 0.5 { draw_text("[ATK]", st_x, y, 14.0, RED); }
+            
+            let out_str = format!("B:{:.1} S:{:.1} A:{:.1} B:{:.1}", a.buy_intent, a.sell_intent, a.ask_price, a.bid_price);
+            draw_text(&out_str, 600.0, y, 16.0, WHITE);
+            draw_text("[Locate]", loc_x, y, 16.0, if is_hover_locate { YELLOW } else { LIGHTGRAY });
+        }
+        draw_text(&format!("Showing {} - {} of {}", *inspector_scroll, (*inspector_scroll + visible).min(inspector_agents.len()), inspector_agents.len()), 60.0, 550.0, 16.0, GRAY);
+        draw_text("Scroll to view more. Click row to inspect Neural Network.", 300.0, 550.0, 16.0, GRAY);
+    }
+}
+
+pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &crate::agent::Person, followed_agent_id: &mut Option<u32>, show_inspector: &mut bool, tick_to_mins: f32) {
+    let panel_w = 260.0; let panel_h = 360.0;
+    let panel_x = screen_width() - panel_w - 20.0; let panel_y = 20.0;
+    draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+
+    let close_x = panel_x + panel_w - 30.0; let close_y = panel_y + 10.0;
+    let is_close_hover = mx > close_x && mx < close_x + 20.0 && my > close_y && my < close_y + 20.0;
+    draw_text("X", close_x, close_y + 15.0, 20.0, if is_close_hover { RED } else { GRAY });
+    if left_clicked && is_close_hover { *followed_agent_id = None; *show_inspector = true; }
+
+    let mut py = panel_y + 30.0; let dy = 22.0;
+    draw_text("AGENT TRACKER", panel_x + 20.0, py, 18.0, Color::new(0.0, 1.0, 0.8, 1.0)); py += dy;
+    draw_text(&format!("ID: {}", a.id), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Age: {}", format_time(a.age as u64, tick_to_mins)), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Health: {:.1}", a.health), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Food: {:.0}g | H2O: {:.1}", a.food, a.water), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Wealth: ${:.1}", a.wealth), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Gender: {}", if a.gender > 0.5 { "Male" } else { "Female" }), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Speed: {:.2}", a.speed), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    
+    let mut state_str = String::new();
+    if a.health <= 0.0 { state_str.push_str("[DEAD] "); }
+    if a.is_pregnant > 0.5 { state_str.push_str("[PRG] "); }
+    if a.rest_intent > 0.5 { state_str.push_str("[Zzz] "); }
+    if a.attack_intent > 0.5 { state_str.push_str("[ATK] "); }
+    if state_str.is_empty() { state_str.push_str("[IDLE]"); }
+    
+    draw_text(&format!("State: {}", state_str), panel_x + 20.0, py, 16.0, WHITE); py += dy + 10.0;
+    draw_text("INTENTS:", panel_x + 20.0, py, 16.0, GRAY); py += dy;
+    draw_text(&format!("Buy: {:.2} | Sell: {:.2}", a.buy_intent, a.sell_intent), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Ask: {:.2} | Bid: {:.2}", a.ask_price, a.bid_price), panel_x + 20.0, py, 16.0, WHITE); py += dy;
+    draw_text(&format!("Reproduce: {:.2}", a.reproduce_desire), panel_x + 20.0, py, 16.0, WHITE);
+}

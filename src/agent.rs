@@ -35,11 +35,13 @@ pub struct Person {
     pub sell_intent: f32,
     pub ask_price: f32,
     pub bid_price: f32,
+    pub drop_water_intent: f32, // New: Intent to drop water into cell
+    pub pickup_water_intent: f32, // New: Intent to pick up water from cell
     pub wealth: f32,
     pub pad1: [f32; 2],  // Perfect 96-byte structural header
     pub w1: [f32; 1280], // 40 inputs * 32 hidden1
     pub w2: [f32; 1024], // 32 hidden1 * 32 hidden2
-    pub w3: [f32; 640],  // 32 hidden2 * 20 outputs
+    pub w3: [f32; 704],  // 32 hidden2 * 22 outputs
     pub food: f32,      // Replaces simple inventory
     pub water: f32,
     pub stamina: f32,
@@ -53,21 +55,21 @@ pub struct Person {
 impl Person {
     pub fn new(x: f32, y: f32, config: &crate::config::SimConfig) -> Self {
         let hidden_count = 16; // Give the agents a bigger brain so Rayon has real work to do
-        let inputs = 40;      
-        let outputs = 20;
+        let inputs: usize = 40;
+        let outputs: usize = 22;
 
         let mut rng = rand::thread_rng();
         let mut w1 = [0.0; 1280];
-        for i in 0..(inputs * hidden_count) as usize {
+        for i in 0..(inputs * hidden_count) {
             w1[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
 
         let mut w2 = [0.0; 1024];
-        for i in 0..(hidden_count * hidden_count) as usize {
+        for i in 0..(hidden_count * hidden_count) {
             w2[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
-        let mut w3 = [0.0; 640];
-        for i in 0..(hidden_count * outputs) as usize {
+        let mut w3 = [0.0; 704];
+        for i in 0..(hidden_count * outputs) {
             w3[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
 
@@ -76,7 +78,7 @@ impl Person {
             y,
             heading: rng.r#gen::<f32>() * PI * 2.0,
             speed: 1.4,
-            hidden_count,
+            hidden_count: hidden_count as u32,
             gender: if rng.r#gen::<f32>() > 0.5 { 1.0 } else { 0.0 }, // 50/50 chance
             reproduce_desire: 0.0,
             attack_intent: 0.0,
@@ -93,13 +95,15 @@ impl Person {
             sell_intent: 0.0,
             ask_price: 1.0,
             bid_price: 1.0,
+            drop_water_intent: 0.0,
+            pickup_water_intent: 0.0,
             wealth: 500.0,
             pad1: [0.0; 2],
             w1,
             w2,
             w3,
-            food: 50.0, 
-            water: 100.0,
+            food: 50000.0, 
+            water: config.max_water,
             stamina: 100.0,
             health: 100.0,
             age: rng.r#gen::<f32>() * config.max_age * 0.5, // Start between 0 and 50% of max life expectancy
@@ -116,9 +120,9 @@ impl Person {
         let mut child = *parent1;
         child.age = 0.0;
         child.health = 100.0;
-        child.food = 50.0; 
+        child.food = 50000.0;
         child.wealth = cost / 2.0; // Inherit seed money
-        child.water = 100.0;
+        child.water = parent1.water; // Child inherits water from parent, or could be config.max_water
         child.stamina = 100.0;
         
         let mut rng = rand::thread_rng();
@@ -138,6 +142,8 @@ impl Person {
         child.sell_intent = 0.0;
         child.ask_price = 1.0;
         child.bid_price = 1.0;
+        child.drop_water_intent = 0.0;
+        child.pickup_water_intent = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -164,23 +170,23 @@ impl Person {
             for i in 0..40 { child.w1[h * 40 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
             for i in 0..32 { child.w2[h * 32 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H1 out
             for i in 0..32 { child.w2[i * 32 + h] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H2 in
-            for i in 0..20 { child.w3[h * 20 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
+            for i in 0..22 { child.w3[h * 22 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // Adjusted for 2 new outputs
             child.hidden_count += 1;
         }
         
         child
     }
 
-    pub fn clone_as_descendant(&self, map_w: f32, map_h: f32) -> Self {
+    pub fn clone_as_descendant(&self, x: f32, y: f32, mutation_rate: f32, mutation_strength: f32, config: &crate::config::SimConfig) -> Self {
         let mut child = *self;
         child.age = 0.0;
         child.health = 100.0;
-        child.food = 50.0; 
-        child.water = 100.0;
+        child.food = 50000.0; 
+        child.water = config.max_water;
         child.stamina = 100.0;
         child.wealth = 500.0;
-        child.x = map_w / 2.0;
-        child.y = map_h / 2.0;
+        child.x = x;
+        child.y = y;
         
         let mut rng = rand::thread_rng();
         child.gender = if rng.r#gen::<f32>() > 0.5 { 1.0 } else { 0.0 };
@@ -199,19 +205,21 @@ impl Person {
         child.sell_intent = 0.0;
         child.ask_price = 1.0;
         child.bid_price = 1.0;
+        child.drop_water_intent = 0.0;
+        child.pickup_water_intent = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
         child.heading = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
         
         for w in child.w1.iter_mut() {
-            if rng.r#gen::<f32>() < 0.1 { *w += (rng.r#gen::<f32>() * 0.5) - 0.25; }
+            if rng.r#gen::<f32>() < mutation_rate { *w += (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength; }
         }
         for w in child.w2.iter_mut() {
-            if rng.r#gen::<f32>() < 0.1 { *w += (rng.r#gen::<f32>() * 0.5) - 0.25; }
+            if rng.r#gen::<f32>() < mutation_rate { *w += (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength; }
         }
         for w in child.w3.iter_mut() {
-            if rng.r#gen::<f32>() < 0.1 { *w += (rng.r#gen::<f32>() * 0.5) - 0.25; }
+            if rng.r#gen::<f32>() < mutation_rate { *w += (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength; }
         }
         child
     }

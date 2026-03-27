@@ -32,9 +32,11 @@ struct Agent {
     bid_price: f32,
     wealth: f32,
     pad1: array<f32, 2>,
-    w1: array<f32, 1280>,
-    w2: array<f32, 1024>,
-    w3: array<f32, 640>,
+    drop_water_intent: f32, // New
+    pickup_water_intent: f32, // New
+    w1: array<f32, 1280>, // 40 * 32
+    w2: array<f32, 1024>, // 32 * 32
+    w3: array<f32, 704>,  // 32 * 22
     food: f32,
     water: f32,
     stamina: f32,
@@ -53,7 +55,9 @@ struct SimConfig {
     base_gather_rate: f32,
     max_gather_rate: f32,
     max_tile_resource: f32,
+    max_tile_water: f32,
     boat_cost: f32,
+    water_transfer_amount: f32,
     drop_amount: f32,
     regen_rate: f32,
     max_age: f32,
@@ -72,7 +76,12 @@ struct SimConfig {
     menopause_age: f32,
     gestation_period: f32,
     tick_to_mins: f32,
-    pad1: vec2<u32>,
+    founder_count: u32,
+    random_spawn_percentage: f32,
+    mutation_rate: f32,
+    mutation_strength: f32,
+    spawn_group_size: u32,
+    pad1: array<vec4<u32>, 3>, 
 }
 
 struct CellState {
@@ -93,6 +102,7 @@ struct CellState {
     avg_bid: f32,
     market_food: f32,
     market_wealth: f32,
+    market_water: f32, // New
     pad1: array<f32, 1>,
 }
 
@@ -157,8 +167,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         local_cell.avg_rest,
         local_cell.comm1, local_cell.comm2, local_cell.comm3, local_cell.comm4,
         agent.health / cfg.max_health,
-        agent.food / cfg.boat_cost, 
-        agent.water / cfg.max_water,
+        (agent.food / 1000.0) / cfg.boat_cost, 
+        agent.water / cfg.max_water, // Water input scaling
         agent.stamina / cfg.max_stamina,
         agent.age / cfg.max_age,
         agent.gender,
@@ -168,7 +178,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         local_temp,
         season_sine,
         agent.is_pregnant, 
-        (agent.food + agent.water) / 250.0,
+        ((agent.food / 1000.0) + agent.water) / 250.0,
         local_cell.population / 15.0,
         agent.mem1, agent.mem2, agent.mem3, agent.mem4,
         agent.wealth / cfg.boat_cost,
@@ -205,12 +215,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    var outputs = array<f32, 20>();
-    for (var o = 0u; o < 20u; o = o + 1u) {
+    var outputs = array<f32, 22>(); // Increased for new water outputs
+    for (var o = 0u; o < 22u; o = o + 1u) {
         var sum = 0.0;
-        for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
+        for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) { // Use agent.hidden_count
             if (h2 < agent.hidden_count) {
-                sum = sum + hidden2[h2] * agent.w3[h2 * 20u + o];
+                sum = sum + hidden2[h2] * agent.w3[h2 * 22u + o]; // Adjusted for 22 outputs
             }
         }
         outputs[o] = tanh(sum);
@@ -231,10 +241,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.mem2 = outputs[12];
     agent.mem3 = outputs[13];
     agent.mem4 = outputs[14];
-    agent.buy_intent = clamp(outputs[15] * 0.5 + 0.5, 0.0, 1.0);
-    agent.sell_intent = clamp(outputs[16] * 0.5 + 0.5, 0.0, 1.0);
-    agent.ask_price = abs(outputs[17]) * 10.0;
-    agent.bid_price = abs(outputs[18]) * 10.0;
+    agent.buy_intent = clamp(outputs[15] * 0.5 + 0.5, 0.0, 1.0); // Food buy
+    agent.sell_intent = clamp(outputs[16] * 0.5 + 0.5, 0.0, 1.0); // Food sell
+    agent.ask_price = abs(outputs[17]) * 10.0; // Food ask price
+    agent.bid_price = abs(outputs[18]) * 10.0; // Food bid price
+    agent.drop_water_intent = clamp(outputs[19] * 0.5 + 0.5, 0.0, 1.0); // New: Water drop intent
+    agent.pickup_water_intent = clamp(outputs[20] * 0.5 + 0.5, 0.0, 1.0); // New: Water pickup intent
 
     // Hebbian Learning: dynamically adjust weights during their lifetime!
     if (abs(learn_intent) > 0.01) {
@@ -256,10 +268,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 }
             }
         }
-        for (var o = 0u; o < 20u; o = o + 1u) {
+        for (var o = 0u; o < 22u; o = o + 1u) {
             for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
                 if (h2 < agent.hidden_count) {
-                    agent.w3[h2 * 20u + o] = clamp(agent.w3[h2 * 20u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
+                    agent.w3[h2 * 22u + o] = clamp(agent.w3[h2 * 22u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0); // Adjusted for 22 outputs
                 }
             }
         }
@@ -288,7 +300,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let slope = next_height - current_height;
     let height_multiplier = 1.0 - clamp(slope * cfg.climb_penalty, -0.5, 0.9);
     
-    let total_weight = agent.food + agent.water;
+    let total_weight = (agent.food / 1000.0) + agent.water;
     let encumbrance_mult = clamp(1.0 - (total_weight / 250.0), 0.1, 1.0);
     let crowding_mult = clamp(1.0 - (local_cell.population / 15.0), 0.1, 1.0);
     
@@ -327,19 +339,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let final_height = map_heights[safe_final_idx];
 
     // Resource & Terrain Mechanics
-    if (current_height <= 0.05) { agent.water = min(agent.water + 5.0, cfg.max_water); }
+    // Removed old passive water filling at coastlines
     
+    // Newborns are smaller and burn fewer calories. Scales from 0.2 to 1.0 at puberty.
+    let maturity = clamp(agent.age / cfg.puberty_age, 0.2, 1.0);
     var rest_mult = 1.0; if (resting) { rest_mult = 0.5; }
-    agent.water = agent.water - (cfg.baseline_cost * rest_mult * preg_mult);
+    let metabolic_rate = cfg.baseline_cost * maturity * rest_mult * preg_mult;
+
+    agent.water = agent.water - metabolic_rate;
     let cold_penalty = max(0.0, -local_temp) * 0.1;
-    agent.food = agent.food - (cfg.baseline_cost * rest_mult * preg_mult) - cold_penalty;
+    agent.food = agent.food - (metabolic_rate * 1000.0) - (cold_penalty * 1000.0);
+    
+    // Food Spoilage: physical organic matter rots over time. The more you hoard, the more rots!
+    // High temperatures accelerate rot, while freezing temperatures preserve it.
+    let spoilage_multiplier = max(0.1, 1.0 + local_temp);
+    let spoilage_rate = 0.0001 * spoilage_multiplier;
+    agent.food = agent.food - (agent.food * spoilage_rate);
     
     if (agent.food < 0.0) { agent.food = 0.0; agent.health = agent.health - cfg.starvation_rate; }
     if (agent.water < 0.0) { agent.water = 0.0; agent.health = agent.health - cfg.starvation_rate; }
-    if (agent.food > cfg.baseline_cost && agent.water > cfg.baseline_cost && agent.health < cfg.max_health) {
+    if (agent.food > (metabolic_rate * 1000.0) && agent.water > metabolic_rate && agent.health < cfg.max_health) {
         agent.health = min(agent.health + (cfg.starvation_rate * 2.0), cfg.max_health);
-        agent.food = agent.food - cfg.baseline_cost; 
-        agent.water = agent.water - cfg.baseline_cost; 
+        agent.food = agent.food - (metabolic_rate * 1000.0); 
+        agent.water = agent.water - metabolic_rate; 
     }
 
     if (current_height >= 0.0) {
@@ -350,19 +372,37 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let steal_amount = min((local_cell.population - 1.0) * 0.5, 5.0);
             agent.wealth = min(agent.wealth + steal_amount * 5.0, cfg.boat_cost); // Mugging gives cash
             if (local_cell.avg_aggression > 0.5) { agent.health = agent.health - 2.0; }
-        } else if (drop_desire > 0.5 && agent.food > (cfg.drop_amount + 100.0)) {
+        } else if (agent.drop_water_intent > 0.5 && agent.water > cfg.water_transfer_amount) {
+            // Agent drops water into the cell's market_water
+            let transfer_amount = min(agent.water, cfg.water_transfer_amount);
+            agent.water = agent.water - transfer_amount;
+            local_cell.market_water = min(local_cell.market_water + transfer_amount, cfg.max_tile_water);
+        } else if (agent.pickup_water_intent > 0.5 && local_cell.market_water > 0.0 && agent.water < cfg.max_water) {
+            // Agent picks up water from the cell's market_water
+            let transfer_amount = min(cfg.water_transfer_amount, local_cell.market_water);
+            let space_available = cfg.max_water - agent.water;
+            let actual_transfer = min(transfer_amount, space_available);
+            
+            agent.water = agent.water + actual_transfer;
+            local_cell.market_water = local_cell.market_water - actual_transfer;
+        } else if (current_height <= 0.05 && agent.water < cfg.max_water) {
+            // Passive drinking from coastline if needed, but still uses cell's market_water
+            let transfer_amount = min(cfg.water_transfer_amount, local_cell.market_water);
+            let space_available = cfg.max_water - agent.water;
+            let actual_transfer = min(transfer_amount, space_available);
+            agent.water = agent.water + actual_transfer;
+            local_cell.market_water = local_cell.market_water - actual_transfer; // Still consume from cell
+        } else if (drop_desire > 0.5 && agent.food > (cfg.drop_amount * 1000.0 + 100000.0)) {
             // Community Logic: Drop resources to the current tile
-            agent.food = agent.food - cfg.drop_amount;
+            agent.food = agent.food - (cfg.drop_amount * 1000.0);
             local_cell.res_value = min(local_cell.res_value + cfg.drop_amount, cfg.max_tile_resource);
         } else if (!resting) {
             if (local_cell.res_value > 0.1) {
                 let max_mult = (cfg.max_gather_rate / cfg.base_gather_rate) - 1.0;
-                let tool_multiplier = 1.0 + min(sqrt(agent.food) * 0.1, max_mult);
+                let tool_multiplier = 1.0 + min(sqrt(agent.food / 1000.0) * 0.1, max_mult);
                 
-                // Newborns are weak and can only gather a fraction of what adults can
-                let maturity = clamp(agent.age / cfg.puberty_age, 0.2, 1.0); 
                 let gathered = min(cfg.base_gather_rate * tool_multiplier * maturity, local_cell.res_value);
-                agent.food = agent.food + gathered;
+                agent.food = agent.food + (gathered * 1000.0);
                 local_cell.res_value = local_cell.res_value - gathered;
             }
         }
@@ -371,15 +411,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         local_cell.avg_ask = mix(local_cell.avg_ask, agent.ask_price, 0.1);
         local_cell.avg_bid = mix(local_cell.avg_bid, agent.bid_price, 0.1);
         
-        if (agent.buy_intent > 0.5 && agent.wealth >= local_cell.avg_ask && local_cell.market_food >= 1.0 && local_cell.avg_ask > 0.0) {
+        if (agent.buy_intent > 0.5 && agent.wealth >= local_cell.avg_ask && local_cell.market_food >= 1000.0 && local_cell.avg_ask > 0.0) {
             agent.wealth = agent.wealth - local_cell.avg_ask;
-            agent.food = agent.food + 1.0;
+            agent.food = agent.food + 1000.0;
             local_cell.market_wealth = local_cell.market_wealth + local_cell.avg_ask;
-            local_cell.market_food = local_cell.market_food - 1.0;
-        } else if (agent.sell_intent > 0.5 && agent.food >= 1.0 && local_cell.market_wealth >= local_cell.avg_bid && local_cell.avg_bid > 0.0) {
-            agent.food = agent.food - 1.0;
+            local_cell.market_food = local_cell.market_food - 1000.0;
+        } else if (agent.sell_intent > 0.5 && agent.food >= 1000.0 && local_cell.market_wealth >= local_cell.avg_bid && local_cell.avg_bid > 0.0) {
+            agent.food = agent.food - 1000.0;
             agent.wealth = agent.wealth + local_cell.avg_bid;
-            local_cell.market_food = local_cell.market_food + 1.0;
+            local_cell.market_food = local_cell.market_food + 1000.0;
             local_cell.market_wealth = local_cell.market_wealth - local_cell.avg_bid;
         }
         
@@ -398,17 +438,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         local_cell.comm2 = mix(local_cell.comm2, agent.comm2, 0.1);
         local_cell.comm3 = mix(local_cell.comm3, agent.comm3, 0.1);
         local_cell.comm4 = mix(local_cell.comm4, agent.comm4, 0.1);
+        // Pheromone for water storage? Maybe avg_water_level or avg_water_intent
     }
     map_cells[safe_current_idx] = local_cell;
 
     // Calculate climbing exertion: positive slopes drastically increase the movement cost
-    let climb_penalty = max(0.0, slope) * 20.0; 
-    let move_cost = (act_spd * 0.1) * (1.0 + climb_penalty);
+    let climb_penalty_mult = max(0.0, slope) * cfg.climb_penalty; 
+    let move_cost = (act_spd * cfg.move_cost_per_unit) * (1.0 + climb_penalty_mult) * 1000.0;
     let is_water = final_height < 0.0;
-    let boat_threshold = 80.0; 
 
     // Water travel requires passing the boat threshold (or already being in the ocean with savings)
-    let can_enter_water = agent.wealth >= boat_threshold || (current_height < 0.0 && agent.wealth > 0.0);
+    let can_enter_water = agent.wealth >= cfg.boat_cost || (current_height < 0.0 && agent.wealth > 0.0);
 
     if (is_water && !can_enter_water) {
         agent.heading = agent.heading + 3.14159; // Turn around, can't afford a boat
@@ -424,8 +464,25 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
     
-    if (agent.age > cfg.max_age) {
-        agent.health = agent.health - (cfg.starvation_rate * 2.0); // Rapid health decline
+    // Old Age & Mortality
+    if (agent.age >= cfg.max_age) {
+        // Calculate ticks per year dynamically (365 days * 24 hours * 60 mins = 525,600 mins)
+        let ticks_per_year = 525600.0 / cfg.tick_to_mins;
+        let years_past_max = (agent.age - cfg.max_age) / ticks_per_year;
+        
+        // Progressive biological failure: mortality penalty scales exponentially the longer they live
+        let biological_decay = cfg.starvation_rate * (2.0 + pow(years_past_max, 1.5));
+        var applied_decay = biological_decay;
+        
+        // Healthcare simulation: wealthy agents spend savings to temporarily halve the aging penalty.
+        // The older they get, the exponentially more expensive these "medical bills" become.
+        let healthcare_cost = biological_decay * 50.0;
+        if (agent.wealth >= healthcare_cost) {
+            agent.wealth = agent.wealth - healthcare_cost;
+            applied_decay = biological_decay * 0.5;
+        }
+        
+        agent.health = agent.health - applied_decay;
     }
     agents[idx] = agent;
 }
