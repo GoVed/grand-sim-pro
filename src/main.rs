@@ -172,9 +172,9 @@ async fn main() {
                     let max_price_ln = 11.0_f32.ln(); // Market prices cap around $10
                     for cell in &data.sim.env.map_cells {
                         let (val, max_ln) = match current_visual_mode {
-                            VisualMode::Resources => (cell.res_value, max_res_ln),
-                            VisualMode::MarketWealth => (cell.market_wealth, max_res_ln),
-                            VisualMode::MarketFood => (cell.market_food / 1000.0, max_res_ln),
+                            VisualMode::Resources => (cell.res_value as f32 / 1000.0, max_res_ln),
+                            VisualMode::MarketWealth => (cell.market_wealth as f32 / 1000.0, max_res_ln),
+                            VisualMode::MarketFood => (cell.market_food as f32 / 1000000.0, max_res_ln),
                             VisualMode::AskPrice => (cell.avg_ask, max_price_ln),
                             VisualMode::BidPrice => (cell.avg_bid, max_price_ln),
                             _ => (0.0, 1.0),

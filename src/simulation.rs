@@ -48,4 +48,77 @@ impl SimulationManager {
         
         Self { env, agents, pending_births: std::collections::HashMap::new() }
     }
+
+    pub fn process_genetics_and_births(&mut self, config: &crate::config::SimConfig) -> bool {
+        use std::collections::{HashMap, HashSet};
+        let mut living_ids = HashSet::new();
+        let mut cell_occupants: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut dead_indices = Vec::new();
+        
+        let puberty = config.puberty_age;
+        let menopause = config.menopause_age;
+
+        for i in 0..self.agents.len() {
+            let a = &self.agents[i];
+            if a.health <= 0.0 {
+                dead_indices.push(i);
+            } else {
+                living_ids.insert(a.id);
+                let map_w = config.map_width as usize;
+                let map_h = config.map_height as usize;
+                let idx = (a.y as usize).clamp(0, map_h.saturating_sub(1)) * map_w + (a.x as usize).clamp(0, map_w.saturating_sub(1));
+                cell_occupants.entry(idx).or_default().push(i);
+            }
+        }
+
+        self.pending_births.retain(|id, _| living_ids.contains(id));
+
+        let mut modifications = false;
+        let mut births_to_process = Vec::new();
+        for mother in &self.agents {
+            if mother.gestation_timer <= 0.0 && self.pending_births.contains_key(&mother.id) {
+                births_to_process.push((mother.id, mother.x, mother.y));
+            }
+        }
+
+        for (mother_id, mx, my) in births_to_process {
+            if let Some(dead_idx) = dead_indices.pop() {
+                if let Some(mut child) = self.pending_births.remove(&mother_id) {
+                    child.x = mx;
+                    child.y = my;
+                    self.agents[dead_idx] = child;
+                    modifications = true;
+                }
+            }
+        }
+
+        let reproduction_cost = config.reproduction_cost;
+        for (_cell_idx, occupants) in cell_occupants {
+            if occupants.len() < 2 { continue; } 
+
+            let mut males = Vec::new();
+            let mut females = Vec::new();
+
+            for &idx in &occupants {
+                let a = &self.agents[idx];
+                let is_mature = a.age >= puberty && a.age <= menopause;
+                if is_mature && a.reproduce_desire > 0.5 && a.wealth >= reproduction_cost / 2.0 && a.health > config.max_health * 0.5 {
+                    if a.gender > 0.5 { males.push(idx); } else if a.gestation_timer <= 0.0 && !self.pending_births.contains_key(&a.id) { females.push(idx); }
+                }
+            }
+
+            while let (Some(m_idx), Some(f_idx)) = (males.pop(), females.pop()) {
+                let mut p1 = self.agents[m_idx].clone();
+                let mut p2 = self.agents[f_idx].clone();
+                let child = Person::reproduce_sexual(&mut p1, &mut p2, reproduction_cost);
+                self.agents[m_idx] = p1; 
+                p2.is_pregnant = 1.0;
+                p2.gestation_timer = config.gestation_period;
+                self.agents[f_idx] = p2;
+                self.pending_births.insert(p2.id, child); 
+                modifications = true;
+            }
+        }
+        modifications
+    }
 }
