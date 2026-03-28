@@ -109,36 +109,83 @@ pub fn draw_inspector(
         if left_clicked && is_hover_back { *selected_agent = None; }
         
         draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.0}g | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
-        let start_x = 50.0; let start_y = 180.0; let cs = 8.0;
-        draw_text("Inputs (48) -> H1 (32)", start_x, start_y - 65.0, 16.0, WHITE);
-        draw_text("1:Bias 2:Res 3:Pop 4:Spd 5:Shr 6:Rep 7:Atk 8:Prg 9:Trn 10:Rst", start_x, start_y - 50.0, 14.0, GRAY);
-        draw_text("11..14:C1..4 15:HP 16:Fd 17:H2O 18:Sta 19:Age 20:Gen 21..23:FwdVision", start_x, start_y - 35.0, 14.0, GRAY);
-        draw_text("24..26:LftVis 27..29:RgtVis 30:Tmp 31:Sea 32:Prg 33:Enc 34:Crw 35..42:Mem 43:Wlh 44:Ask 45:Bid", start_x, start_y - 20.0, 14.0, GRAY);
-        for h in 0..a.hidden_count as usize {
+
+        // --- Calculate Linearized Effective Influence Matrix ---
+        let mut w_eff = [[0.0_f32; 48]; 26];
+        let mut max_abs_val = 0.0_f32;
+        let h_count = a.hidden_count as usize;
+        
+        for o in 0..26 {
             for i in 0..48 {
-                let w = a.w1[h * 48 + i];
-                let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
-                draw_rectangle(start_x + i as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
+                let mut sum = 0.0;
+                for h2 in 0..h_count {
+                    let w3_val = a.w3[h2 * 26 + o];
+                    let mut h1_sum = 0.0;
+                    for h1 in 0..h_count {
+                        h1_sum += a.w2[h1 * 32 + h2] * a.w1[h1 * 48 + i];
+                    }
+                    sum += w3_val * h1_sum;
+                }
+                w_eff[o][i] = sum;
+                if sum.abs() > max_abs_val { max_abs_val = sum.abs(); }
             }
         }
-        let start_x2 = start_x + 50.0 * cs;
-        draw_text("H1 -> H2", start_x2, start_y - 65.0, 16.0, WHITE);
-        for h2 in 0..a.hidden_count as usize {
-            for h1 in 0..a.hidden_count as usize {
-                let w = a.w2[h1 * 32 + h2];
-                let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
-                draw_rectangle(start_x2 + h1 as f32 * cs, start_y + h2 as f32 * cs, cs - 1.0, cs - 1.0, color);
+
+        let input_labels = [
+            "Bias", "Local Res", "Local Pop", "Avg Speed", "Avg Share", "Avg Repro", "Avg Aggr", "Avg Preg",
+            "Avg Turn", "Avg Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4", "Health", "Food", "Water", "Stamina",
+            "Age", "Gender", "Fwd Res", "Fwd Elev", "Fwd Pop", "Left Res", "Left Elev", "Left Pop",
+            "Right Res", "Right Elev", "Right Pop", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
+            "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid",
+            "Unused 1", "Unused 2", "Unused 3"
+        ];
+        let output_labels = [
+            "Turn", "Speed", "Drop Res", "Reproduce", "Attack", "Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4",
+            "Learn", "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8",
+            "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Unused"
+        ];
+
+        // --- Render Top Influences List ---
+        let mut all_weights = Vec::with_capacity(48 * 26);
+        for o in 0..26 {
+            for i in 0..48 { all_weights.push((i, o, w_eff[o][i])); }
+        }
+        all_weights.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+        
+        draw_text("Top Direct Positive Behaviors:", 50.0, 160.0, 16.0, Color::new(0.0, 1.0, 0.5, 1.0));
+        for (idx, &(i, o, w)) in all_weights.iter().take(8).enumerate() {
+            draw_text(&format!("{}. {} -> {} ({:.2})", idx + 1, input_labels[i], output_labels[o], w), 50.0, 185.0 + idx as f32 * 20.0, 14.0, WHITE);
+        }
+        
+        draw_text("Top Direct Negative Behaviors:", 50.0, 360.0, 16.0, Color::new(1.0, 0.2, 0.2, 1.0));
+        for (idx, &(i, o, w)) in all_weights.iter().rev().take(8).enumerate() {
+            draw_text(&format!("{}. {} -> {} ({:.2})", idx + 1, input_labels[i], output_labels[o], w), 50.0, 385.0 + idx as f32 * 20.0, 14.0, WHITE);
+        }
+
+        // --- Render Interactive Heatmap ---
+        let start_x = 350.0; let start_y = 160.0; let cs = 14.0;
+        draw_text("Effective Influence Matrix (Linearized Approximation)", start_x, start_y - 20.0, 18.0, WHITE);
+        draw_text("Hover over cells to inspect exact input-to-output mappings", start_x, start_y - 5.0, 14.0, GRAY);
+        
+        for o in 0..26 {
+            for i in 0..48 {
+                let val = w_eff[o][i];
+                let norm = if max_abs_val > 0.0 { val / max_abs_val } else { 0.0 };
+                let color = if norm > 0.0 { Color::new(0.0, norm.min(1.0), 0.0, 1.0) } else { Color::new((-norm).min(1.0), 0.0, 0.0, 1.0) };
+                draw_rectangle(start_x + i as f32 * cs, start_y + o as f32 * cs, cs - 1.0, cs - 1.0, color);
             }
         }
-        let start_x3 = start_x2 + 34.0 * cs;
-        draw_text("H2 (32) -> Outputs (26)", start_x3, start_y - 65.0, 16.0, WHITE);
-        draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk 6:Rst 7..10:C1..4", start_x3, start_y - 50.0, 14.0, GRAY);
-        draw_text("11:Lrn 12..19:M1..8 20:Buy 21:Sel 22:Ask 23:Bid 24:DropH2O 25:PickH2O", start_x3, start_y - 35.0, 14.0, GRAY);
-        for o in 0..26 { 
-            for h in 0..a.hidden_count as usize {
-                let w = a.w3[h * 26 + o];
-                let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
-                draw_rectangle(start_x3 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
+        
+        // Interactive Tooltip Overlay
+        if mx >= start_x && mx < start_x + 48.0 * cs && my >= start_y && my < start_y + 26.0 * cs {
+            let i = ((mx - start_x) / cs) as usize;
+            let o = ((my - start_y) / cs) as usize;
+            if i < 48 && o < 26 {
+                let text = format!("{} -> {} : {:.2}", input_labels[i], output_labels[o], w_eff[o][i]);
+                let bg_width = measure_text(&text, None, 16, 1.0).width + 20.0;
+                draw_rectangle(mx + 10.0, my - 25.0, bg_width, 25.0, Color::new(0.1, 0.1, 0.1, 0.95));
+                draw_text(&text, mx + 20.0, my - 8.0, 16.0, YELLOW);
+                draw_rectangle_lines(start_x + i as f32 * cs, start_y + o as f32 * cs, cs - 1.0, cs - 1.0, 2.0, YELLOW);
             }
         }
     } else {
