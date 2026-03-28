@@ -13,7 +13,7 @@ use noise::{NoiseFn, Perlin, Fbm};
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CellState {
-    pub res_value: f32,
+    pub res_value: i32,      // Fixed-point (val * 1000) for GPU atomics
     pub population: f32,     // Leaves a trace when agents step here
     pub avg_speed: f32,      // Running average of agent speeds
     pub avg_share: f32,      // Running average of sharing output
@@ -28,10 +28,10 @@ pub struct CellState {
     pub comm4: f32,          // Abstract communication channel 4
     pub avg_ask: f32,        // Average price asked to sell food
     pub avg_bid: f32,        // Average price bid to buy food
-    pub market_food: f32,    // Physical food in cell liquidity pool
-    pub market_wealth: f32,  // Wealth available to buy food from agents
-    pub market_water: f32,   // Physical water in cell liquidity pool
-    pub pad1: [f32; 1],      // Exactly 80 bytes total for GPU strict alignment
+    pub market_food: i32,    // Fixed-point (val * 1000) for GPU atomics
+    pub market_wealth: i32,  // Fixed-point (val * 1000) for GPU atomics
+    pub market_water: i32,   // Fixed-point (val * 1000) for GPU atomics
+    pub pad1: [i32; 1],      // Exactly 80 bytes total for GPU strict alignment
 }
 
 pub struct Environment {
@@ -83,7 +83,7 @@ impl Environment {
                 // Initialize land based on max configured economic scale
                 let base_res = if val >= 0.0 { config.max_tile_resource } else { 0.0 };
                 map_cells.push(CellState {
-                    res_value: base_res,
+                    res_value: (base_res * 1000.0) as i32,
                     population: 0.0,
                     avg_speed: 0.0,
                     avg_share: 0.0,
@@ -98,10 +98,10 @@ impl Environment {
                     comm4: 0.0,
                     avg_ask: 1.0,
                     avg_bid: 1.0,
-                    market_food: 50000.0,
-                    market_wealth: base_res, // Cells start with money to buy initial farmed crops
-                    market_water: if val < -0.2 { config.max_tile_water } else { 0.0 }, // Coastlines start with water
-                    pad1: [0.0; 1],
+                    market_food: 50_000_000,
+                    market_wealth: (base_res * 1000.0) as i32, // Cells start with money to buy initial farmed crops
+                    market_water: if val < -0.2 { (config.max_tile_water * 1000.0) as i32 } else { 0 }, // Coastlines start with water
+                    pad1: [0; 1],
                 });
             }
         }

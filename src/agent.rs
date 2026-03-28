@@ -11,6 +11,13 @@
 use std::f32::consts::PI;
 use rand::Rng;
 
+pub const NUM_INPUTS: usize = 40;
+pub const NUM_HIDDEN_MAX: usize = 32;
+pub const NUM_OUTPUTS: usize = 22;
+pub const W1_SIZE: usize = NUM_INPUTS * NUM_HIDDEN_MAX;
+pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
+pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Person {
@@ -39,9 +46,9 @@ pub struct Person {
     pub pickup_water_intent: f32, // New: Intent to pick up water from cell
     pub wealth: f32,
     pub pad1: [f32; 2],  // Perfect 96-byte structural header
-    pub w1: [f32; 1280], // 40 inputs * 32 hidden1
-    pub w2: [f32; 1024], // 32 hidden1 * 32 hidden2
-    pub w3: [f32; 704],  // 32 hidden2 * 22 outputs
+    pub w1: [f32; W1_SIZE],
+    pub w2: [f32; W2_SIZE],
+    pub w3: [f32; W3_SIZE],
     pub food: f32,      // Replaces simple inventory
     pub water: f32,
     pub stamina: f32,
@@ -54,22 +61,20 @@ pub struct Person {
 
 impl Person {
     pub fn new(x: f32, y: f32, config: &crate::config::SimConfig) -> Self {
-        let hidden_count = 16; // Give the agents a bigger brain so Rayon has real work to do
-        let inputs: usize = 40;
-        let outputs: usize = 22;
+        let hidden_count = 16;
 
         let mut rng = rand::thread_rng();
-        let mut w1 = [0.0; 1280];
-        for i in 0..(inputs * hidden_count) {
+        let mut w1 = [0.0; W1_SIZE];
+        for i in 0..(NUM_INPUTS * hidden_count) {
             w1[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
 
-        let mut w2 = [0.0; 1024];
+        let mut w2 = [0.0; W2_SIZE];
         for i in 0..(hidden_count * hidden_count) {
             w2[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
-        let mut w3 = [0.0; 704];
-        for i in 0..(hidden_count * outputs) {
+        let mut w3 = [0.0; W3_SIZE];
+        for i in 0..(hidden_count * NUM_OUTPUTS) {
             w3[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
         }
 
@@ -165,12 +170,12 @@ impl Person {
         }
 
         // 2. Structural mutation
-        if rng.r#gen::<f32>() < 0.05 && child.hidden_count < 32 {
+        if rng.r#gen::<f32>() < 0.05 && child.hidden_count < NUM_HIDDEN_MAX as u32 {
             let h = child.hidden_count as usize;
-            for i in 0..40 { child.w1[h * 40 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
-            for i in 0..32 { child.w2[h * 32 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H1 out
-            for i in 0..32 { child.w2[i * 32 + h] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H2 in
-            for i in 0..22 { child.w3[h * 22 + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // Adjusted for 2 new outputs
+            for i in 0..NUM_INPUTS { child.w1[h * NUM_INPUTS + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
+            for i in 0..NUM_HIDDEN_MAX { child.w2[h * NUM_HIDDEN_MAX + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H1 out
+            for i in 0..NUM_HIDDEN_MAX { child.w2[i * NUM_HIDDEN_MAX + h] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H2 in
+            for i in 0..NUM_OUTPUTS { child.w3[h * NUM_OUTPUTS + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // Adjusted for 2 new outputs
             child.hidden_count += 1;
         }
         

@@ -11,7 +11,6 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::collections::{HashMap, HashSet};
 
 use crate::shared::SharedData;
 use crate::gpu_engine::GpuEngine;
@@ -37,84 +36,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 data.sim.agents = agents;
                 data.sim.env.map_cells = cells;
 
-                // --- CPU Gestation & Birth Pass ---
-                let mut living_ids = HashSet::new();
-                let mut cell_occupants: HashMap<usize, Vec<usize>> = HashMap::new();
-                let mut dead_indices = Vec::new();
-                
-                let puberty = data.config.puberty_age;
-                let menopause = data.config.menopause_age;
-
-                for i in 0..data.sim.agents.len() {
-                    let a = &data.sim.agents[i];
-                    if a.health <= 0.0 {
-                        dead_indices.push(i);
-                    } else {
-                        living_ids.insert(a.id);
-                        let map_w = data.config.map_width as usize;
-                        let map_h = data.config.map_height as usize;
-                        let idx = (a.y as usize).clamp(0, map_h.saturating_sub(1)) * map_w + (a.x as usize).clamp(0, map_w.saturating_sub(1));
-                        cell_occupants.entry(idx).or_default().push(i);
-                    }
-                }
-
-                // Clean up miscarriages if mother dies
-                data.sim.pending_births.retain(|id, _| living_ids.contains(id));
-
-                let mut modifications = false;
-
-                let mut births_to_process = Vec::new();
-                for mother in &data.sim.agents {
-                    if mother.gestation_timer <= 0.0 && data.sim.pending_births.contains_key(&mother.id) {
-                        births_to_process.push((mother.id, mother.x, mother.y));
-                    }
-                }
-
-                for (mother_id, mx, my) in births_to_process {
-                    if let Some(dead_idx) = dead_indices.pop() {
-                        if let Some(mut child) = data.sim.pending_births.remove(&mother_id) {
-                            child.x = mx;
-                            child.y = my;
-                            data.sim.agents[dead_idx] = child;
-                            modifications = true;
-                        }
-                    }
-                }
-
-                // --- CPU Sexual Genetics Pass ---
-                let reproduction_cost = data.config.reproduction_cost;
-                
-                for (_cell_idx, occupants) in cell_occupants {
-                    if occupants.len() < 2 { continue; } // Need at least 2 people to mate
-
-                    let mut males = Vec::new();
-                    let mut females = Vec::new();
-
-                    for &idx in &occupants {
-                        let a = &data.sim.agents[idx];
-                        let is_mature = a.age >= puberty && a.age <= menopause;
-                        if is_mature && a.reproduce_desire > 0.5 && a.wealth >= reproduction_cost / 2.0 && a.health > data.config.max_health * 0.5 {
-                            if a.gender > 0.5 { males.push(idx); } else if a.gestation_timer <= 0.0 && !data.sim.pending_births.contains_key(&a.id) { females.push(idx); }
-                        }
-                    }
-
-                    // Pair them up
-                    while let (Some(m_idx), Some(f_idx)) = (males.pop(), females.pop()) {
-                        let mut p1 = data.sim.agents[m_idx].clone();
-                        let mut p2 = data.sim.agents[f_idx].clone();
-                        
-                        let child = Person::reproduce_sexual(&mut p1, &mut p2, reproduction_cost);
-                        
-                        data.sim.agents[m_idx] = p1; // Deduct money from father
-                        
-                        p2.is_pregnant = 1.0;
-                        p2.gestation_timer = data.config.gestation_period;
-                        data.sim.agents[f_idx] = p2;
-                        
-                        data.sim.pending_births.insert(p2.id, child); // Mother physically carries the genetic material
-                        modifications = true;
-                    }
-                }
+                let config = data.config;
+                let modifications = data.sim.process_genetics_and_births(&config);
 
                 // Send mutated population back to VRAM
                 if modifications { gpu.update_agents(&data.sim.agents); }
