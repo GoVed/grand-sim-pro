@@ -11,9 +11,9 @@
 use std::f32::consts::PI;
 use rand::Rng;
 
-pub const NUM_INPUTS: usize = 40;
+pub const NUM_INPUTS: usize = 48;
 pub const NUM_HIDDEN_MAX: usize = 32;
-pub const NUM_OUTPUTS: usize = 22;
+pub const NUM_OUTPUTS: usize = 26;
 pub const W1_SIZE: usize = NUM_INPUTS * NUM_HIDDEN_MAX;
 pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
 pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
@@ -38,14 +38,17 @@ pub struct Person {
     pub mem2: f32,
     pub mem3: f32,
     pub mem4: f32,
+    pub mem5: f32,
+    pub mem6: f32,
+    pub mem7: f32,
+    pub mem8: f32,
     pub buy_intent: f32,
     pub sell_intent: f32,
     pub ask_price: f32,
     pub bid_price: f32,
-    pub drop_water_intent: f32, // New: Intent to drop water into cell
-    pub pickup_water_intent: f32, // New: Intent to pick up water from cell
     pub wealth: f32,
-    pub pad1: [f32; 2],  // Perfect 96-byte structural header
+    pub drop_water_intent: f32,
+    pub pickup_water_intent: f32,
     pub w1: [f32; W1_SIZE],
     pub w2: [f32; W2_SIZE],
     pub w3: [f32; W3_SIZE],
@@ -96,14 +99,17 @@ impl Person {
             mem2: 0.0,
             mem3: 0.0,
             mem4: 0.0,
+            mem5: 0.0,
+            mem6: 0.0,
+            mem7: 0.0,
+            mem8: 0.0,
             buy_intent: 0.0,
             sell_intent: 0.0,
             ask_price: 1.0,
             bid_price: 1.0,
+            wealth: 500.0,
             drop_water_intent: 0.0,
             pickup_water_intent: 0.0,
-            wealth: 500.0,
-            pad1: [0.0; 2],
             w1,
             w2,
             w3,
@@ -143,6 +149,10 @@ impl Person {
         child.mem2 = 0.0;
         child.mem3 = 0.0;
         child.mem4 = 0.0;
+        child.mem5 = 0.0;
+        child.mem6 = 0.0;
+        child.mem7 = 0.0;
+        child.mem8 = 0.0;
         child.buy_intent = 0.0;
         child.sell_intent = 0.0;
         child.ask_price = 1.0;
@@ -206,6 +216,10 @@ impl Person {
         child.mem2 = 0.0;
         child.mem3 = 0.0;
         child.mem4 = 0.0;
+        child.mem5 = 0.0;
+        child.mem6 = 0.0;
+        child.mem7 = 0.0;
+        child.mem8 = 0.0;
         child.buy_intent = 0.0;
         child.sell_intent = 0.0;
         child.ask_price = 1.0;
