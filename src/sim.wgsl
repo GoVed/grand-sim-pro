@@ -26,17 +26,20 @@ struct Agent {
     mem2: f32,
     mem3: f32,
     mem4: f32,
+    mem5: f32,
+    mem6: f32,
+    mem7: f32,
+    mem8: f32,
     buy_intent: f32,
     sell_intent: f32,
     ask_price: f32,
     bid_price: f32,
     wealth: f32,
-    pad1: array<f32, 2>,
-    drop_water_intent: f32, // New
-    pickup_water_intent: f32, // New
-    w1: array<f32, 1280>, // 40 * 32
+    drop_water_intent: f32,
+    pickup_water_intent: f32,
+    w1: array<f32, 1536>, // 48 * 32
     w2: array<f32, 1024>, // 32 * 32
-    w3: array<f32, 704>,  // 32 * 22
+    w3: array<f32, 832>,  // 32 * 26
     food: f32,
     water: f32,
     stamina: f32,
@@ -167,19 +170,40 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, current_height * 2.0);
     let local_temp = base_temp + season_sine * 0.5;
 
+    // Cone of Vision: Forward, Left, and Right
     let look_dist = 10.0;
-    let look_x = agent.x + cos(agent.heading) * look_dist;
-    let look_y = agent.y + sin(agent.heading) * look_dist;
-    var look_wrap_x = look_x % map_w_f32; if (look_wrap_x < 0.0) { look_wrap_x = look_wrap_x + map_w_f32; }
-    var look_wrap_y = look_y % map_h_f32; if (look_wrap_y < 0.0) { look_wrap_y = look_wrap_y + map_h_f32; }
-    let look_idx = clamp(u32(look_wrap_y) * map_width + u32(look_wrap_x), 0u, max_idx);
-    let look_height = map_heights[look_idx];
-    let look_res_value = f32(atomicLoad(&map_cells[look_idx].res_value)) / 1000.0;
-    let look_population = map_cells[look_idx].population;
+    let look_f_x = agent.x + cos(agent.heading) * look_dist;
+    let look_f_y = agent.y + sin(agent.heading) * look_dist;
+    var lf_wx = look_f_x % map_w_f32; if (lf_wx < 0.0) { lf_wx = lf_wx + map_w_f32; }
+    var lf_wy = look_f_y % map_h_f32; if (lf_wy < 0.0) { lf_wy = lf_wy + map_h_f32; }
+    let look_f_idx = clamp(u32(lf_wy) * map_width + u32(lf_wx), 0u, max_idx);
+    let look_f_h = map_heights[look_f_idx];
+    let look_f_res = f32(atomicLoad(&map_cells[look_f_idx].res_value)) / 1000.0;
+    let look_f_pop = map_cells[look_f_idx].population;
+
+    let angle_l = agent.heading - 0.785398; // -45 deg
+    let look_l_x = agent.x + cos(angle_l) * look_dist;
+    let look_l_y = agent.y + sin(angle_l) * look_dist;
+    var ll_wx = look_l_x % map_w_f32; if (ll_wx < 0.0) { ll_wx = ll_wx + map_w_f32; }
+    var ll_wy = look_l_y % map_h_f32; if (ll_wy < 0.0) { ll_wy = ll_wy + map_h_f32; }
+    let look_l_idx = clamp(u32(ll_wy) * map_width + u32(ll_wx), 0u, max_idx);
+    let look_l_h = map_heights[look_l_idx];
+    let look_l_res = f32(atomicLoad(&map_cells[look_l_idx].res_value)) / 1000.0;
+    let look_l_pop = map_cells[look_l_idx].population;
+
+    let angle_r = agent.heading + 0.785398; // +45 deg
+    let look_r_x = agent.x + cos(angle_r) * look_dist;
+    let look_r_y = agent.y + sin(angle_r) * look_dist;
+    var lr_wx = look_r_x % map_w_f32; if (lr_wx < 0.0) { lr_wx = lr_wx + map_w_f32; }
+    var lr_wy = look_r_y % map_h_f32; if (lr_wy < 0.0) { lr_wy = lr_wy + map_h_f32; }
+    let look_r_idx = clamp(u32(lr_wy) * map_width + u32(lr_wx), 0u, max_idx);
+    let look_r_h = map_heights[look_r_idx];
+    let look_r_res = f32(atomicLoad(&map_cells[look_r_idx].res_value)) / 1000.0;
+    let look_r_pop = map_cells[look_r_idx].population;
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 40>(
-        1.0, agent.x / map_w_f32, agent.y / map_h_f32, local_res_value / 1000.0,
+    var inputs = array<f32, 48>(
+        1.0, local_res_value / 1000.0,
         local_population,
         local_avg_speed + (pseudo_rand * 0.1 - 0.05), 
         local_avg_share + (pseudo_rand * 0.1 - 0.05),
@@ -195,15 +219,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         agent.stamina / cfg.max_stamina,
         agent.age / cfg.max_age,
         agent.gender,
-        look_res_value / 1000.0,
-        look_height,
-        look_population,
+        look_f_res, look_f_h, look_f_pop,
+        look_l_res, look_l_h, look_l_pop,
+        look_r_res, look_r_h, look_r_pop,
         local_temp,
         season_sine,
         agent.is_pregnant, 
         ((agent.food / 1000.0) + agent.water) / 250.0,
         local_population / 15.0,
         agent.mem1, agent.mem2, agent.mem3, agent.mem4,
+        agent.mem5, agent.mem6, agent.mem7, agent.mem8,
         agent.wealth / cfg.boat_cost,
         local_avg_ask / 10.0,
         local_avg_bid / 10.0,
@@ -214,8 +239,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
         var sum = 0.0;
         if (h1 < agent.hidden_count) {
-            for (var i = 0u; i < 40u; i = i + 1u) {
-                sum = sum + inputs[i] * agent.w1[h1 * 40u + i];
+            for (var i = 0u; i < 48u; i = i + 1u) {
+                sum = sum + inputs[i] * agent.w1[h1 * 48u + i];
             }
             hidden1[h1] = tanh(sum);
         } else {
@@ -238,12 +263,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    var outputs = array<f32, 22>(); // Increased for new water outputs
-    for (var o = 0u; o < 22u; o = o + 1u) {
+    var outputs = array<f32, 26>(); 
+    for (var o = 0u; o < 26u; o = o + 1u) {
         var sum = 0.0;
         for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) { // Use agent.hidden_count
             if (h2 < agent.hidden_count) {
-                sum = sum + hidden2[h2] * agent.w3[h2 * 22u + o]; // Adjusted for 22 outputs
+                sum = sum + hidden2[h2] * agent.w3[h2 * 26u + o];
             }
         }
         outputs[o] = tanh(sum);
@@ -264,12 +289,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.mem2 = outputs[12];
     agent.mem3 = outputs[13];
     agent.mem4 = outputs[14];
-    agent.buy_intent = clamp(outputs[15] * 0.5 + 0.5, 0.0, 1.0); // Food buy
-    agent.sell_intent = clamp(outputs[16] * 0.5 + 0.5, 0.0, 1.0); // Food sell
-    agent.ask_price = abs(outputs[17]) * 10.0; // Food ask price
-    agent.bid_price = abs(outputs[18]) * 10.0; // Food bid price
-    agent.drop_water_intent = clamp(outputs[19] * 0.5 + 0.5, 0.0, 1.0); // New: Water drop intent
-    agent.pickup_water_intent = clamp(outputs[20] * 0.5 + 0.5, 0.0, 1.0); // New: Water pickup intent
+    agent.mem5 = outputs[15];
+    agent.mem6 = outputs[16];
+    agent.mem7 = outputs[17];
+    agent.mem8 = outputs[18];
+    agent.buy_intent = clamp(outputs[19] * 0.5 + 0.5, 0.0, 1.0);
+    agent.sell_intent = clamp(outputs[20] * 0.5 + 0.5, 0.0, 1.0);
+    agent.ask_price = abs(outputs[21]) * 10.0;
+    agent.bid_price = abs(outputs[22]) * 10.0;
+    agent.drop_water_intent = clamp(outputs[23] * 0.5 + 0.5, 0.0, 1.0); 
+    agent.pickup_water_intent = clamp(outputs[24] * 0.5 + 0.5, 0.0, 1.0); 
 
     var base_speed = speed_intent * cfg.base_speed;
     var resting = false;
@@ -500,8 +529,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let lr = dopamine_signal * learn_intent * 0.0005; // Smaller base learning rate, modulated by dopamine
 
         for (var h1 = 0u; h1 < agent.hidden_count; h1 = h1 + 1u) {
-            for (var i = 0u; i < 40u; i = i + 1u) {
-                agent.w1[h1 * 40u + i] = clamp(agent.w1[h1 * 40u + i] + lr * inputs[i] * hidden1[h1], -2.0, 2.0);
+            for (var i = 0u; i < 48u; i = i + 1u) {
+                agent.w1[h1 * 48u + i] = clamp(agent.w1[h1 * 48u + i] + lr * inputs[i] * hidden1[h1], -2.0, 2.0);
             }
         }
         for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) {
@@ -509,9 +538,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 agent.w2[h1 * 32u + h2] = clamp(agent.w2[h1 * 32u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
             }
         }
-        for (var o = 0u; o < 22u; o = o + 1u) {
+        for (var o = 0u; o < 26u; o = o + 1u) {
             for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) {
-                agent.w3[h2 * 22u + o] = clamp(agent.w3[h2 * 22u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
+                agent.w3[h2 * 26u + o] = clamp(agent.w3[h2 * 26u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
             }
         }
     }

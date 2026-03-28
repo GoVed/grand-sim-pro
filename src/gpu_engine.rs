@@ -23,7 +23,13 @@ impl GpuEngine {
                 ..Default::default()
             });
             let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await.unwrap();
-            let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default(), None).await.unwrap();
+            let (device, queue) = adapter.request_device(
+                &wgpu::DeviceDescriptor {
+                    required_limits: adapter.limits(), // Request max hardware limits instead of 128MB default
+                    ..Default::default()
+                },
+                None,
+            ).await.unwrap();
 
             let agent_bytes = bytemuck::cast_slice(agents);
             let agent_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

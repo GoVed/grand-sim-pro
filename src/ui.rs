@@ -109,19 +109,19 @@ pub fn draw_inspector(
         if left_clicked && is_hover_back { *selected_agent = None; }
         
         draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.0}g | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
-        let start_x = 50.0; let start_y = 180.0; let cs = 10.0;
-        draw_text("Inputs (40) -> H1 (32)", start_x, start_y - 65.0, 16.0, WHITE);
-        draw_text("1:Bias 2:X 3:Y 4:Res 5:Pop 6:Spd 7:Shr 8:Rep 9:Atk 10:Prg", start_x, start_y - 50.0, 14.0, GRAY);
-        draw_text("11:Trn 12:Rst 13:C1 14:C2 15:C3 16:C4 17:HP 18:Fd 19:H2O 20:Sta", start_x, start_y - 35.0, 14.0, GRAY);
-        draw_text("21:Age 22:Gen 23:LRes 24:LElv 25:LPop 26:Tmp 27:Sea 28:Prg 29:Enc 30:Crw 31..34:Mem 35:Wlh 36:Ask 37:Bid", start_x, start_y - 20.0, 14.0, GRAY);
+        let start_x = 50.0; let start_y = 180.0; let cs = 8.0;
+        draw_text("Inputs (48) -> H1 (32)", start_x, start_y - 65.0, 16.0, WHITE);
+        draw_text("1:Bias 2:Res 3:Pop 4:Spd 5:Shr 6:Rep 7:Atk 8:Prg 9:Trn 10:Rst", start_x, start_y - 50.0, 14.0, GRAY);
+        draw_text("11..14:C1..4 15:HP 16:Fd 17:H2O 18:Sta 19:Age 20:Gen 21..23:FwdVision", start_x, start_y - 35.0, 14.0, GRAY);
+        draw_text("24..26:LftVis 27..29:RgtVis 30:Tmp 31:Sea 32:Prg 33:Enc 34:Crw 35..42:Mem 43:Wlh 44:Ask 45:Bid", start_x, start_y - 20.0, 14.0, GRAY);
         for h in 0..a.hidden_count as usize {
-            for i in 0..40 {
-                let w = a.w1[h * 40 + i];
+            for i in 0..48 {
+                let w = a.w1[h * 48 + i];
                 let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                 draw_rectangle(start_x + i as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
             }
         }
-        let start_x2 = start_x + 42.0 * cs;
+        let start_x2 = start_x + 50.0 * cs;
         draw_text("H1 -> H2", start_x2, start_y - 65.0, 16.0, WHITE);
         for h2 in 0..a.hidden_count as usize {
             for h1 in 0..a.hidden_count as usize {
@@ -131,12 +131,12 @@ pub fn draw_inspector(
             }
         }
         let start_x3 = start_x2 + 34.0 * cs;
-        draw_text("H2 (32) -> Outputs (22)", start_x3, start_y - 65.0, 16.0, WHITE);
-        draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk 6:Rst 7:C1 8:C2", start_x3, start_y - 50.0, 14.0, GRAY);
-        draw_text("9:C3 10:C4 11:Lrn 12..15:M1..M4 16:Buy 17:Sel 18:Ask 19:Bid 20:DropH2O 21:PickH2O", start_x3, start_y - 35.0, 14.0, GRAY);
-        for o in 0..22 { // Adjusted for 22 outputs
+        draw_text("H2 (32) -> Outputs (26)", start_x3, start_y - 65.0, 16.0, WHITE);
+        draw_text("1:Trn 2:Spd 3:Shr 4:Rep 5:Atk 6:Rst 7..10:C1..4", start_x3, start_y - 50.0, 14.0, GRAY);
+        draw_text("11:Lrn 12..19:M1..8 20:Buy 21:Sel 22:Ask 23:Bid 24:DropH2O 25:PickH2O", start_x3, start_y - 35.0, 14.0, GRAY);
+        for o in 0..26 { 
             for h in 0..a.hidden_count as usize {
-                let w = a.w3[h * 20 + o];
+                let w = a.w3[h * 26 + o];
                 let color = if w > 0.0 { Color::new(0.0, w.min(1.0), 0.0, 1.0) } else { Color::new((-w).min(1.0), 0.0, 0.0, 1.0) };
                 draw_rectangle(start_x3 + o as f32 * cs, start_y + h as f32 * cs, cs - 1.0, cs - 1.0, color);
             }
