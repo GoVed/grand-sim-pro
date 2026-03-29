@@ -167,9 +167,10 @@ async fn main() {
             // Dynamic map generation based on toggle state
             local_map_data.clear();
             match current_visual_mode {
-                VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice => {
+                VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice | VisualMode::Shelter => {
                     let max_res_ln = (data.config.max_tile_resource + 1.0).ln();
                     let max_price_ln = 11.0_f32.ln(); // Market prices cap around $10
+                    let max_shelter_ln = (data.config.max_shelter + 1.0).ln();
                     for cell in &data.sim.env.map_cells {
                         let (val, max_ln) = match current_visual_mode {
                             VisualMode::Resources => (cell.res_value as f32 / 1000.0, max_res_ln),
@@ -177,14 +178,21 @@ async fn main() {
                             VisualMode::MarketFood => (cell.market_food as f32 / 1000000.0, max_res_ln),
                             VisualMode::AskPrice => (cell.avg_ask, max_price_ln),
                             VisualMode::BidPrice => (cell.avg_bid, max_price_ln),
+                            VisualMode::Shelter => (cell.shelter_level, max_shelter_ln),
                             _ => (0.0, 1.0),
                         };
                         let mut r = 10; let mut g = 50; let mut b = 150; // Base Water
                         if val > 0.0 {
                             let ratio = ((val + 1.0).ln() / max_ln).clamp(0.0, 1.0);
-                            r = ((1.0 - ratio) * 255.0) as u8;
-                            g = (ratio * 255.0) as u8;
-                            b = 0;
+                            if current_visual_mode == VisualMode::Shelter {
+                                r = (ratio * 139.0) as u8; // SaddleBrown color for shelters
+                                g = (ratio * 69.0) as u8;
+                                b = (ratio * 19.0) as u8;
+                            } else {
+                                r = ((1.0 - ratio) * 255.0) as u8;
+                                g = (ratio * 255.0) as u8;
+                                b = 0;
+                            }
                         }
                         local_map_data.extend_from_slice(&[r, g, b, 255]);
                     }
@@ -222,6 +230,12 @@ async fn main() {
         // --- Rendering ---
         clear_background(BLACK);
 
+        // --- Day/Night Cycle Visuals ---
+        let ticks_per_day = 24.0 * 60.0 / loaded_config.tick_to_mins;
+        let day_cycle_progress = (ticks as f32 % ticks_per_day) / ticks_per_day;
+        let day_intensity = (f32::sin(day_cycle_progress * std::f32::consts::PI * 2.0 - std::f32::consts::FRAC_PI_2) * 0.5 + 0.5).powf(0.7);
+        let visual_intensity = day_intensity.max(0.25); // Minimum brightness of 25% at midnight
+
         let cam = Camera2D {
             target: vec2(map_width as f32 / 2.0 - offset_x, map_height as f32 / 2.0 - offset_y),
             // -zoom for the Y axis is used here to match a 2D top-left Origin standard
@@ -236,6 +250,7 @@ async fn main() {
             texture.update(&image);
         }
         draw_texture(&texture, 0.0, 0.0, WHITE);
+        draw_texture(&texture, 0.0, 0.0, Color::new(visual_intensity, visual_intensity, visual_intensity, 1.0));
 
         // 2. High-performance Agent Rendering
         let max_inv_ln = (loaded_config.boat_cost * 0.25 + 1.0).ln();
@@ -260,9 +275,12 @@ async fn main() {
                 },
                 VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) },
                 VisualMode::Pregnancy => if a.is_pregnant > 0.5 { Color::new(1.0, 0.8, 0.0, 1.0) } else if a.gender > 0.5 { Color::new(0.2, 0.4, 0.8, 0.5) } else { Color::new(0.8, 0.2, 0.5, 0.5) },
-                VisualMode::Default => WHITE,
+                VisualMode::Default | VisualMode::Shelter => WHITE,
             };
             draw_circle(a.x, a.y, radius, color);
+            
+            let final_color = Color::new(color.r * visual_intensity, color.g * visual_intensity, color.b * visual_intensity, color.a);
+            draw_circle(a.x, a.y, radius, final_color);
         }
 
         if let Some(ref a) = followed_agent {

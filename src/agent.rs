@@ -166,17 +166,17 @@ impl Person {
         // 1. Crossover Genetics and Mutate
         for i in 0..child.w1.len() {
             child.w1[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1[i] } else { parent2.w1[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w1[i] += (rng.r#gen::<f32>() * 0.5) - 0.25; }
+            if rng.r#gen::<f32>() < 0.1 { child.w1[i] = (child.w1[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
         }
         
         for i in 0..child.w2.len() {
             child.w2[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w2[i] } else { parent2.w2[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w2[i] += (rng.r#gen::<f32>() * 0.5) - 0.25; }
+            if rng.r#gen::<f32>() < 0.1 { child.w2[i] = (child.w2[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
         }
 
         for i in 0..child.w3.len() {
             child.w3[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w3[i] } else { parent2.w3[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w3[i] += (rng.r#gen::<f32>() * 0.5) - 0.25; }
+            if rng.r#gen::<f32>() < 0.1 { child.w3[i] = (child.w3[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
         }
 
         // 2. Structural mutation
@@ -232,13 +232,13 @@ impl Person {
         child.heading = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
         
         for w in child.w1.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w += (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength; }
+            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
         }
         for w in child.w2.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w += (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength; }
+            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
         }
         for w in child.w3.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w += (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength; }
+            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
         }
         child
     }
