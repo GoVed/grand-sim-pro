@@ -249,7 +249,6 @@ async fn main() {
             image.bytes.copy_from_slice(&local_map_data);
             texture.update(&image);
         }
-        draw_texture(&texture, 0.0, 0.0, WHITE);
         draw_texture(&texture, 0.0, 0.0, Color::new(visual_intensity, visual_intensity, visual_intensity, 1.0));
 
         // 2. High-performance Agent Rendering
@@ -277,7 +276,6 @@ async fn main() {
                 VisualMode::Pregnancy => if a.is_pregnant > 0.5 { Color::new(1.0, 0.8, 0.0, 1.0) } else if a.gender > 0.5 { Color::new(0.2, 0.4, 0.8, 0.5) } else { Color::new(0.8, 0.2, 0.5, 0.5) },
                 VisualMode::Default | VisualMode::Shelter => WHITE,
             };
-            draw_circle(a.x, a.y, radius, color);
             
             let final_color = Color::new(color.r * visual_intensity, color.g * visual_intensity, color.b * visual_intensity, color.a);
             draw_circle(a.x, a.y, radius, final_color);

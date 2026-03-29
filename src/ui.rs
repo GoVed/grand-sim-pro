@@ -138,8 +138,8 @@ pub fn draw_inspector(
             "Avg Turn", "Avg Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4", "Health", "Food", "Water", "Stamina",
             "Age", "Gender", "Fwd Res", "Fwd Elev", "Fwd Pop", "Left Res", "Left Elev", "Left Pop",
             "Right Res", "Right Elev", "Right Pop", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
-            "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid",
-            "Unused 1", "Unused 2", "Unused 3"
+            "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid", "Daylight",
+            "Unused 2", "Unused 3"
         ];
         let output_labels = [
             "Turn", "Speed", "Drop Res", "Reproduce", "Attack", "Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4",

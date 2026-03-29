@@ -161,6 +161,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Generate chaos/noise using the agent's spatial position
     let pseudo_rand = fract(sin(dot(vec2<f32>(agent.x, agent.y), vec2<f32>(12.9898, 78.233))) * 43758.5453);
 
+    // --- Day/Night Cycle ---
+    let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
+    let day_cycle_progress = (f32(cfg.current_tick) % ticks_per_day) / ticks_per_day; // 0.0 to 1.0
+    let day_intensity = sin(day_cycle_progress * 6.28318 - 1.5708) * 0.5 + 0.5; // Sine wave, 0.0 at midnight, 1.0 at noon
+
     // Environment & Vision Pre-Calculation
     let current_height = map_heights[safe_current_idx];
     
@@ -168,18 +173,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let season_sine = sin(season_time);
     let dist_from_equator = abs(agent.y - map_h_f32 / 2.0) / (map_h_f32 / 2.0);
     let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, current_height * 2.0);
-    let local_temp = base_temp + season_sine * 0.5;
+    let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; // Nights are colder
 
     // Cone of Vision: Forward, Left, and Right
     let look_dist = 10.0;
+    let vision_multiplier = 0.3 + day_intensity * 0.7; // Vision is 30% at midnight, 100% at noon
     let look_f_x = agent.x + cos(agent.heading) * look_dist;
     let look_f_y = agent.y + sin(agent.heading) * look_dist;
     var lf_wx = look_f_x % map_w_f32; if (lf_wx < 0.0) { lf_wx = lf_wx + map_w_f32; }
     var lf_wy = look_f_y % map_h_f32; if (lf_wy < 0.0) { lf_wy = lf_wy + map_h_f32; }
     let look_f_idx = clamp(u32(lf_wy) * map_width + u32(lf_wx), 0u, max_idx);
     let look_f_h = map_heights[look_f_idx];
-    let look_f_res = f32(atomicLoad(&map_cells[look_f_idx].res_value)) / 1000.0;
-    let look_f_pop = map_cells[look_f_idx].population;
+    let look_f_res = f32(atomicLoad(&map_cells[look_f_idx].res_value)) / 1000.0 * vision_multiplier;
+    let look_f_pop = map_cells[look_f_idx].population * vision_multiplier;
 
     let angle_l = agent.heading - 0.785398; // -45 deg
     let look_l_x = agent.x + cos(angle_l) * look_dist;
@@ -188,8 +194,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var ll_wy = look_l_y % map_h_f32; if (ll_wy < 0.0) { ll_wy = ll_wy + map_h_f32; }
     let look_l_idx = clamp(u32(ll_wy) * map_width + u32(ll_wx), 0u, max_idx);
     let look_l_h = map_heights[look_l_idx];
-    let look_l_res = f32(atomicLoad(&map_cells[look_l_idx].res_value)) / 1000.0;
-    let look_l_pop = map_cells[look_l_idx].population;
+    let look_l_res = f32(atomicLoad(&map_cells[look_l_idx].res_value)) / 1000.0 * vision_multiplier;
+    let look_l_pop = map_cells[look_l_idx].population * vision_multiplier;
 
     let angle_r = agent.heading + 0.785398; // +45 deg
     let look_r_x = agent.x + cos(angle_r) * look_dist;
@@ -198,8 +204,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var lr_wy = look_r_y % map_h_f32; if (lr_wy < 0.0) { lr_wy = lr_wy + map_h_f32; }
     let look_r_idx = clamp(u32(lr_wy) * map_width + u32(lr_wx), 0u, max_idx);
     let look_r_h = map_heights[look_r_idx];
-    let look_r_res = f32(atomicLoad(&map_cells[look_r_idx].res_value)) / 1000.0;
-    let look_r_pop = map_cells[look_r_idx].population;
+    let look_r_res = f32(atomicLoad(&map_cells[look_r_idx].res_value)) / 1000.0 * vision_multiplier;
+    let look_r_pop = map_cells[look_r_idx].population * vision_multiplier;
 
     // 1. Neural Net Processing
     var inputs = array<f32, 48>(
@@ -232,7 +238,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         agent.wealth / cfg.boat_cost,
         local_avg_ask / 10.0,
         local_avg_bid / 10.0,
-        0.0, 0.0, 0.0
+        day_intensity, 0.0, 0.0
     );
 
     var hidden1 = array<f32, 32>();
