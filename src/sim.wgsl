@@ -451,8 +451,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             atomicSub(&map_cells[safe_current_idx].market_wealth, i32(local_avg_bid * 1000.0));
         }
         
-        atomicAdd(&map_cells[safe_current_idx].res_value, i32(cfg.regen_rate * 1000.0));
+        // --- Biome-Specific Flora & Fauna Regeneration ---
+        // High moisture + low elevation = rapid jungle growth.
+        // Low moisture + high elevation = barren tundra.
+        let elevation_mult = clamp(1.0 - (current_height * 2.0), 0.05, 1.0);
+        let moisture_mult = clamp(0.05 + (local_market_water / 100.0), 0.05, 5.0);
+        let biome_regen_rate = cfg.regen_rate * elevation_mult * moisture_mult;
+        
+        atomicAdd(&map_cells[safe_current_idx].res_value, i32(biome_regen_rate * 1000.0));
         atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.max_tile_resource * 1000.0));
+        
+        // Shorelines and oceans naturally replenish their water
+        if (current_height <= 0.05) {
+            atomicMax(&map_cells[safe_current_idx].market_water, i32(cfg.max_tile_water * 1000.0));
+        }
         
         // Mix our intent into the cell's pheromone trace
         map_cells[safe_current_idx].population = local_population * 0.99 + 1.0; 

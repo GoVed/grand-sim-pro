@@ -15,11 +15,11 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **40 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 3,000 synaptic weights and drives **22 complex output intents** (Turn, Speed, Share, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 4 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **48 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 3,300 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.
-- **Recurrent Memory Loops:** Agents feature 4 dedicated abstract memory channels. What they output to these memory states in one frame is fed directly back into their sensory inputs on the next, allowing them to recall context (like the direction of a shoreline or the location of an attacker).
+- **Recurrent Memory Loops:** Agents feature 8 dedicated abstract memory channels. What they output to these memory states in one frame is fed directly back into their sensory inputs on the next, allowing them to recall context (like the direction of a shoreline or the location of an attacker).
 
 ### 🌍 Procedural Topography & 4D Wrapping
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 

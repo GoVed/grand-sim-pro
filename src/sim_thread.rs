@@ -48,7 +48,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                 // --- Auto-Restart Logic ---
                 let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
-                if living_count == 0 {
+                if living_count < data.config.founder_count as usize {
                     data.restart_message_active = true;
                     drop(data); // Release lock instantly so the UI can render the message
                     thread::sleep(Duration::from_millis(1000));

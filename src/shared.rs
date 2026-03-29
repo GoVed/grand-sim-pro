@@ -25,7 +25,7 @@ pub fn format_time(ticks: u64, tick_to_mins: f32) -> String {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice }
+pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice, Shelter }
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum SortCol { Index, Age, Health, Food, Wealth, Gender, Speed, Heading, State, Outputs }

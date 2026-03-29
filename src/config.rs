@@ -46,7 +46,10 @@ pub struct SimConfig {
     pub mutation_rate: f32,       // Probability of a gene mutating
     pub mutation_strength: f32,   // Magnitude of mutation
     pub spawn_group_size: u32,    // How many agents spawn together in a cluster
-    pub pad1: [u32; 16],          // 64-byte uniform alignment pad to make total size 196 bytes
+    pub crossover_rate: f32,      // Probability of inheriting a specific weight from the other parent
+    pub shelter_cost: f32,        // Cost in USD/resources to build 1 unit of shelter
+    pub max_shelter: f32,         // Maximum shelter value a tile can hold
+    pub pad1: [u32; 13],          // 52-byte uniform alignment pad to make total size 196 bytes
 }
 
 impl Default for SimConfig {
@@ -82,10 +85,13 @@ impl Default for SimConfig {
             tick_to_mins: 10.0,       // 1 tick = 10 minutes
             founder_count: 64,        // Use top 64 agents as founders
             random_spawn_percentage: 0.1, // 10% of new population are totally random
-            mutation_rate: 0.1,       // 10% chance of mutation
-            mutation_strength: 0.25,  // Mutation range of +/- 0.25
+            mutation_rate: 0.05,       // 10% chance of mutation
+            mutation_strength: 0.05,  // Mutation range of +/- 0.05
             spawn_group_size: 100,    // Spawn in tribes of 100
-            pad1: [0; 16],
+            crossover_rate: 0.5,      // 50% chance to inherit gene from parent B vs parent A
+            shelter_cost: 100.0,      // $100 equivalent required to increase tile shelter level
+            max_shelter: 1000.0,      // Max shelter cap per tile
+            pad1: [0; 13],
         }
     }
 }

@@ -8,6 +8,7 @@
  * See the LICENSE file in the project root for full license details.
  */
 
+use rand::Rng;
 use noise::{NoiseFn, Perlin, Fbm};
 
 #[repr(C)]
@@ -31,7 +32,7 @@ pub struct CellState {
     pub market_food: i32,    // Fixed-point (val * 1000) for GPU atomics
     pub market_wealth: i32,  // Fixed-point (val * 1000) for GPU atomics
     pub market_water: i32,   // Fixed-point (val * 1000) for GPU atomics
-    pub pad1: [i32; 1],      // Exactly 80 bytes total for GPU strict alignment
+    pub shelter_level: f32,  // Physical structures built by agents (replaces padding to maintain 80 bytes)
 }
 
 pub struct Environment {
@@ -80,8 +81,11 @@ impl Environment {
                 map_data.extend_from_slice(&color);
                 height_map.push(val as f32);
                 
-                // Initialize land based on max configured economic scale
-                let base_res = if val >= 0.0 { config.max_tile_resource } else { 0.0 };
+                // Initialize land biomes based on elevation
+                // Lower elevations start with more resources (lush), higher elevations are barren
+                let elevation_mult = (1.0 - (val as f32 * 2.0)).clamp(0.05, 1.0);
+                let base_res = if val >= 0.0 { config.max_tile_resource * elevation_mult } else { 0.0 };
+                
                 map_cells.push(CellState {
                     res_value: (base_res * 1000.0) as i32,
                     population: 0.0,
@@ -100,11 +104,79 @@ impl Environment {
                     avg_bid: 1.0,
                     market_food: 50_000_000,
                     market_wealth: (base_res * 1000.0) as i32, // Cells start with money to buy initial farmed crops
-                    market_water: if val < -0.2 { (config.max_tile_water * 1000.0) as i32 } else { 0 }, // Coastlines start with water
-                    pad1: [0; 1],
+                    market_water: if val <= 0.05 { (config.max_tile_water * 1000.0) as i32 } else { 0 }, // Shorelines & Oceans start with water
+                shelter_level: 0.0,
                 });
             }
         }
+
+        // --- Procedural River Generation ---
+        let num_rivers = (width * height) / 15000; // Map size scales the number of rivers
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..num_rivers {
+            let mut sx = rng.gen_range(0..width);
+            let mut sy = rng.gen_range(0..height);
+            let mut attempts = 0;
+            
+            // Find a high elevation mountain spring to start the river
+            while height_map[(sy * width + sx) as usize] < 0.3 && attempts < 100 {
+                sx = rng.gen_range(0..width);
+                sy = rng.gen_range(0..height);
+                attempts += 1;
+            }
+            if attempts == 100 { continue; } // Failed to find a mountain
+
+            let mut cx = sx;
+            let mut cy = sy;
+            let mut river_path = Vec::new();
+            
+            // Trace downhill until we hit a pit, the ocean, or the max length
+            while river_path.len() < 1500 {
+                let idx = (cy * width + cx) as usize;
+                river_path.push(idx);
+                
+                let mut min_h = height_map[idx];
+                let mut nx = cx;
+                let mut ny = cy;
+                
+                // Check all 8 neighbors (accounting for seamless 4D wrapping)
+                let dirs = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)];
+                for &(dx, dy) in dirs.iter() {
+                    let tx = ((cx as i32 + dx + width as i32) % width as i32) as u32;
+                    let ty = ((cy as i32 + dy + height as i32) % height as i32) as u32;
+                    let tidx = (ty * width + tx) as usize;
+                    if height_map[tidx] < min_h {
+                        min_h = height_map[tidx];
+                        nx = tx;
+                        ny = ty;
+                    }
+                }
+                
+                if nx == cx && ny == cy { break; } // Hit a local pit/lake
+                cx = nx;
+                cy = ny;
+                if min_h <= 0.05 { break; } // Reached the ocean/shoreline
+            }
+
+            // Carve the river into the map arrays
+            for idx in river_path {
+                map_cells[idx].market_water = (config.max_tile_water * 1000.0) as i32;
+                
+                // Visually draw the river (Deep Blue)
+                map_data[idx * 4] = 30;      // R
+                map_data[idx * 4 + 1] = 100; // G
+                map_data[idx * 4 + 2] = 200; // B
+                map_data[idx * 4 + 3] = 255; // A
+                
+                // Erode terrain to 0.01 (Shoreline level) so it naturally replenishes water forever
+                // and allows crossing on foot without a boat (boat requires < 0.0)
+                if height_map[idx] > 0.01 {
+                    height_map[idx] = 0.01;
+                }
+            }
+        }
+
         Self { map_data, height_map, map_cells }
     }
 }

@@ -48,6 +48,7 @@ pub fn draw_metrics(
         VisualMode::MarketFood => "Market Food",
         VisualMode::AskPrice => "Ask Price",
         VisualMode::BidPrice => "Bid Price",
+        VisualMode::Shelter => "Shelter",
     };
     draw_text(&format!("Visuals [R]: {}", mode_str), 20.0, y, 16.0, WHITE);
     y += dy;
@@ -56,15 +57,15 @@ pub fn draw_metrics(
     if paused { draw_text("PAUSED", screen_width() / 2.0 - 50.0, 30.0, 30.0, RED); }
     
     if restart_msg {
-        let text = "ALL DIED, RESTARTING...";
+        let text = "POPULATION CRITICAL, RESTARTING...";
         let text_dims = measure_text(text, None, 40, 1.0);
         draw_text(text, screen_width() / 2.0 - text_dims.width / 2.0, screen_height() / 2.0, 40.0, RED);
     }
 }
 
 pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_mode: &mut VisualMode) {
-    draw_rectangle(280.0, 10.0, 160.0, 240.0, Color::new(0.0, 0.04, 0.04, 0.9));
-    draw_rectangle_lines(280.0, 10.0, 160.0, 240.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_rectangle(280.0, 10.0, 160.0, 265.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(280.0, 10.0, 160.0, 265.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
     draw_text("VISUALS", 290.0, 30.0, 16.0, Color::new(0.0, 1.0, 0.8, 1.0));
     
     let modes = [
@@ -77,6 +78,7 @@ pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_m
         (VisualMode::MarketFood, "7. Market Food"),
         (VisualMode::AskPrice, "8. Ask Price"),
         (VisualMode::BidPrice, "9. Bid Price"),
+        (VisualMode::Shelter, "0. Shelter"),
     ];
     
     let mut vy = 55.0;
