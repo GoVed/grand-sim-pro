@@ -49,6 +49,10 @@ pub struct Person {
     pub wealth: f32,
     pub drop_water_intent: f32,
     pub pickup_water_intent: f32,
+    pub defend_intent: f32,
+    pub _pad_intent1: f32, // Maintains 16-byte WGSL vector alignment before arrays
+    pub _pad_intent2: f32,
+    pub _pad_intent3: f32,
     pub w1: [f32; W1_SIZE],
     pub w2: [f32; W2_SIZE],
     pub w3: [f32; W3_SIZE],
@@ -67,18 +71,24 @@ impl Person {
         let hidden_count = 16;
 
         let mut rng = rand::thread_rng();
+        
+        // Xavier/Glorot Initialization limits to prevent neuron saturation
+        let w1_limit = (6.0 / (NUM_INPUTS as f32 + hidden_count as f32)).sqrt();
+        let w2_limit = (6.0 / (hidden_count as f32 + hidden_count as f32)).sqrt();
+        let w3_limit = (6.0 / (hidden_count as f32 + NUM_OUTPUTS as f32)).sqrt();
+
         let mut w1 = [0.0; W1_SIZE];
         for i in 0..(NUM_INPUTS * hidden_count) {
-            w1[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
+            w1[i] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit;
         }
 
         let mut w2 = [0.0; W2_SIZE];
         for i in 0..(hidden_count * hidden_count) {
-            w2[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
+            w2[i] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit;
         }
         let mut w3 = [0.0; W3_SIZE];
         for i in 0..(hidden_count * NUM_OUTPUTS) {
-            w3[i] = (rng.r#gen::<f32>() * 2.0) - 1.0;
+            w3[i] = (rng.r#gen::<f32>() * 2.0 * w3_limit) - w3_limit;
         }
 
         Self {
@@ -110,6 +120,10 @@ impl Person {
             wealth: 500.0,
             drop_water_intent: 0.0,
             pickup_water_intent: 0.0,
+            defend_intent: 0.0,
+            _pad_intent1: 0.0,
+            _pad_intent2: 0.0,
+            _pad_intent3: 0.0,
             w1,
             w2,
             w3,
@@ -159,6 +173,10 @@ impl Person {
         child.bid_price = 1.0;
         child.drop_water_intent = 0.0;
         child.pickup_water_intent = 0.0;
+        child.defend_intent = 0.0;
+        child._pad_intent1 = 0.0;
+        child._pad_intent2 = 0.0;
+        child._pad_intent3 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -182,10 +200,15 @@ impl Person {
         // 2. Structural mutation
         if rng.r#gen::<f32>() < 0.05 && child.hidden_count < NUM_HIDDEN_MAX as u32 {
             let h = child.hidden_count as usize;
-            for i in 0..NUM_INPUTS { child.w1[h * NUM_INPUTS + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; }
-            for i in 0..NUM_HIDDEN_MAX { child.w2[h * NUM_HIDDEN_MAX + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H1 out
-            for i in 0..NUM_HIDDEN_MAX { child.w2[i * NUM_HIDDEN_MAX + h] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // H2 in
-            for i in 0..NUM_OUTPUTS { child.w3[h * NUM_OUTPUTS + i] = (rng.r#gen::<f32>() * 2.0) - 1.0; } // Adjusted for 2 new outputs
+            
+            let w1_limit = (6.0 / (NUM_INPUTS as f32 + h as f32 + 1.0)).sqrt();
+            let w2_limit = (6.0 / ((h as f32 + 1.0) * 2.0)).sqrt();
+            let w3_limit = (6.0 / (h as f32 + 1.0 + NUM_OUTPUTS as f32)).sqrt();
+
+            for i in 0..NUM_INPUTS { child.w1[h * NUM_INPUTS + i] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit; }
+            for i in 0..NUM_HIDDEN_MAX { child.w2[h * NUM_HIDDEN_MAX + i] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit; } // H1 out
+            for i in 0..NUM_HIDDEN_MAX { child.w2[i * NUM_HIDDEN_MAX + h] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit; } // H2 in
+            for i in 0..NUM_OUTPUTS { child.w3[h * NUM_OUTPUTS + i] = (rng.r#gen::<f32>() * 2.0 * w3_limit) - w3_limit; } 
             child.hidden_count += 1;
         }
         
@@ -226,6 +249,10 @@ impl Person {
         child.bid_price = 1.0;
         child.drop_water_intent = 0.0;
         child.pickup_water_intent = 0.0;
+        child.defend_intent = 0.0;
+        child._pad_intent1 = 0.0;
+        child._pad_intent2 = 0.0;
+        child._pad_intent3 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;

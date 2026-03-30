@@ -63,6 +63,7 @@ async fn main() {
         ticks_per_loop: 200,
         total_ticks: 0,
         last_compute_time_ms: 0,
+        generation_survival_times: Vec::new(),
     }));
 
     let sim_thread_data = shared_data.clone();
@@ -100,6 +101,7 @@ async fn main() {
     let mut frame_times: Vec<f32> = Vec::with_capacity(300);
     
     let mut show_inspector = false;
+    let mut show_generation_graph = false;
     let mut sort_col = SortCol::Food;
     let mut sort_desc = true;
     let mut inspector_scroll: usize = 0;
@@ -108,11 +110,15 @@ async fn main() {
     
     let mut followed_agent_id: Option<u32> = None;
     let mut followed_agent: Option<crate::agent::Person> = None;
+    let mut generation_times: Vec<u64> = Vec::new();
 
     loop {
         // Register UI inputs instantly
         if is_key_pressed(KeyCode::Space) { pending_pause_toggle = !pending_pause_toggle; }
         if is_key_pressed(KeyCode::R) { show_visuals_panel = !show_visuals_panel; }
+        if is_key_pressed(KeyCode::T) { current_visual_mode = VisualMode::Temperature; }
+        if is_key_pressed(KeyCode::G) { show_generation_graph = !show_generation_graph; }
+        if is_key_pressed(KeyCode::N) { current_visual_mode = VisualMode::DayNight; }
         if is_key_pressed(KeyCode::Up) { pending_speed_change += 1; }
         if is_key_pressed(KeyCode::Down) { pending_speed_change -= 1; }
         if is_key_pressed(KeyCode::Tab) { 
@@ -131,7 +137,7 @@ async fn main() {
             
             if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() {
                 let mut hit_ui = false;
-                if show_visuals_panel && mx > 280.0 && mx < 440.0 && my > 10.0 && my < 170.0 { hit_ui = true; }
+                if show_visuals_panel && mx > 280.0 && mx < 440.0 && my > 10.0 && my < 320.0 { hit_ui = true; }
                 
                 if !hit_ui {
                     offset_x += (mx - last_mouse.0) / zoom;
@@ -164,6 +170,10 @@ async fn main() {
             pop_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
             restart_msg = data.restart_message_active;
             
+            if show_generation_graph {
+                generation_times = data.generation_survival_times.clone();
+            }
+
             // Dynamic map generation based on toggle state
             local_map_data.clear();
             match current_visual_mode {
@@ -195,6 +205,41 @@ async fn main() {
                             }
                         }
                         local_map_data.extend_from_slice(&[r, g, b, 255]);
+                    }
+                },
+                VisualMode::Temperature | VisualMode::DayNight => {
+                    let map_width = data.config.map_width as usize;
+                    let map_height = data.config.map_height as usize;
+                    let ticks_per_day = 24.0 * 60.0 / data.config.tick_to_mins;
+                    let day_cycle_progress = (data.total_ticks as f32 % ticks_per_day) / ticks_per_day;
+                    let day_intensity = (day_cycle_progress * std::f32::consts::PI * 2.0 - std::f32::consts::FRAC_PI_2).sin() * 0.5 + 0.5;
+                    let season_time = data.total_ticks as f32 / 100000.0 * std::f32::consts::PI * 2.0;
+                    let season_sine = season_time.sin();
+
+                    for (idx, _) in data.sim.env.map_cells.iter().enumerate() {
+                        if current_visual_mode == VisualMode::Temperature {
+                            let y = idx / map_width;
+                            let current_height = data.sim.env.height_map[idx];
+                            let dist_from_equator = (y as f32 - (map_height as f32 / 2.0)).abs() / (map_height as f32 / 2.0);
+                            let base_temp = (1.0 - dist_from_equator * 2.0) - (current_height * 2.0).max(0.0);
+                            let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3;
+                            
+                            let norm = ((local_temp + 1.0) / 2.0).clamp(0.0, 1.0);
+                            let r = (norm * 255.0) as u8;
+                            let b = ((1.0 - norm) * 255.0) as u8;
+                            local_map_data.extend_from_slice(&[r, 50, b, 255]);
+                        } else {
+                            let orig_r = data.sim.env.map_data[idx * 4];
+                            let orig_g = data.sim.env.map_data[idx * 4 + 1];
+                            let orig_b = data.sim.env.map_data[idx * 4 + 2];
+                            let intensity = day_intensity.powf(0.7).max(0.25);
+                            local_map_data.extend_from_slice(&[
+                                (orig_r as f32 * intensity) as u8,
+                                (orig_g as f32 * intensity) as u8,
+                                (orig_b as f32 * intensity) as u8,
+                                255
+                            ]);
+                        }
                     }
                 },
                 _ => local_map_data.extend_from_slice(&data.sim.env.map_data),
@@ -233,8 +278,6 @@ async fn main() {
         // --- Day/Night Cycle Visuals ---
         let ticks_per_day = 24.0 * 60.0 / loaded_config.tick_to_mins;
         let day_cycle_progress = (ticks as f32 % ticks_per_day) / ticks_per_day;
-        let day_intensity = (f32::sin(day_cycle_progress * std::f32::consts::PI * 2.0 - std::f32::consts::FRAC_PI_2) * 0.5 + 0.5).powf(0.7);
-        let visual_intensity = day_intensity.max(0.25); // Minimum brightness of 25% at midnight
 
         let cam = Camera2D {
             target: vec2(map_width as f32 / 2.0 - offset_x, map_height as f32 / 2.0 - offset_y),
@@ -249,7 +292,7 @@ async fn main() {
             image.bytes.copy_from_slice(&local_map_data);
             texture.update(&image);
         }
-        draw_texture(&texture, 0.0, 0.0, Color::new(visual_intensity, visual_intensity, visual_intensity, 1.0));
+        draw_texture(&texture, 0.0, 0.0, WHITE);
 
         // 2. High-performance Agent Rendering
         let max_inv_ln = (loaded_config.boat_cost * 0.25 + 1.0).ln();
@@ -274,11 +317,10 @@ async fn main() {
                 },
                 VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) },
                 VisualMode::Pregnancy => if a.is_pregnant > 0.5 { Color::new(1.0, 0.8, 0.0, 1.0) } else if a.gender > 0.5 { Color::new(0.2, 0.4, 0.8, 0.5) } else { Color::new(0.8, 0.2, 0.5, 0.5) },
-                VisualMode::Default | VisualMode::Shelter => WHITE,
+                VisualMode::Default | VisualMode::Shelter | VisualMode::Temperature | VisualMode::DayNight => WHITE,
             };
             
-            let final_color = Color::new(color.r * visual_intensity, color.g * visual_intensity, color.b * visual_intensity, color.a);
-            draw_circle(a.x, a.y, radius, final_color);
+            draw_circle(a.x, a.y, radius, color);
         }
 
         if let Some(ref a) = followed_agent {
@@ -287,6 +329,56 @@ async fn main() {
 
         // 3. Render UI / Metrics
         set_default_camera(); // Reset camera transformations for static HUD overlays
+
+        // --- Draw Clock ---
+        let clock_x = screen_width() - 220.0;
+        let hours = (day_cycle_progress * 24.0).floor() as u32;
+        let minutes = ((day_cycle_progress * 24.0).fract() * 60.0).floor() as u32;
+        let time_str = format!("Time: {:02}:{:02}", hours, minutes);
+        draw_rectangle(clock_x, 10.0, 210.0, 40.0, Color::new(0.0, 0.0, 0.0, 0.7));
+        draw_text(&time_str, clock_x + 10.0, 38.0, 28.0, WHITE);
+
+        // --- Draw Legend ---
+        let legend_x = screen_width() - 220.0;
+        let legend_y = screen_height() - 140.0;
+        draw_rectangle(legend_x, legend_y, 210.0, 130.0, Color::new(0.0, 0.0, 0.0, 0.7));
+        draw_text("Legend", legend_x + 10.0, legend_y + 25.0, 24.0, WHITE);
+        
+        match current_visual_mode {
+            VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice => {
+                draw_text("High Value", legend_x + 10.0, legend_y + 60.0, 20.0, GREEN);
+                draw_text("Low Value", legend_x + 10.0, legend_y + 90.0, 20.0, RED);
+            },
+            VisualMode::Age => {
+                draw_text("Young", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(0.0, 1.0, 1.0, 1.0));
+                draw_text("Old", legend_x + 10.0, legend_y + 90.0, 20.0, Color::new(1.0, 0.0, 1.0, 1.0));
+            },
+            VisualMode::Gender => {
+                draw_text("Male", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(0.2, 0.6, 1.0, 1.0));
+                draw_text("Female", legend_x + 10.0, legend_y + 90.0, 20.0, Color::new(1.0, 0.4, 0.7, 1.0));
+            },
+            VisualMode::Pregnancy => {
+                draw_text("Pregnant", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(1.0, 0.8, 0.0, 1.0));
+                draw_text("Not Pregnant", legend_x + 10.0, legend_y + 90.0, 20.0, GRAY);
+            },
+            VisualMode::Shelter => {
+                draw_text("High Shelter", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(0.54, 0.27, 0.07, 1.0));
+                draw_text("No Shelter", legend_x + 10.0, legend_y + 90.0, 20.0, BLACK);
+            },
+            VisualMode::Temperature => {
+                draw_text("Hot", legend_x + 10.0, legend_y + 60.0, 20.0, RED);
+                draw_text("Temperate", legend_x + 10.0, legend_y + 90.0, 20.0, Color::new(0.5, 0.2, 0.5, 1.0));
+                draw_text("Freezing", legend_x + 10.0, legend_y + 120.0, 20.0, BLUE);
+            },
+            VisualMode::DayNight => {
+                draw_text("Daylight", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);
+                draw_text("Night Shadow", legend_x + 10.0, legend_y + 90.0, 20.0, DARKGRAY);
+            },
+            VisualMode::Default => {
+                draw_text("Biome / Terrain", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);
+                draw_text("Agents (White)", legend_x + 10.0, legend_y + 90.0, 20.0, WHITE);
+            }
+        }
         
         frame_times.push(get_frame_time());
         if frame_times.len() > 300 {
@@ -306,8 +398,11 @@ async fn main() {
             low_1_fps = count_1_percent as f32 / low_1_sum;
         }
         
-        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, paused, restart_msg);
+        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, paused, restart_msg);
         if show_visuals_panel { ui::draw_visuals_panel(mx, my, left_clicked, &mut current_visual_mode); }
+        if show_generation_graph {
+            ui::draw_generation_graph(&generation_times, loaded_config.tick_to_mins);
+        }
         if show_inspector {
             ui::draw_inspector(mx, my, left_clicked, mouse_wheel_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.tick_to_mins, loaded_config.base_speed);
         } else if let Some(a) = &followed_agent {

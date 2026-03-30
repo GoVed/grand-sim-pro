@@ -37,6 +37,10 @@ struct Agent {
     wealth: f32,
     drop_water_intent: f32,
     pickup_water_intent: f32,
+    defend_intent: f32,
+    _pad_intent1: f32,
+    _pad_intent2: f32,
+    _pad_intent3: f32,
     w1: array<f32, 1536>, // 48 * 32
     w2: array<f32, 1024>, // 32 * 32
     w3: array<f32, 832>,  // 32 * 26
@@ -305,6 +309,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.bid_price = abs(outputs[22]) * 10.0;
     agent.drop_water_intent = clamp(outputs[23] * 0.5 + 0.5, 0.0, 1.0); 
     agent.pickup_water_intent = clamp(outputs[24] * 0.5 + 0.5, 0.0, 1.0); 
+    agent.defend_intent = clamp(outputs[25] * 0.5 + 0.5, 0.0, 1.0);
 
     var base_speed = speed_intent * cfg.base_speed;
     var resting = false;
@@ -373,7 +378,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Newborns are smaller and burn fewer calories. Scales from 0.2 to 1.0 at puberty.
     let maturity = clamp(agent.age / cfg.puberty_age, 0.2, 1.0);
     var rest_mult = 1.0; if (resting) { rest_mult = 0.5; }
-    let metabolic_rate = cfg.baseline_cost * maturity * rest_mult * preg_mult;
+    var defend_mult = 1.0; if (agent.defend_intent > 0.5 && !resting) { defend_mult = 1.5; } // 50% more calories burned!
+    let metabolic_rate = cfg.baseline_cost * maturity * rest_mult * preg_mult * defend_mult;
 
     agent.water = agent.water - metabolic_rate;
     let cold_penalty = max(0.0, -local_temp) * 0.1;
@@ -396,11 +402,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (current_height >= 0.0) {
         let drop_desire = outputs[2];
         
+        // Bystanders take damage on highly aggressive tiles, UNLESS they are actively defending
+        if (local_avg_aggression > 0.5 && agent.defend_intent < 0.5) {
+            agent.health = agent.health - 0.5;
+        }
+        
         if (agent.attack_intent > 0.5 && local_population > 1.0 && !resting && agent.age > cfg.puberty_age) {
             // Steal directly from abstract population
             let steal_amount = min((local_population - 1.0) * 0.5, 5.0);
-            agent.wealth = min(agent.wealth + steal_amount * 5.0, cfg.boat_cost); // Mugging gives cash
-            if (local_avg_aggression > 0.5) { agent.health = agent.health - 2.0; }
+            if (agent.defend_intent < 0.5) { // An agent can't aggressively pillage while holding a defensive formation
+                agent.wealth = min(agent.wealth + steal_amount * 5.0, cfg.boat_cost); // Mugging gives cash
+                if (local_avg_aggression > 0.5) { agent.health = agent.health - 2.0; } // Attackers take damage from other attackers
+            }
         } else if (agent.drop_water_intent > 0.5 && agent.water > cfg.water_transfer_amount) {
             let transfer_amount = min(agent.water, cfg.water_transfer_amount);
             agent.water = agent.water - transfer_amount;

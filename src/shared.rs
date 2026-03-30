@@ -25,7 +25,7 @@ pub fn format_time(ticks: u64, tick_to_mins: f32) -> String {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice, Shelter }
+pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice, Shelter, DayNight, Temperature }
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum SortCol { Index, Age, Health, Food, Wealth, Gender, Speed, Heading, State, Outputs }
@@ -43,4 +43,5 @@ pub struct SharedData {
     pub ticks_per_loop: usize,
     pub total_ticks: u64,
     pub last_compute_time_ms: u128,
+    pub generation_survival_times: Vec<u64>,
 }

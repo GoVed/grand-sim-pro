@@ -54,8 +54,16 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     thread::sleep(Duration::from_millis(1000));
                     
                     let mut data = sim_thread_data.lock().unwrap();
+
+                    // Record the survival time of the generation that just ended.
+                    if data.total_ticks > 0 {
+                        let ticks = data.total_ticks;
+                        data.generation_survival_times.push(ticks);
+                    }
                     
-                    data.sim.agents.sort_by(|a, b| b.age.partial_cmp(&a.age).unwrap_or(std::cmp::Ordering::Equal));
+                    // Prioritize alive agents. Since survival is the only metric that matters,
+                    // we just move all living agents to the front of the array to be used as founders.
+                    data.sim.agents.sort_by(|a, b| (b.health > 0.0).cmp(&(a.health > 0.0)));
                     
                     let target_pop = data.config.agent_count as usize;
                     let map_w = data.config.map_width as f32;
@@ -71,7 +79,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     data.sim.env = crate::environment::Environment::new(data.config.map_width, data.config.map_height, new_seed, &data.config);
 
                     let mut new_population = Vec::with_capacity(target_pop);
-                    let founders_count = data.config.founder_count.min(data.sim.agents.len() as u32) as usize;
+                    let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
+                    let founders_count = living_count.max(1).min(data.config.founder_count as usize);
                     
                     let random_agents_count = (target_pop as f32 * data.config.random_spawn_percentage) as usize;
                     let descendant_agents_count = target_pop - random_agents_count;
