@@ -83,6 +83,8 @@ cargo run --release
 - **Mouse Scroll Wheel:** Zoom in and out (when Inspector is closed)
 - **Spacebar:** Pause / Resume the simulation
 - **R Key:** Open Visuals Panel to toggle map views (Resources, Market Prices, Age, Gender, Pregnancy overlays)
+- **T Key:** Toggle Temperature map visualization
+- **N Key:** Toggle Day/Night shadow visualization
 - **TAB Key:** Open the Live Inspector. Click an agent's row to inspect its live Neural Network Heatmap, or click `[Locate]` to lock the camera and open the side-panel Agent Tracker.
 - **Up Arrow:** Exponentially increase simulation speed (compute loops per frame)
 - **Down Arrow:** Exponentially decrease simulation speed

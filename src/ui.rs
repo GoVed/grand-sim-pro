@@ -13,11 +13,11 @@ use crate::shared::{VisualMode, SortCol, format_time};
 
 pub fn draw_metrics(
     pop_count: usize, compute_time: u128, speed: usize, ticks: u64, tick_to_mins: f32,
-    fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool,
+    fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool, show_generation_graph: bool,
     paused: bool, restart_msg: bool
 ) {
-    draw_rectangle(10.0, 10.0, 260.0, 240.0, Color::new(0.0, 0.04, 0.04, 0.9));
-    draw_rectangle_lines(10.0, 10.0, 260.0, 240.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_rectangle(10.0, 10.0, 260.0, 260.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(10.0, 10.0, 260.0, 260.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
     
     let mut y = 30.0;
     let dy = 20.0;
@@ -49,10 +49,14 @@ pub fn draw_metrics(
         VisualMode::AskPrice => "Ask Price",
         VisualMode::BidPrice => "Bid Price",
         VisualMode::Shelter => "Shelter",
+        VisualMode::DayNight => "Day/Night",
+        VisualMode::Temperature => "Temperature",
     };
     draw_text(&format!("Visuals [R]: {}", mode_str), 20.0, y, 16.0, WHITE);
     y += dy;
     draw_text(&format!("Inspector [TAB]: {}", if show_inspector { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Gen Graph [G]: {}", if show_generation_graph { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
 
     if paused { draw_text("PAUSED", screen_width() / 2.0 - 50.0, 30.0, 30.0, RED); }
     
@@ -64,8 +68,8 @@ pub fn draw_metrics(
 }
 
 pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_mode: &mut VisualMode) {
-    draw_rectangle(280.0, 10.0, 160.0, 265.0, Color::new(0.0, 0.04, 0.04, 0.9));
-    draw_rectangle_lines(280.0, 10.0, 160.0, 265.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_rectangle(280.0, 10.0, 160.0, 310.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(280.0, 10.0, 160.0, 310.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
     draw_text("VISUALS", 290.0, 30.0, 16.0, Color::new(0.0, 1.0, 0.8, 1.0));
     
     let modes = [
@@ -79,6 +83,8 @@ pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_m
         (VisualMode::AskPrice, "8. Ask Price"),
         (VisualMode::BidPrice, "9. Bid Price"),
         (VisualMode::Shelter, "0. Shelter"),
+        (VisualMode::Temperature, "T. Temperature"),
+        (VisualMode::DayNight, "N. Day/Night"),
     ];
     
     let mut vy = 55.0;
@@ -144,7 +150,7 @@ pub fn draw_inspector(
         let output_labels = [
             "Turn", "Speed", "Drop Res", "Reproduce", "Attack", "Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4",
             "Learn", "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8",
-            "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Unused"
+            "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Defend Intent"
         ];
 
         // --- Render Top Influences List ---
@@ -265,7 +271,8 @@ pub fn draw_inspector(
             let mut st_x = 500.0;
             if a.is_pregnant > 0.5 { draw_text("[PRG]", st_x, y, 14.0, YELLOW); st_x += 35.0; }
             if a.rest_intent > 0.5 { draw_text("[Zzz]", st_x, y, 14.0, SKYBLUE); st_x += 35.0; }
-            if a.attack_intent > 0.5 { draw_text("[ATK]", st_x, y, 14.0, RED); }
+            if a.attack_intent > 0.5 { draw_text("[ATK]", st_x, y, 14.0, RED); st_x += 35.0; }
+            if a.defend_intent > 0.5 { draw_text("[DEF]", st_x, y, 14.0, GREEN); }
             
             let out_str = format!("B:{:.1} S:{:.1} A:{:.1} B:{:.1}", a.buy_intent, a.sell_intent, a.ask_price, a.bid_price);
             draw_text(&out_str, 600.0, y, 16.0, WHITE);
@@ -302,6 +309,7 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &crate::agent::Pers
     if a.is_pregnant > 0.5 { state_str.push_str("[PRG] "); }
     if a.rest_intent > 0.5 { state_str.push_str("[Zzz] "); }
     if a.attack_intent > 0.5 { state_str.push_str("[ATK] "); }
+    if a.defend_intent > 0.5 { state_str.push_str("[DEF] "); }
     if state_str.is_empty() { state_str.push_str("[IDLE]"); }
     
     draw_text(&format!("State: {}", state_str), panel_x + 20.0, py, 16.0, WHITE); py += dy + 10.0;
@@ -309,4 +317,65 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &crate::agent::Pers
     draw_text(&format!("Buy: {:.2} | Sell: {:.2}", a.buy_intent, a.sell_intent), panel_x + 20.0, py, 16.0, WHITE); py += dy;
     draw_text(&format!("Ask: {:.2} | Bid: {:.2}", a.ask_price, a.bid_price), panel_x + 20.0, py, 16.0, WHITE); py += dy;
     draw_text(&format!("Reproduce: {:.2}", a.reproduce_desire), panel_x + 20.0, py, 16.0, WHITE);
+}
+
+pub fn draw_generation_graph(times: &[u64], tick_to_mins: f32) {
+    if times.is_empty() { return; }
+
+    let panel_w = 400.0;
+    let panel_h = 300.0;
+    let panel_x = screen_width() / 2.0 - panel_w / 2.0;
+    let panel_y = screen_height() / 2.0 - panel_h / 2.0;
+    
+    let margin = 40.0;
+    let graph_w = panel_w - margin * 2.0;
+    let graph_h = panel_h - margin * 2.0;
+    let graph_x = panel_x + margin;
+    let graph_y = panel_y + margin;
+
+    // Draw background
+    draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.05, 0.05, 0.05, 0.95));
+    draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
+
+    // Draw Title and Axes Labels
+    draw_text("Generation Survival Time", panel_x + 100.0, panel_y + 25.0, 20.0, WHITE);
+    draw_text("Generation", graph_x + graph_w / 2.0 - 40.0, graph_y + graph_h + 25.0, 16.0, GRAY);
+    draw_text("Time", panel_x + 5.0, panel_y + 25.0, 16.0, GRAY);
+
+    // Find max values for scaling
+    let max_time = (*times.iter().max().unwrap_or(&1)).max(1);
+    let max_gen = (times.len() - 1).max(1);
+
+    // Draw Y-axis labels
+    for i in 0..=5 {
+        let val = max_time as f32 * (i as f32 / 5.0);
+        let y = graph_y + graph_h - (graph_h * (i as f32 / 5.0));
+        draw_line(graph_x - 5.0, y, graph_x, y, 1.0, GRAY);
+        let time_str = format_time(val as u64, tick_to_mins);
+        draw_text(&time_str, graph_x - 38.0, y + 4.0, 14.0, GRAY);
+    }
+
+    // Draw X-axis labels
+    let x_label_step = (max_gen as f32 / 10.0).ceil().max(1.0) as usize;
+    for i in (0..=max_gen).step_by(x_label_step) {
+        let x = graph_x + (i as f32 / max_gen as f32) * graph_w;
+        draw_line(x, graph_y + graph_h, x, graph_y + graph_h + 5.0, 1.0, GRAY);
+        draw_text(&format!("{}", i + 1), x - 5.0, graph_y + graph_h + 20.0, 14.0, GRAY);
+    }
+
+    // Draw graph lines
+    let mut last_x = 0.0;
+    let mut last_y = 0.0;
+    for (i, &time) in times.iter().enumerate() {
+        let px = graph_x + (i as f32 / max_gen as f32) * graph_w;
+        let py = graph_y + graph_h - (time as f32 / max_time as f32) * graph_h;
+        
+        draw_circle(px, py, 3.0, YELLOW);
+
+        if i > 0 {
+            draw_line(last_x, last_y, px, py, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
+        }
+        last_x = px;
+        last_y = py;
+    }
 }
