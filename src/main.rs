@@ -98,6 +98,7 @@ async fn main() {
     let mut current_visual_mode = VisualMode::Default;
     let mut pending_speed_change: i32 = 0;
 
+    let mut pending_save_agents = false;
     let mut frame_times: Vec<f32> = Vec::with_capacity(300);
     
     let mut show_inspector = false;
@@ -115,6 +116,7 @@ async fn main() {
     loop {
         // Register UI inputs instantly
         if is_key_pressed(KeyCode::Space) { pending_pause_toggle = !pending_pause_toggle; }
+        if is_key_pressed(KeyCode::S) { pending_save_agents = true; }
         if is_key_pressed(KeyCode::R) { show_visuals_panel = !show_visuals_panel; }
         if is_key_pressed(KeyCode::T) { current_visual_mode = VisualMode::Temperature; }
         if is_key_pressed(KeyCode::G) { show_generation_graph = !show_generation_graph; }
@@ -161,6 +163,24 @@ async fn main() {
                     data.ticks_per_loop = (data.ticks_per_loop as f32 / 1.5).max(5.0) as usize; // Scale down
                 }
                 pending_speed_change = 0;
+            }
+
+            if pending_save_agents {
+                let _ = std::fs::create_dir_all("saved_agents_weights");
+                let mut living: Vec<_> = data.sim.agents.iter().filter(|a| a.health > 0.0).collect();
+                living.sort_by(|a, b| {
+                    let score_a = a.wealth + a.food;
+                    let score_b = b.wealth + b.food;
+                    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let save_count = living.len().min(data.config.founder_count as usize);
+                for i in 0..save_count {
+                    let weights = living[i].extract_weights();
+                    if let Ok(json) = serde_json::to_string_pretty(&weights) {
+                        let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), json);
+                    }
+                }
+                pending_save_agents = false;
             }
             
             paused = data.is_paused;

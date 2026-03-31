@@ -49,7 +49,8 @@ pub struct SimConfig {
     pub crossover_rate: f32,      // Probability of inheriting a specific weight from the other parent
     pub shelter_cost: f32,        // Cost in USD/resources to build 1 unit of shelter
     pub max_shelter: f32,         // Maximum shelter value a tile can hold
-    pub pad1: [u32; 13],          // 52-byte uniform alignment pad to make total size 196 bytes
+    pub load_saved_agents_on_start: u32, // Set to 1 to load agents from 'saved_agents_weights' dir
+    pub pad1: [u32; 12],          // 48-byte uniform alignment pad to make total size 196 bytes
 }
 
 impl Default for SimConfig {
@@ -91,7 +92,8 @@ impl Default for SimConfig {
             crossover_rate: 0.5,      // 50% chance to inherit gene from parent B vs parent A
             shelter_cost: 100.0,      // $100 equivalent required to increase tile shelter level
             max_shelter: 1000.0,      // Max shelter cap per tile
-            pad1: [0; 13],
+            load_saved_agents_on_start: 0,
+            pad1: [0; 12],
         }
     }
 }
