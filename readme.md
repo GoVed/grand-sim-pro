@@ -49,6 +49,10 @@ Agents are subject to the harsh realities of life mapped to a realistic timeline
 - **Sexual Reproduction & Gestation:** Agents possess a male/female gender and must reach puberty to mate. If a healthy Male and Female mate, the female becomes pregnant, entering a Gestation period where she moves slower and consumes significantly more food/water before birthing the genetically crossed child.
 - **Extinction Founder System & Map Regeneration:** If an entire generation goes extinct, the simulation doesn't just throw away the progress. It extracts the longest-surviving "Founders" (configurable, e.g., top 100) and procedurally generates an entirely **new global map**. It then repopulates the new world with mutated descendants and a configurable percentage of entirely random agents, clustering them into "tribes" on viable land.
 
+### 💾 Neural Network Serialization (Save/Load)
+- **Snapshot Evolution:** If you observe an incredibly successful ecosystem, press `S` to instantly serialize and save the complex internal weights of the top currently living agents into JSON format (`saved_agents_weights/`).
+- **Pre-seeded Founders:** Set `load_saved_agents_on_start: 1` in the configuration to inject these highly evolved brains into a completely fresh simulation at boot, effectively transferring knowledge across independent runs.
+
 ### ⚙️ Real-Time Configuration (`sim_config.json`)
 On its first run, the simulation generates a `sim_config.json` file, mapping the environment to realistic metrics (e.g., 1 Resource = $1 USD, 1 Tick = 1 Minute).
 You can freely tweak base speeds, climbing penalties, boat costs, genetic mutation rates, spawn cluster sizes, and reproduction limits dynamically without recompiling the project.
@@ -59,6 +63,7 @@ The `macroquad` UI tracks engine performance precisely, displaying:
 - Compute Latency (ms per loop)
 - Dynamic Simulation Speed Multipliers
 - Formatted Biological Timeline
+- Generational Survival Line Graph (Press G to evaluate population learning trends)
 - Average FPS & 1% Lows 
 
 ## Prerequisites
@@ -82,6 +87,8 @@ cargo run --release
 - **Mouse Left Click & Drag:** Pan the camera
 - **Mouse Scroll Wheel:** Zoom in and out (when Inspector is closed)
 - **Spacebar:** Pause / Resume the simulation
+- **S Key:** Save the neural network weights of the top living agents to the `saved_agents_weights` directory
+- **G Key:** Toggle the Generational Survival Graph to track evolutionary progress over time
 - **R Key:** Open Visuals Panel to toggle map views (Resources, Market Prices, Age, Gender, Pregnancy overlays)
 - **T Key:** Toggle Temperature map visualization
 - **N Key:** Toggle Day/Night shadow visualization

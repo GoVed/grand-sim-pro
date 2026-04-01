@@ -10,6 +10,7 @@
 
 use std::f32::consts::PI;
 use rand::Rng;
+use serde::{Serialize, Deserialize};
 
 pub const NUM_INPUTS: usize = 48;
 pub const NUM_HIDDEN_MAX: usize = 32;
@@ -17,6 +18,35 @@ pub const NUM_OUTPUTS: usize = 26;
 pub const W1_SIZE: usize = NUM_INPUTS * NUM_HIDDEN_MAX;
 pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
 pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
+
+pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
+    "Bias", "Local Res", "Local Pop", "Avg Speed", "Avg Share", "Avg Repro", "Avg Aggr", "Avg Preg",
+    "Avg Turn", "Avg Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4", "Health", "Food", "Water", "Stamina",
+    "Age", "Gender", "Fwd Res", "Fwd Elev", "Fwd Pop", "Left Res", "Left Elev", "Left Pop",
+    "Right Res", "Right Elev", "Right Pop", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
+    "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid", "Daylight",
+    "Unused 2", "Unused 3"
+];
+
+pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
+    "Turn", "Speed", "Drop Res", "Reproduce", "Attack", "Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4",
+    "Learn", "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8",
+    "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Defend Intent"
+];
+
+#[derive(Serialize, Deserialize)]
+pub struct AgentWeights {
+    pub hidden_count: u32,
+    #[serde(default)]
+    pub inputs: std::collections::HashMap<String, Vec<f32>>,
+    pub w2: Vec<f32>,
+    #[serde(default)]
+    pub outputs: std::collections::HashMap<String, Vec<f32>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub w1: Vec<f32>, // Kept for backwards compatibility with older saves
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub w3: Vec<f32>,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -268,5 +298,67 @@ impl Person {
             if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
         }
         child
+    }
+
+    pub fn extract_weights(&self) -> AgentWeights {
+        let mut inputs = std::collections::HashMap::new();
+        for i in 0..NUM_INPUTS {
+            let mut w = Vec::with_capacity(NUM_HIDDEN_MAX);
+            for h in 0..NUM_HIDDEN_MAX {
+                w.push(self.w1[h * NUM_INPUTS + i]);
+            }
+            inputs.insert(INPUT_LABELS[i].to_string(), w);
+        }
+
+        let mut outputs = std::collections::HashMap::new();
+        for o in 0..NUM_OUTPUTS {
+            let mut w = Vec::with_capacity(NUM_HIDDEN_MAX);
+            for h in 0..NUM_HIDDEN_MAX {
+                w.push(self.w3[h * NUM_OUTPUTS + o]);
+            }
+            outputs.insert(OUTPUT_LABELS[o].to_string(), w);
+        }
+
+        AgentWeights {
+            hidden_count: self.hidden_count,
+            inputs,
+            w2: self.w2.to_vec(),
+            outputs,
+            w1: Vec::new(),
+            w3: Vec::new(),
+        }
+    }
+
+    pub fn apply_weights(&mut self, weights: &AgentWeights) {
+        self.hidden_count = weights.hidden_count.min(NUM_HIDDEN_MAX as u32);
+        
+        if !weights.inputs.is_empty() {
+            for i in 0..NUM_INPUTS {
+                if let Some(w) = weights.inputs.get(INPUT_LABELS[i]) {
+                    for h in 0..NUM_HIDDEN_MAX {
+                        if h < w.len() { self.w1[h * NUM_INPUTS + i] = w[h]; }
+                    }
+                }
+            }
+        } else if !weights.w1.is_empty() {
+            let w1_len = self.w1.len().min(weights.w1.len());
+            self.w1[..w1_len].copy_from_slice(&weights.w1[..w1_len]);
+        }
+
+        let w2_len = self.w2.len().min(weights.w2.len());
+        self.w2[..w2_len].copy_from_slice(&weights.w2[..w2_len]);
+        
+        if !weights.outputs.is_empty() {
+            for o in 0..NUM_OUTPUTS {
+                if let Some(w) = weights.outputs.get(OUTPUT_LABELS[o]) {
+                    for h in 0..NUM_HIDDEN_MAX {
+                        if h < w.len() { self.w3[h * NUM_OUTPUTS + o] = w[h]; }
+                    }
+                }
+            }
+        } else if !weights.w3.is_empty() {
+            let w3_len = self.w3.len().min(weights.w3.len());
+            self.w3[..w3_len].copy_from_slice(&weights.w3[..w3_len]);
+        }
     }
 }

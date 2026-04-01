@@ -22,6 +22,23 @@ impl SimulationManager {
     pub fn new(width: u32, height: u32, seed: u32, count: u32, config: &crate::config::SimConfig) -> Self {
         let env = Environment::new(width, height, seed, config);
         
+        let mut founders = Vec::new();
+        if config.load_saved_agents_on_start > 0 {
+            if let Ok(entries) = std::fs::read_dir("saved_agents_weights") {
+                for entry in entries.flatten() {
+                    if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
+                        if let Ok(contents) = std::fs::read_to_string(entry.path()) {
+                            if let Ok(weights) = serde_json::from_str::<crate::agent::AgentWeights>(&contents) {
+                                let mut dummy = Person::new(0.0, 0.0, config);
+                                dummy.apply_weights(&weights);
+                                founders.push(dummy);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let mut rng = ::rand::thread_rng();
         let spawn_group_size = config.spawn_group_size as usize;
         
@@ -38,12 +55,42 @@ impl SimulationManager {
         let mut current_spawn_pt = get_land_spawn_point(&mut rng);
         let mut spawn_count = 0;
 
-        for _ in 0..count {
+        let random_agents_count = if founders.is_empty() { count as usize } else { (count as f32 * config.random_spawn_percentage) as usize };
+        let descendant_agents_count = count as usize - random_agents_count;
+        let children_per_founder = if founders.is_empty() { 0 } else { descendant_agents_count / founders.len().max(1) };
+
+        for _ in 0..random_agents_count {
             if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
             let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
             let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
             agents.push(Person::new(px, py, config));
             spawn_count += 1;
+        }
+
+        if !founders.is_empty() {
+            let mutation_rate = config.mutation_rate;
+            let mutation_strength = config.mutation_strength;
+
+            for founder in &founders {
+                for _ in 0..children_per_founder {
+                    if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                    let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
+                    let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
+                    let child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
+                    agents.push(child);
+                    spawn_count += 1;
+                }
+            }
+
+            // Fill remaining slots
+            while agents.len() < count as usize {
+                if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
+                let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
+                let child = founders[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
+                agents.push(child);
+                spawn_count += 1;
+            }
         }
         
         Self { env, agents, pending_births: std::collections::HashMap::new() }
