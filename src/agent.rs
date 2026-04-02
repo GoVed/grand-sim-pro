@@ -328,7 +328,7 @@ impl Person {
     }
 
     pub fn extract_weights(&self) -> AgentWeights {
-        let mut inputs = std::collections::HashMap::new();
+        let inputs = std::collections::HashMap::new();
         let mut outputs = std::collections::HashMap::new();
         for o in 0..NUM_OUTPUTS {
             let mut w = Vec::with_capacity(NUM_HIDDEN_MAX);

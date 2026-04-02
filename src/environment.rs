@@ -36,7 +36,6 @@ pub struct CellState {
 }
 
 pub struct Environment {
-    pub map_data: Vec<u8>,
     pub height_map: Vec<f32>,
     pub map_cells: Vec<CellState>,
 }
@@ -45,7 +44,6 @@ impl Environment {
     pub fn new(width: u32, height: u32, seed: u32, config: &crate::config::SimConfig) -> Self {
         let fbm = Fbm::<Perlin>::new(seed);
         
-        let mut map_data = Vec::with_capacity((width * height * 4) as usize);
         let mut height_map = Vec::with_capacity((width * height) as usize);
         let mut map_cells = Vec::with_capacity((width * height) as usize);
 
@@ -65,20 +63,6 @@ impl Environment {
                     angle_y.cos() * radius_y, angle_y.sin() * radius_y
                 ]);
 
-                let mut color = match val {
-                    v if v < -0.2 => [10, 50, 150, 255],
-                    v if v < 0.0  => [30, 100, 200, 255],
-                    v if v < 0.1  => [240, 230, 140, 255],
-                    v if v < 0.4  => [34, 139, 34, 255],
-                    _             => [100, 100, 100, 255],
-                };
-
-                // Add topological contour lines for height visualization
-                if val >= 0.0 && (val % 0.1).abs() < 0.015 {
-                    color = [0, 0, 0, 180]; // Dark contour line
-                }
-
-                map_data.extend_from_slice(&color);
                 height_map.push(val as f32);
                 
                 // Initialize land biomes based on elevation
@@ -163,12 +147,6 @@ impl Environment {
             for idx in river_path {
                 map_cells[idx].market_water = (config.max_tile_water * 1000.0) as i32;
                 
-                // Visually draw the river (Deep Blue)
-                map_data[idx * 4] = 30;      // R
-                map_data[idx * 4 + 1] = 100; // G
-                map_data[idx * 4 + 2] = 200; // B
-                map_data[idx * 4 + 3] = 255; // A
-                
                 // Erode terrain to 0.01 (Shoreline level) so it naturally replenishes water forever
                 // and allows crossing on foot without a boat (boat requires < 0.0)
                 if height_map[idx] > 0.01 {
@@ -177,6 +155,6 @@ impl Environment {
             }
         }
 
-        Self { map_data, height_map, map_cells }
+        Self { height_map, map_cells }
     }
 }

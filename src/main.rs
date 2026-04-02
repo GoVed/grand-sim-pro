@@ -73,7 +73,7 @@ async fn main() {
     let init_cells = sim_thread_data.lock().unwrap().sim.env.map_cells.clone();
     let gpu = Arc::new(GpuEngine::new(&initial_agents, &height_map, &init_cells, &loaded_config));
 
-    sim_thread::spawn(sim_thread_data.clone(), gpu);
+    sim_thread::spawn(sim_thread_data.clone(), gpu.clone());
 
     let mut image = Image::gen_image_color(map_width as u16, map_height as u16, BLANK);
     let texture = Texture2D::from_image(&image);
@@ -84,7 +84,6 @@ async fn main() {
     let mut last_mouse = mouse_position();
 
     let mut local_agent_coords: Vec<AgentRenderData> = Vec::with_capacity(agent_count as usize);
-    let mut local_map_data = Vec::with_capacity((map_width * map_height * 4) as usize);
     
     let mut paused = false;
     let mut speed = 20;
@@ -149,9 +148,25 @@ async fn main() {
         }
         last_mouse = (mx, my);
 
+        let mode_u32 = match current_visual_mode {
+            VisualMode::Default => 0,
+            VisualMode::Resources => 1,
+            VisualMode::Age => 2,
+            VisualMode::Gender => 3,
+            VisualMode::Pregnancy => 4,
+            VisualMode::MarketWealth => 5,
+            VisualMode::MarketFood => 6,
+            VisualMode::AskPrice => 7,
+            VisualMode::BidPrice => 8,
+            VisualMode::Shelter => 9,
+            VisualMode::Temperature => 10,
+            VisualMode::DayNight => 11,
+        };
+
         // --- Sync & Read State ---
         // Use try_lock to ensure the 60FPS UI loop never blocks on a heavy simulation step
         if let Ok(mut data) = shared_data.try_lock() {
+            data.config.visual_mode = mode_u32;
             if pending_pause_toggle {
                 data.is_paused = !data.is_paused;
                 pending_pause_toggle = false;
@@ -192,77 +207,6 @@ async fn main() {
             
             if show_generation_graph {
                 generation_times = data.generation_survival_times.clone();
-            }
-
-            // Dynamic map generation based on toggle state
-            local_map_data.clear();
-            match current_visual_mode {
-                VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice | VisualMode::Shelter => {
-                    let max_res_ln = (data.config.max_tile_resource + 1.0).ln();
-                    let max_price_ln = 11.0_f32.ln(); // Market prices cap around $10
-                    let max_shelter_ln = (data.config.max_shelter + 1.0).ln();
-                    for cell in &data.sim.env.map_cells {
-                        let (val, max_ln) = match current_visual_mode {
-                            VisualMode::Resources => (cell.res_value as f32 / 1000.0, max_res_ln),
-                            VisualMode::MarketWealth => (cell.market_wealth as f32 / 1000.0, max_res_ln),
-                            VisualMode::MarketFood => (cell.market_food as f32 / 1000000.0, max_res_ln),
-                            VisualMode::AskPrice => (cell.avg_ask, max_price_ln),
-                            VisualMode::BidPrice => (cell.avg_bid, max_price_ln),
-                            VisualMode::Shelter => (cell.shelter_level, max_shelter_ln),
-                            _ => (0.0, 1.0),
-                        };
-                        let mut r = 10; let mut g = 50; let mut b = 150; // Base Water
-                        if val > 0.0 {
-                            let ratio = ((val + 1.0).ln() / max_ln).clamp(0.0, 1.0);
-                            if current_visual_mode == VisualMode::Shelter {
-                                r = (ratio * 139.0) as u8; // SaddleBrown color for shelters
-                                g = (ratio * 69.0) as u8;
-                                b = (ratio * 19.0) as u8;
-                            } else {
-                                r = ((1.0 - ratio) * 255.0) as u8;
-                                g = (ratio * 255.0) as u8;
-                                b = 0;
-                            }
-                        }
-                        local_map_data.extend_from_slice(&[r, g, b, 255]);
-                    }
-                },
-                VisualMode::Temperature | VisualMode::DayNight => {
-                    let map_width = data.config.map_width as usize;
-                    let map_height = data.config.map_height as usize;
-                    let ticks_per_day = 24.0 * 60.0 / data.config.tick_to_mins;
-                    let day_cycle_progress = (data.total_ticks as f32 % ticks_per_day) / ticks_per_day;
-                    let day_intensity = (day_cycle_progress * std::f32::consts::PI * 2.0 - std::f32::consts::FRAC_PI_2).sin() * 0.5 + 0.5;
-                    let season_time = data.total_ticks as f32 / 100000.0 * std::f32::consts::PI * 2.0;
-                    let season_sine = season_time.sin();
-
-                    for (idx, _) in data.sim.env.map_cells.iter().enumerate() {
-                        if current_visual_mode == VisualMode::Temperature {
-                            let y = idx / map_width;
-                            let current_height = data.sim.env.height_map[idx];
-                            let dist_from_equator = (y as f32 - (map_height as f32 / 2.0)).abs() / (map_height as f32 / 2.0);
-                            let base_temp = (1.0 - dist_from_equator * 2.0) - (current_height * 2.0).max(0.0);
-                            let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3;
-                            
-                            let norm = ((local_temp + 1.0) / 2.0).clamp(0.0, 1.0);
-                            let r = (norm * 255.0) as u8;
-                            let b = ((1.0 - norm) * 255.0) as u8;
-                            local_map_data.extend_from_slice(&[r, 50, b, 255]);
-                        } else {
-                            let orig_r = data.sim.env.map_data[idx * 4];
-                            let orig_g = data.sim.env.map_data[idx * 4 + 1];
-                            let orig_b = data.sim.env.map_data[idx * 4 + 2];
-                            let intensity = day_intensity.powf(0.7).max(0.25);
-                            local_map_data.extend_from_slice(&[
-                                (orig_r as f32 * intensity) as u8,
-                                (orig_g as f32 * intensity) as u8,
-                                (orig_b as f32 * intensity) as u8,
-                                255
-                            ]);
-                        }
-                    }
-                },
-                _ => local_map_data.extend_from_slice(&data.sim.env.map_data),
             }
 
             local_agent_coords.clear();
@@ -307,11 +251,10 @@ async fn main() {
         };
         set_camera(&cam);
 
-        // 1. Efficient Zero-Copy Map Rendering
-        if !local_map_data.is_empty() {
-            image.bytes.copy_from_slice(&local_map_data);
-            texture.update(&image);
-        }
+        // 1. Efficient GPU-Accelerated Zero-Copy Map Rendering
+        let render_data = gpu.fetch_render(map_width, map_height);
+        image.bytes.copy_from_slice(&render_data);
+        texture.update(&image);
         draw_texture(&texture, 0.0, 0.0, WHITE);
 
         // 2. High-performance Agent Rendering

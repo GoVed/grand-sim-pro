@@ -5,11 +5,14 @@ pub struct GpuEngine {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
+    render_pipeline: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
+    render_bind_group: wgpu::BindGroup,
     agent_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
     cell_buffer: wgpu::Buffer,
-    staging_cell_buffer: wgpu::Buffer,
+    render_buffer: wgpu::Buffer,
+    staging_render_buffer: wgpu::Buffer,
     config_buffer: wgpu::Buffer,
     height_buffer: wgpu::Buffer,
     agent_count: u32,
@@ -58,9 +61,17 @@ impl GpuEngine {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
             });
 
-            let staging_cell_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Staging Cell Buffer"),
-                size: cell_bytes.len() as wgpu::BufferAddress,
+            let render_buffer_size = (config.map_width * config.map_height * 4) as wgpu::BufferAddress;
+            let render_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Render Buffer"),
+                size: render_buffer_size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            
+            let staging_render_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Staging Render Buffer"),
+                size: render_buffer_size,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -77,9 +88,14 @@ impl GpuEngine {
                 label: Some("Sim Pipeline"), layout: None, module: &shader, entry_point: "main",
                 compilation_options: Default::default(), cache: None,
             });
+            
+            let render_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Render Pipeline"), layout: None, module: &shader, entry_point: "render_main",
+                compilation_options: Default::default(), cache: None,
+            });
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None, layout: &pipeline.get_bind_group_layout(0),
+                label: Some("Sim Bind Group"), layout: &pipeline.get_bind_group_layout(0),
                 entries: &[
                     wgpu::BindGroupEntry { binding: 0, resource: agent_buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 1, resource: height_buffer.as_entire_binding() },
@@ -88,7 +104,17 @@ impl GpuEngine {
                 ],
             });
 
-            Self { device, queue, pipeline, bind_group, agent_buffer, staging_buffer, cell_buffer, staging_cell_buffer, config_buffer, height_buffer, agent_count: agents.len() as u32 }
+            let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Render Bind Group"), layout: &render_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 1, resource: height_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: cell_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: config_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 4, resource: render_buffer.as_entire_binding() },
+                ],
+            });
+
+            Self { device, queue, pipeline, render_pipeline, bind_group, render_bind_group, agent_buffer, staging_buffer, cell_buffer, render_buffer, staging_render_buffer, config_buffer, height_buffer, agent_count: agents.len() as u32 }
         })
     }
 
@@ -126,23 +152,19 @@ impl GpuEngine {
         self.queue.write_buffer(&self.cell_buffer, 0, bytemuck::cast_slice(cells));
     }
 
-    pub fn fetch_state(&self) -> (Vec<crate::agent::Person>, Vec<crate::environment::CellState>) {
+    // OPTION 1: Throttled/Decoupled Fetching
+    pub fn fetch_agents(&self) -> Vec<crate::agent::Person> {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         encoder.copy_buffer_to_buffer(&self.agent_buffer, 0, &self.staging_buffer, 0, self.staging_buffer.size());
-        encoder.copy_buffer_to_buffer(&self.cell_buffer, 0, &self.staging_cell_buffer, 0, self.staging_cell_buffer.size());
         self.queue.submit(Some(encoder.finish()));
 
         let slice = self.staging_buffer.slice(..);
-        let cell_slice = self.staging_cell_buffer.slice(..);
         
         let (tx, rx) = std::sync::mpsc::channel();
-        let tx1 = tx.clone();
         
-        slice.map_async(wgpu::MapMode::Read, move |v| tx1.send(v).unwrap());
-        cell_slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
         
         self.device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().unwrap();
         rx.recv().unwrap().unwrap();
 
         let data = slice.get_mapped_range();
@@ -150,11 +172,31 @@ impl GpuEngine {
         drop(data);
         self.staging_buffer.unmap();
         
-        let cell_data = cell_slice.get_mapped_range();
-        let cells: Vec<crate::environment::CellState> = bytemuck::cast_slice(&cell_data).to_vec();
-        drop(cell_data);
-        self.staging_cell_buffer.unmap();
-        
-        (agents, cells)
+        agents
+    }
+
+    // OPTION 2: GPU Accelerated Rendering Pipeline
+    pub fn fetch_render(&self, width: u32, height: u32) -> Vec<u8> {
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            cpass.set_pipeline(&self.render_pipeline);
+            cpass.set_bind_group(0, &self.render_bind_group, &[]);
+            cpass.dispatch_workgroups((width as f32 / 16.0).ceil() as u32, (height as f32 / 16.0).ceil() as u32, 1);
+        }
+        encoder.copy_buffer_to_buffer(&self.render_buffer, 0, &self.staging_render_buffer, 0, self.staging_render_buffer.size());
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = self.staging_render_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+
+        let data = slice.get_mapped_range();
+        let pixels: Vec<u8> = data.to_vec();
+        drop(data);
+        self.staging_render_buffer.unmap();
+        pixels
     }
 }
