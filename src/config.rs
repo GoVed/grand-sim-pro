@@ -50,7 +50,8 @@ pub struct SimConfig {
     pub shelter_cost: f32,        // Cost in USD/resources to build 1 unit of shelter
     pub max_shelter: f32,         // Maximum shelter value a tile can hold
     pub load_saved_agents_on_start: u32, // Set to 1 to load agents from 'saved_agents_weights' dir
-    pub pad1: [u32; 12],          // 48-byte uniform alignment pad to make total size 196 bytes
+    pub visual_mode: u32,         // Tells the GPU which map overlay to render
+    pub pad1: [u32; 2],           // 8-byte uniform alignment pad to make total size 160 bytes (multiple of 16)
 }
 
 impl Default for SimConfig {
@@ -93,7 +94,8 @@ impl Default for SimConfig {
             shelter_cost: 100.0,      // $100 equivalent required to increase tile shelter level
             max_shelter: 1000.0,      // Max shelter cap per tile
             load_saved_agents_on_start: 0,
-            pad1: [0; 12],
+            visual_mode: 0,
+            pad1: [0; 2],
         }
     }
 }

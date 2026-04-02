@@ -31,10 +31,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 // Dispatch heavy work entirely to the GPU
                 gpu.compute_ticks(data.ticks_per_loop);
                 
-                // Download updated positions and map state precisely when needed
-                let (agents, cells) = gpu.fetch_state();
-                data.sim.agents = agents;
-                data.sim.env.map_cells = cells;
+                // Option 1: Decoupled State Fetching (No longer downloads 165MB of Cell data across PCIe)
+                data.sim.agents = gpu.fetch_agents();
 
                 let config = data.config;
                 let modifications = data.sim.process_genetics_and_births(&config);

@@ -76,7 +76,8 @@ impl SimulationManager {
                     if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
                     let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                     let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-                    let child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
+                    let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
+                    child.age = rng.gen_range(0.0f32..config.max_age * 0.8);
                     agents.push(child);
                     spawn_count += 1;
                 }
@@ -87,7 +88,8 @@ impl SimulationManager {
                 if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
                 let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                 let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-                let child = founders[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
+                let mut child = founders[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
+                child.age = rng.gen_range(0.0f32..config.max_age * 0.8);
                 agents.push(child);
                 spawn_count += 1;
             }

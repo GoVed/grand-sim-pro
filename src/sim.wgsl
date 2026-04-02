@@ -89,7 +89,12 @@ struct SimConfig {
     mutation_rate: f32,
     mutation_strength: f32,
     spawn_group_size: u32,
-    pad1: array<vec4<u32>, 3>, 
+    crossover_rate: f32,
+    shelter_cost: f32,
+    max_shelter: f32,
+    load_saved_agents_on_start: u32,
+    visual_mode: u32,
+    pad1: vec2<u32>,
 }
 
 struct CellState {
@@ -111,13 +116,14 @@ struct CellState {
     market_food: atomic<i32>,
     market_wealth: atomic<i32>,
     market_water: atomic<i32>,
-    pad1: array<i32, 1>,
+    shelter_level: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
 @group(0) @binding(1) var<storage, read> map_heights: array<f32>;
 @group(0) @binding(2) var<storage, read_write> map_cells: array<CellState>;
 @group(0) @binding(3) var<uniform> cfg: SimConfig;
+@group(0) @binding(4) var<storage, read_write> render_buffer: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -182,7 +188,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Cone of Vision: Forward, Left, and Right
     let look_dist = 10.0;
-    let vision_multiplier = 0.3 + day_intensity * 0.7; // Vision is 30% at midnight, 100% at noon
+    var vis_mult = 1.0;
+    if (agent.rest_intent > 0.5 || agent.stamina <= 0.0) { vis_mult = 0.1; } // Eyes are closed while sleeping
+    let vision_multiplier = (0.3 + day_intensity * 0.7) * vis_mult; 
     let look_f_x = agent.x + cos(agent.heading) * look_dist;
     let look_f_y = agent.y + sin(agent.heading) * look_dist;
     var lf_wx = look_f_x % map_w_f32; if (lf_wx < 0.0) { lf_wx = lf_wx + map_w_f32; }
@@ -314,18 +322,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         outputs[o] = tanh(sum);
     }
 
-    let turn_intent = outputs[0];
-    agent.heading = agent.heading + turn_intent * 0.5;
-    let speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0); // Normalize 0 to 1
-    agent.reproduce_desire = clamp(outputs[3] * 0.5 + 0.5, 0.0, 1.0);
-    agent.attack_intent = clamp(outputs[4] * 0.5 + 0.5, 0.0, 1.0);
     let rest_intent = clamp(outputs[5] * 0.5 + 0.5, 0.0, 1.0);
+    var resting = rest_intent > 0.5 || agent.stamina <= 0.0;
+
+    var turn_intent = outputs[0];
+    if (resting) { turn_intent = 0.0; }
+    agent.heading = agent.heading + turn_intent * 0.5;
+
+    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0); // Normalize 0 to 1
+    if (resting) { speed_intent = 0.0; }
+    
+    agent.reproduce_desire = clamp(outputs[3] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting) { agent.reproduce_desire = 0.0; }
+    
+    agent.attack_intent = clamp(outputs[4] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting) { agent.attack_intent = 0.0; }
+    
+    agent.rest_intent = rest_intent;
+    
     agent.comm1 = clamp(outputs[6], -1.0, 1.0);
     agent.comm2 = clamp(outputs[7], -1.0, 1.0);
     agent.comm3 = clamp(outputs[8], -1.0, 1.0);
     agent.comm4 = clamp(outputs[9], -1.0, 1.0);
-    let learn_intent = clamp(outputs[10] * 0.5 + 0.5, 0.0, 1.0); // Agent's "focus" or "readiness to learn"
-    agent.mem1 = outputs[11];
+    if (resting) { agent.comm1 = 0.0; agent.comm2 = 0.0; agent.comm3 = 0.0; agent.comm4 = 0.0; }
+
+    let learn_intent = clamp(outputs[10] * 0.5 + 0.5, 0.0, 1.0); // Agent's "focus" or "readiness to learn" (Can dream/learn while asleep!)
+    agent.mem1 = outputs[11]; // Memory consolidation remains active
     agent.mem2 = outputs[12];
     agent.mem3 = outputs[13];
     agent.mem4 = outputs[14];
@@ -333,18 +355,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.mem6 = outputs[16];
     agent.mem7 = outputs[17];
     agent.mem8 = outputs[18];
+    
     agent.buy_intent = clamp(outputs[19] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting) { agent.buy_intent = 0.0; }
+    
     agent.sell_intent = clamp(outputs[20] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting) { agent.sell_intent = 0.0; }
+    
     agent.ask_price = abs(outputs[21]) * 10.0;
     agent.bid_price = abs(outputs[22]) * 10.0;
+    
     agent.drop_water_intent = clamp(outputs[23] * 0.5 + 0.5, 0.0, 1.0); 
+    if (resting) { agent.drop_water_intent = 0.0; }
+    
     agent.pickup_water_intent = clamp(outputs[24] * 0.5 + 0.5, 0.0, 1.0); 
+    if (resting) { agent.pickup_water_intent = 0.0; }
+    
     agent.defend_intent = clamp(outputs[25] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting) { agent.defend_intent = 0.0; }
 
     var base_speed = speed_intent * cfg.base_speed;
-    var resting = false;
-    if (rest_intent > 0.5) {
-        resting = true;
+    if (resting) {
         base_speed = 0.0;
         agent.stamina = min(agent.stamina + 2.0, cfg.max_stamina);
     }
@@ -430,7 +461,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     if (current_height >= 0.0) {
-        let drop_desire = outputs[2];
+        var drop_desire = outputs[2];
+        if (resting) { drop_desire = 0.0; }
         
         // Bystanders take damage on highly aggressive tiles, UNLESS they are actively defending
         if (local_avg_aggression > 0.5 && agent.defend_intent < 0.5) {
@@ -608,4 +640,65 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     agents[idx] = agent;
+}
+
+@compute @workgroup_size(16, 16)
+fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let x = global_id.x;
+    let y = global_id.y;
+    if (x >= cfg.map_width || y >= cfg.map_height) { return; }
+    
+    let idx = y * cfg.map_width + x;
+    let height = map_heights[idx];
+    var r = 0u; var g = 0u; var b = 0u;
+    let mode = cfg.visual_mode;
+    
+    if (mode == 1u) { // Resources
+        let val = f32(atomicLoad(&map_cells[idx].res_value)) / 1000.0;
+        let max_ln = log(cfg.max_tile_resource + 1.0);
+        if (val > 0.0) {
+            let ratio = clamp(log(val + 1.0) / max_ln, 0.0, 1.0);
+            r = u32((1.0 - ratio) * 255.0); g = u32(ratio * 255.0);
+        } else { r = 10u; g = 50u; b = 150u; }
+    } else if (mode >= 5u && mode <= 9u) {
+        var val = 0.0;
+        var max_ln = 1.0;
+        if (mode == 5u) { val = f32(atomicLoad(&map_cells[idx].market_wealth)) / 1000.0; max_ln = log(cfg.max_tile_resource + 1.0); }
+        else if (mode == 6u) { val = f32(atomicLoad(&map_cells[idx].market_food)) / 1000000.0; max_ln = log(cfg.max_tile_resource + 1.0); }
+        else if (mode == 7u) { val = map_cells[idx].avg_ask; max_ln = log(11.0); }
+        else if (mode == 8u) { val = map_cells[idx].avg_bid; max_ln = log(11.0); }
+        else if (mode == 9u) { val = map_cells[idx].shelter_level; max_ln = log(cfg.max_shelter + 1.0); }
+        
+        if (val > 0.0) {
+            let ratio = clamp(log(val + 1.0) / max_ln, 0.0, 1.0);
+            if (mode == 9u) { r = u32(ratio * 139.0); g = u32(ratio * 69.0); b = u32(ratio * 19.0); }
+            else { r = u32((1.0 - ratio) * 255.0); g = u32(ratio * 255.0); }
+        } else { r = 10u; g = 50u; b = 150u; }
+    } else if (mode == 10u) { // Temperature
+        let dist_from_equator = abs(f32(y) - f32(cfg.map_height) / 2.0) / (f32(cfg.map_height) / 2.0);
+        let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, height * 2.0);
+        let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
+        let day_cycle = (f32(cfg.current_tick) % ticks_per_day) / ticks_per_day;
+        let day_intensity = sin(day_cycle * 6.28318 - 1.5708) * 0.5 + 0.5;
+        let season_time = f32(cfg.current_tick) / 100000.0 * 6.28318;
+        let local_temp = base_temp + sin(season_time) * 0.5 - (1.0 - day_intensity) * 0.3;
+        let norm = clamp((local_temp + 1.0) / 2.0, 0.0, 1.0);
+        r = u32(norm * 255.0); g = 50u; b = u32((1.0 - norm) * 255.0);
+    } else { // Default / Age / Gender / DayNight
+        if (height < -0.2) { r = 10u; g = 50u; b = 150u; }
+        else if (height < 0.0) { r = 30u; g = 100u; b = 200u; }
+        else if (height < 0.1) { r = 240u; g = 230u; b = 140u; }
+        else if (height < 0.4) { r = 34u; g = 139u; b = 34u; }
+        else { r = 100u; g = 100u; b = 100u; }
+        if (height >= 0.0 && abs(height % 0.1) < 0.015) { r = 0u; g = 0u; b = 0u; }
+        if (mode == 11u) {
+            let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
+            let day_intensity = sin(((f32(cfg.current_tick) % ticks_per_day) / ticks_per_day) * 6.28318 - 1.5708) * 0.5 + 0.5;
+            let intensity = max(0.25, pow(day_intensity, 0.7));
+            r = u32(f32(r) * intensity); g = u32(f32(g) * intensity); b = u32(f32(b) * intensity);
+        }
+    }
+    
+    // Encode Little Endian packed RGBA bytes for fast zero-copy memory translation on CPU
+    render_buffer[idx] = r | (g << 8u) | (b << 16u) | (255u << 24u);
 }
