@@ -121,18 +121,25 @@ pub fn draw_inspector(
         draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.0}g | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
 
         // --- Calculate Linearized Effective Influence Matrix ---
-        let mut w_eff = [[0.0_f32; 48]; 26];
+        let mut w_eff = [[0.0_f32; crate::agent::NUM_INPUTS]; 26];
         let mut max_abs_val = 0.0_f32;
         let h_count = a.hidden_count as usize;
         
         for o in 0..26 {
-            for i in 0..48 {
+            for i in 0..crate::agent::NUM_INPUTS {
                 let mut sum = 0.0;
                 for h2 in 0..h_count {
                     let w3_val = a.w3[h2 * 26 + o];
                     let mut h1_sum = 0.0;
                     for h1 in 0..h_count {
-                        h1_sum += a.w2[h1 * 32 + h2] * a.w1[h1 * 48 + i];
+                        let mut w1_val = 0.0;
+                        for k in 0..8 {
+                            if a.w1_indices[h1 * 8 + k] as usize == i {
+                                w1_val = a.w1_weights[h1 * 8 + k];
+                                break;
+                            }
+                        }
+                        h1_sum += a.w2[h1 * crate::agent::NUM_HIDDEN_MAX + h2] * w1_val;
                     }
                     sum += w3_val * h1_sum;
                 }
@@ -145,9 +152,9 @@ pub fn draw_inspector(
         let output_labels = crate::agent::OUTPUT_LABELS;
 
         // --- Render Top Influences List ---
-        let mut all_weights = Vec::with_capacity(48 * 26);
+        let mut all_weights = Vec::with_capacity(crate::agent::NUM_INPUTS * 26);
         for o in 0..26 {
-            for i in 0..48 { all_weights.push((i, o, w_eff[o][i])); }
+            for i in 0..crate::agent::NUM_INPUTS { all_weights.push((i, o, w_eff[o][i])); }
         }
         all_weights.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
         
@@ -162,12 +169,12 @@ pub fn draw_inspector(
         }
 
         // --- Render Interactive Heatmap ---
-        let start_x = 350.0; let start_y = 160.0; let cs = 14.0;
+        let start_x = 350.0; let start_y = 160.0; let cs = 12.0;
         draw_text("Effective Influence Matrix (Linearized Approximation)", start_x, start_y - 20.0, 18.0, WHITE);
         draw_text("Hover over cells to inspect exact input-to-output mappings", start_x, start_y - 5.0, 14.0, GRAY);
         
         for o in 0..26 {
-            for i in 0..48 {
+            for i in 0..crate::agent::NUM_INPUTS {
                 let val = w_eff[o][i];
                 let norm = if max_abs_val > 0.0 { val / max_abs_val } else { 0.0 };
                 let color = if norm > 0.0 { Color::new(0.0, norm.min(1.0), 0.0, 1.0) } else { Color::new((-norm).min(1.0), 0.0, 0.0, 1.0) };
@@ -176,10 +183,10 @@ pub fn draw_inspector(
         }
         
         // Interactive Tooltip Overlay
-        if mx >= start_x && mx < start_x + 48.0 * cs && my >= start_y && my < start_y + 26.0 * cs {
+        if mx >= start_x && mx < start_x + crate::agent::NUM_INPUTS as f32 * cs && my >= start_y && my < start_y + 26.0 * cs {
             let i = ((mx - start_x) / cs) as usize;
             let o = ((my - start_y) / cs) as usize;
-            if i < 48 && o < 26 {
+            if i < crate::agent::NUM_INPUTS && o < 26 {
                 let text = format!("{} -> {} : {:.2}", input_labels[i], output_labels[o], w_eff[o][i]);
                 let bg_width = measure_text(&text, None, 16, 1.0).width + 20.0;
                 draw_rectangle(mx + 10.0, my - 25.0, bg_width, 25.0, Color::new(0.1, 0.1, 0.1, 0.95));
