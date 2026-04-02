@@ -25,7 +25,7 @@ pub fn format_time(ticks: u64, tick_to_mins: f32) -> String {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice, Shelter, DayNight, Temperature }
+pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice, Shelter, DayNight, Temperature, Tribes }
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum SortCol { Index, Age, Health, Food, Wealth, Gender, Speed, Heading, State, Outputs }
@@ -33,6 +33,7 @@ pub enum SortCol { Index, Age, Health, Food, Wealth, Gender, Speed, Heading, Sta
 pub struct AgentRenderData {
     pub x: f32, pub y: f32, pub health: f32, pub food: f32,
     pub age: f32, pub wealth: f32, pub gender: f32, pub is_pregnant: f32,
+    pub pheno_r: f32, pub pheno_g: f32, pub pheno_b: f32,
 }
 
 pub struct SharedData {

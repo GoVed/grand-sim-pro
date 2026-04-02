@@ -33,6 +33,10 @@ pub struct CellState {
     pub market_wealth: i32,  // Fixed-point (val * 1000) for GPU atomics
     pub market_water: i32,   // Fixed-point (val * 1000) for GPU atomics
     pub shelter_level: f32,  // Physical structures built by agents (replaces padding to maintain 80 bytes)
+    pub pheno_r: f32,        // Local dominant phenotype marker
+    pub pheno_g: f32,
+    pub pheno_b: f32,
+    pub _pad_pheno: f32,     // Pad to maintain 16-byte align (96 bytes total)
 }
 
 pub struct Environment {
@@ -90,6 +94,10 @@ impl Environment {
                     market_wealth: (base_res * 1000.0) as i32, // Cells start with money to buy initial farmed crops
                     market_water: if val <= 0.05 { (config.max_tile_water * 1000.0) as i32 } else { 0 }, // Shorelines & Oceans start with water
                 shelter_level: 0.0,
+                pheno_r: 0.0,
+                pheno_g: 0.0,
+                pheno_b: 0.0,
+                _pad_pheno: 0.0,
                 });
             }
         }

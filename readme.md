@@ -15,11 +15,15 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **64 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Directional Hearing, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 3,900 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 64 nodes each) evaluating **80 distinct sensory inputs** (including Phenotypic Identity, Recurrent Memory, Look-Ahead Vision, Directional Hearing, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 6,000 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.
 - **Recurrent Memory Loops:** Agents feature 8 dedicated abstract memory channels. What they output to these memory states in one frame is fed directly back into their sensory inputs on the next, allowing them to recall context (like the direction of a shoreline or the location of an attacker).
+- **Sleep State & Dreaming:** When an agent rests or passes out from exhaustion, they enter a realistic sleep state. Voluntary motor functions (movement, attacking, trading) are physically paralyzed, and vision drops to 10%, but hearing and memory channels remain fully active. Because the Hebbian learning intent can remain active, agents can literally *dream*—consolidating memories and updating synapses while asleep!
+
+### 🎨 Dedicated GPU Rendering Pipeline
+Instead of downloading the entire 165MB+ map state back to the CPU every frame, the simulation features a dedicated `render_main` Compute Shader. The GPU directly translates millions of `CellState` structs into packed RGBA pixel data entirely in VRAM. The CPU only fetches the final compressed 8MB frame, massively alleviating PCIe bandwidth bottlenecks and allowing for ultra-widescreen, densely populated procedural maps.
 
 ### 🌍 Procedural Topography & 4D Wrapping
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
@@ -29,6 +33,7 @@ The environment is generated using Fractal Brownian Motion (FBM) layered over Pe
 ### 🗺️ Pheromone Grid, Spatial Awareness & Communication
 The map doesn't just store resources—it acts as a biological grid. As agents traverse the tiles, they leave behind continuously decaying "pheromone" traces of their speed, community-sharing intent, aggression, and pregnancy status.
 - **Pseudo-Communication:** Agents feature 4 dedicated abstract output channels (`comm1..4`). These signals mix directly into the tile's pheromones, which are then read by neighboring agents on the next frame. The neural networks must autonomously figure out how to invent and decode their own localized languages!
+- **Emergent Tribal Identity (Phenotypes):** Agents possess inheritable and mutating phenotypic markers (represented as an RGB color). They constantly emit this phenotype into the ground. Agents can sense their own phenotype and compare it to the scent of the local tile and their neighbors, naturally evolving Kin Selection (e.g., "Cooperate with those who smell like me, attack those who don't") without any hardcoded "Friend/Enemy" logic!
 
 ### 💹 Localized AMM Economies & Trade
 The simulation implements an Automated Market Maker (AMM) style liquidity pool on every single tile, separating physical **Food** from weightless **Wealth** (USD).
@@ -92,6 +97,7 @@ cargo run --release
 - **R Key:** Open Visuals Panel to toggle map views (Resources, Market Prices, Age, Gender, Pregnancy overlays)
 - **T Key:** Toggle Temperature map visualization
 - **N Key:** Toggle Day/Night shadow visualization
+- **I Key:** Toggle Identity / Tribes visual mode to see emergent phenotypic borders
 - **TAB Key:** Open the Live Inspector. Click an agent's row to inspect its live Neural Network Heatmap, or click `[Locate]` to lock the camera and open the side-panel Agent Tracker.
 - **Up Arrow:** Exponentially increase simulation speed (compute loops per frame)
 - **Down Arrow:** Exponentially decrease simulation speed

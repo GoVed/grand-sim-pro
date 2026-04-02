@@ -12,7 +12,7 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 
-pub const NUM_INPUTS: usize = 64;
+pub const NUM_INPUTS: usize = 80;
 pub const NUM_HIDDEN_MAX: usize = 64;
 pub const NUM_OUTPUTS: usize = 26;
 pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
@@ -29,7 +29,10 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Back Comm 1", "Back Comm 2", "Back Comm 3", "Back Comm 4",
     "Left Comm 1", "Left Comm 2", "Left Comm 3", "Left Comm 4",
     "Right Comm 1", "Right Comm 2", "Right Comm 3", "Right Comm 4",
-    "Unused 1", "Unused 2"
+    "Own Pheno R", "Own Pheno G", "Own Pheno B",
+    "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
+    "Fwd Pheno R", "Fwd Pheno G", "Fwd Pheno B", "Back Pheno R", "Back Pheno G", "Back Pheno B",
+    "Left Pheno R", "Left Pheno G", "Left Pheno B", "Right Pheno R", "Right Pheno G", "Right Pheno B"
 ];
 
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
@@ -88,9 +91,9 @@ pub struct Person {
     pub drop_water_intent: f32,
     pub pickup_water_intent: f32,
     pub defend_intent: f32,
-    pub _pad_intent1: f32, // Maintains 16-byte WGSL vector alignment before arrays
-    pub _pad_intent2: f32,
-    pub _pad_intent3: f32,
+    pub pheno_r: f32, // Replaces padding: Visual/Pheromone marker
+    pub pheno_g: f32,
+    pub pheno_b: f32,
     pub w1_weights: [f32; W1_SIZE],
     pub w1_indices: [u32; W1_SIZE],
     pub w2: [f32; W2_SIZE],
@@ -166,9 +169,9 @@ impl Person {
             drop_water_intent: 0.0,
             pickup_water_intent: 0.0,
             defend_intent: 0.0,
-            _pad_intent1: 0.0,
-            _pad_intent2: 0.0,
-            _pad_intent3: 0.0,
+            pheno_r: (rng.r#gen::<f32>() * 2.0) - 1.0,
+            pheno_g: (rng.r#gen::<f32>() * 2.0) - 1.0,
+            pheno_b: (rng.r#gen::<f32>() * 2.0) - 1.0,
             w1_weights,
             w1_indices,
             w2,
@@ -220,13 +223,17 @@ impl Person {
         child.drop_water_intent = 0.0;
         child.pickup_water_intent = 0.0;
         child.defend_intent = 0.0;
-        child._pad_intent1 = 0.0;
-        child._pad_intent2 = 0.0;
-        child._pad_intent3 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
         
+        child.pheno_r = if rng.r#gen::<f32>() > 0.5 { parent1.pheno_r } else { parent2.pheno_r };
+        child.pheno_g = if rng.r#gen::<f32>() > 0.5 { parent1.pheno_g } else { parent2.pheno_g };
+        child.pheno_b = if rng.r#gen::<f32>() > 0.5 { parent1.pheno_b } else { parent2.pheno_b };
+        if rng.r#gen::<f32>() < 0.1 { child.pheno_r = (child.pheno_r + (rng.r#gen::<f32>() * 0.4) - 0.2).clamp(-1.0, 1.0); }
+        if rng.r#gen::<f32>() < 0.1 { child.pheno_g = (child.pheno_g + (rng.r#gen::<f32>() * 0.4) - 0.2).clamp(-1.0, 1.0); }
+        if rng.r#gen::<f32>() < 0.1 { child.pheno_b = (child.pheno_b + (rng.r#gen::<f32>() * 0.4) - 0.2).clamp(-1.0, 1.0); }
+
         // 1. Crossover Genetics and Mutate
         for i in 0..child.w1_weights.len() {
             child.w1_weights[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1_weights[i] } else { parent2.w1_weights[i] };
@@ -304,14 +311,15 @@ impl Person {
         child.drop_water_intent = 0.0;
         child.pickup_water_intent = 0.0;
         child.defend_intent = 0.0;
-        child._pad_intent1 = 0.0;
-        child._pad_intent2 = 0.0;
-        child._pad_intent3 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
         child.heading = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
         
+        if rng.r#gen::<f32>() < mutation_rate { child.pheno_r = (child.pheno_r + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }
+        if rng.r#gen::<f32>() < mutation_rate { child.pheno_g = (child.pheno_g + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }
+        if rng.r#gen::<f32>() < mutation_rate { child.pheno_b = (child.pheno_b + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }
+
         for w in child.w1_weights.iter_mut() {
             if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
         }

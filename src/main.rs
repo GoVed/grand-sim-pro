@@ -120,6 +120,7 @@ async fn main() {
         if is_key_pressed(KeyCode::T) { current_visual_mode = VisualMode::Temperature; }
         if is_key_pressed(KeyCode::G) { show_generation_graph = !show_generation_graph; }
         if is_key_pressed(KeyCode::N) { current_visual_mode = VisualMode::DayNight; }
+        if is_key_pressed(KeyCode::I) { current_visual_mode = VisualMode::Tribes; }
         if is_key_pressed(KeyCode::Up) { pending_speed_change += 1; }
         if is_key_pressed(KeyCode::Down) { pending_speed_change -= 1; }
         if is_key_pressed(KeyCode::Tab) { 
@@ -161,6 +162,7 @@ async fn main() {
             VisualMode::Shelter => 9,
             VisualMode::Temperature => 10,
             VisualMode::DayNight => 11,
+            VisualMode::Tribes => 12,
         };
 
         // --- Sync & Read State ---
@@ -211,7 +213,8 @@ async fn main() {
 
             local_agent_coords.clear();
             local_agent_coords.extend(data.sim.agents.iter().map(|a| AgentRenderData {
-                x: a.x, y: a.y, health: a.health, food: a.food, age: a.age, wealth: a.wealth, gender: a.gender, is_pregnant: a.is_pregnant
+                x: a.x, y: a.y, health: a.health, food: a.food, age: a.age, wealth: a.wealth, gender: a.gender, is_pregnant: a.is_pregnant,
+                pheno_r: a.pheno_r, pheno_g: a.pheno_g, pheno_b: a.pheno_b
             }));
             
             // Sync data for the inspector UI
@@ -280,6 +283,7 @@ async fn main() {
                 },
                 VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) },
                 VisualMode::Pregnancy => if a.is_pregnant > 0.5 { Color::new(1.0, 0.8, 0.0, 1.0) } else if a.gender > 0.5 { Color::new(0.2, 0.4, 0.8, 0.5) } else { Color::new(0.8, 0.2, 0.5, 0.5) },
+                VisualMode::Tribes => Color::new(a.pheno_r * 0.5 + 0.5, a.pheno_g * 0.5 + 0.5, a.pheno_b * 0.5 + 0.5, 1.0),
                 VisualMode::Default | VisualMode::Shelter | VisualMode::Temperature | VisualMode::DayNight => WHITE,
             };
             
@@ -336,6 +340,10 @@ async fn main() {
             VisualMode::DayNight => {
                 draw_text("Daylight", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);
                 draw_text("Night Shadow", legend_x + 10.0, legend_y + 90.0, 20.0, DARKGRAY);
+            },
+            VisualMode::Tribes => {
+                draw_text("Similar Colors =", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);
+                draw_text("Same Tribe / Kin", legend_x + 10.0, legend_y + 90.0, 20.0, Color::new(0.0, 1.0, 0.5, 1.0));
             },
             VisualMode::Default => {
                 draw_text("Biome / Terrain", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);
