@@ -51,6 +51,7 @@ pub fn draw_metrics(
         VisualMode::Shelter => "Shelter",
         VisualMode::DayNight => "Day/Night",
         VisualMode::Temperature => "Temperature",
+        VisualMode::Tribes => "Identity / Tribes",
     };
     draw_text(&format!("Visuals [R]: {}", mode_str), 20.0, y, 16.0, WHITE);
     y += dy;
@@ -87,6 +88,7 @@ pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_m
         (VisualMode::Shelter, "0. Shelter"),
         (VisualMode::Temperature, "T. Temperature"),
         (VisualMode::DayNight, "N. Day/Night"),
+        (VisualMode::Tribes, "I. Identity / Tribes"),
     ];
     
     let mut vy = 55.0;

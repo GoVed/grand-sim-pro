@@ -38,9 +38,9 @@ struct Agent {
     drop_water_intent: f32,
     pickup_water_intent: f32,
     defend_intent: f32,
-    _pad_intent1: f32,
-    _pad_intent2: f32,
-    _pad_intent3: f32,
+    pheno_r: f32,
+    pheno_g: f32,
+    pheno_b: f32,
     w1_weights: array<f32, 512>, // 64 * 8 Fixed-K Sparse weights
     w1_indices: array<u32, 512>, // 64 * 8 Fixed-K Sparse indices
     w2: array<f32, 4096>, // 64 * 64
@@ -117,6 +117,10 @@ struct CellState {
     market_wealth: atomic<i32>,
     market_water: atomic<i32>,
     shelter_level: f32,
+    pheno_r: f32,
+    pheno_g: f32,
+    pheno_b: f32,
+    _pad_pheno: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
@@ -165,6 +169,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let local_comm4 = map_cells[safe_current_idx].comm4;
     let local_avg_ask = map_cells[safe_current_idx].avg_ask;
     let local_avg_bid = map_cells[safe_current_idx].avg_bid;
+    let local_pheno_r = map_cells[safe_current_idx].pheno_r;
+    let local_pheno_g = map_cells[safe_current_idx].pheno_g;
+    let local_pheno_b = map_cells[safe_current_idx].pheno_b;
 
     let local_res_value = f32(atomicLoad(&map_cells[safe_current_idx].res_value)) / 1000.0;
     let local_market_water = f32(atomicLoad(&map_cells[safe_current_idx].market_water)) / 1000.0;
@@ -203,6 +210,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_f_comm2 = map_cells[look_f_idx].comm2;
     let look_f_comm3 = map_cells[look_f_idx].comm3;
     let look_f_comm4 = map_cells[look_f_idx].comm4;
+    let look_f_pheno_r = map_cells[look_f_idx].pheno_r;
+    let look_f_pheno_g = map_cells[look_f_idx].pheno_g;
+    let look_f_pheno_b = map_cells[look_f_idx].pheno_b;
 
     let angle_b = agent.heading + 3.14159; // 180 deg
     let look_b_x = agent.x + cos(angle_b) * look_dist;
@@ -214,6 +224,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_b_comm2 = map_cells[look_b_idx].comm2;
     let look_b_comm3 = map_cells[look_b_idx].comm3;
     let look_b_comm4 = map_cells[look_b_idx].comm4;
+    let look_b_pheno_r = map_cells[look_b_idx].pheno_r;
+    let look_b_pheno_g = map_cells[look_b_idx].pheno_g;
+    let look_b_pheno_b = map_cells[look_b_idx].pheno_b;
 
     let angle_l = agent.heading - 0.785398; // -45 deg
     let look_l_x = agent.x + cos(angle_l) * look_dist;
@@ -228,6 +241,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_l_comm2 = map_cells[look_l_idx].comm2;
     let look_l_comm3 = map_cells[look_l_idx].comm3;
     let look_l_comm4 = map_cells[look_l_idx].comm4;
+    let look_l_pheno_r = map_cells[look_l_idx].pheno_r;
+    let look_l_pheno_g = map_cells[look_l_idx].pheno_g;
+    let look_l_pheno_b = map_cells[look_l_idx].pheno_b;
 
     let angle_r = agent.heading + 0.785398; // +45 deg
     let look_r_x = agent.x + cos(angle_r) * look_dist;
@@ -242,9 +258,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_r_comm2 = map_cells[look_r_idx].comm2;
     let look_r_comm3 = map_cells[look_r_idx].comm3;
     let look_r_comm4 = map_cells[look_r_idx].comm4;
+    let look_r_pheno_r = map_cells[look_r_idx].pheno_r;
+    let look_r_pheno_g = map_cells[look_r_idx].pheno_g;
+    let look_r_pheno_b = map_cells[look_r_idx].pheno_b;
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 64>(
+    var inputs = array<f32, 80>(
         1.0, local_res_value / 1000.0,
         local_population,
         local_avg_speed + (pseudo_rand * 0.1 - 0.05), 
@@ -279,7 +298,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         look_b_comm1, look_b_comm2, look_b_comm3, look_b_comm4,
         look_l_comm1, look_l_comm2, look_l_comm3, look_l_comm4,
         look_r_comm1, look_r_comm2, look_r_comm3, look_r_comm4,
-        0.0, 0.0
+        agent.pheno_r, agent.pheno_g, agent.pheno_b,
+        local_pheno_r, local_pheno_g, local_pheno_b,
+        look_f_pheno_r, look_f_pheno_g, look_f_pheno_b,
+        look_b_pheno_r, look_b_pheno_g, look_b_pheno_b,
+        look_l_pheno_r, look_l_pheno_g, look_l_pheno_b,
+        look_r_pheno_r, look_r_pheno_g, look_r_pheno_b
     );
 
     var hidden1 = array<f32, 64>();
@@ -560,6 +584,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         map_cells[safe_current_idx].comm2 = mix(local_comm2, agent.comm2, 0.1);
         map_cells[safe_current_idx].comm3 = mix(local_comm3, agent.comm3, 0.1);
         map_cells[safe_current_idx].comm4 = mix(local_comm4, agent.comm4, 0.1);
+        map_cells[safe_current_idx].pheno_r = mix(local_pheno_r, agent.pheno_r, 0.1);
+        map_cells[safe_current_idx].pheno_g = mix(local_pheno_g, agent.pheno_g, 0.1);
+        map_cells[safe_current_idx].pheno_b = mix(local_pheno_b, agent.pheno_b, 0.1);
     }
 
     // Calculate climbing exertion: positive slopes drastically increase the movement cost
@@ -684,6 +711,15 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let local_temp = base_temp + sin(season_time) * 0.5 - (1.0 - day_intensity) * 0.3;
         let norm = clamp((local_temp + 1.0) / 2.0, 0.0, 1.0);
         r = u32(norm * 255.0); g = 50u; b = u32((1.0 - norm) * 255.0);
+    } else if (mode == 12u) { // Tribes / Phenotypes
+        let pr = clamp(map_cells[idx].pheno_r * 0.5 + 0.5, 0.0, 1.0);
+        let pg = clamp(map_cells[idx].pheno_g * 0.5 + 0.5, 0.0, 1.0);
+        let pb = clamp(map_cells[idx].pheno_b * 0.5 + 0.5, 0.0, 1.0);
+        let height = map_heights[idx];
+        var mult = 1.0; if (height < 0.0) { mult = 0.3; } // Dim ocean water slightly
+        r = u32(pr * mult * 255.0);
+        g = u32(pg * mult * 255.0);
+        b = u32(pb * mult * 255.0);
     } else { // Default / Age / Gender / DayNight
         if (height < -0.2) { r = 10u; g = 50u; b = 150u; }
         else if (height < 0.0) { r = 30u; g = 100u; b = 200u; }
