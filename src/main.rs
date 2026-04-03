@@ -60,7 +60,7 @@ async fn main() {
         config: loaded_config,
         is_paused: false,
         restart_message_active: false,
-        ticks_per_loop: 200,
+        ticks_per_loop: 5,
         total_ticks: 0,
         last_compute_time_ms: 0,
         generation_survival_times: Vec::new(),
@@ -121,6 +121,7 @@ async fn main() {
         if is_key_pressed(KeyCode::G) { show_generation_graph = !show_generation_graph; }
         if is_key_pressed(KeyCode::N) { current_visual_mode = VisualMode::DayNight; }
         if is_key_pressed(KeyCode::I) { current_visual_mode = VisualMode::Tribes; }
+        if is_key_pressed(KeyCode::W) { current_visual_mode = VisualMode::Water; }
         if is_key_pressed(KeyCode::Up) { pending_speed_change += 1; }
         if is_key_pressed(KeyCode::Down) { pending_speed_change -= 1; }
         if is_key_pressed(KeyCode::Tab) { 
@@ -139,7 +140,7 @@ async fn main() {
             
             if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() {
                 let mut hit_ui = false;
-                if show_visuals_panel && mx > 280.0 && mx < 440.0 && my > 10.0 && my < 320.0 { hit_ui = true; }
+                if show_visuals_panel && mx > 280.0 && mx < 480.0 && my > 10.0 && my < 370.0 { hit_ui = true; }
                 
                 if !hit_ui {
                     offset_x += (mx - last_mouse.0) / zoom;
@@ -159,10 +160,11 @@ async fn main() {
             VisualMode::MarketFood => 6,
             VisualMode::AskPrice => 7,
             VisualMode::BidPrice => 8,
-            VisualMode::Shelter => 9,
+            VisualMode::Infrastructure => 9,
             VisualMode::Temperature => 10,
             VisualMode::DayNight => 11,
             VisualMode::Tribes => 12,
+            VisualMode::Water => 13,
         };
 
         // --- Sync & Read State ---
@@ -264,7 +266,9 @@ async fn main() {
         let max_inv_ln = (loaded_config.boat_cost * 0.25 + 1.0).ln();
         for a in &local_agent_coords {
             if a.health <= 0.0 {
-                draw_circle(a.x, a.y, 1.0, Color::new(0.2, 0.2, 0.2, 0.5)); // Draw corpses faintly
+                if current_visual_mode == VisualMode::Default {
+                    draw_circle(a.x, a.y, 1.5, Color::new(0.8, 0.2, 0.2, 0.6)); // Draw corpses visibly but faint
+                }
                 continue;
             }
             
@@ -284,7 +288,7 @@ async fn main() {
                 VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) },
                 VisualMode::Pregnancy => if a.is_pregnant > 0.5 { Color::new(1.0, 0.8, 0.0, 1.0) } else if a.gender > 0.5 { Color::new(0.2, 0.4, 0.8, 0.5) } else { Color::new(0.8, 0.2, 0.5, 0.5) },
                 VisualMode::Tribes => Color::new(a.pheno_r * 0.5 + 0.5, a.pheno_g * 0.5 + 0.5, a.pheno_b * 0.5 + 0.5, 1.0),
-                VisualMode::Default | VisualMode::Shelter | VisualMode::Temperature | VisualMode::DayNight => WHITE,
+                VisualMode::Default | VisualMode::Infrastructure | VisualMode::Temperature | VisualMode::DayNight | VisualMode::Water => WHITE,
             };
             
             draw_circle(a.x, a.y, radius, color);
@@ -328,9 +332,11 @@ async fn main() {
                 draw_text("Pregnant", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(1.0, 0.8, 0.0, 1.0));
                 draw_text("Not Pregnant", legend_x + 10.0, legend_y + 90.0, 20.0, GRAY);
             },
-            VisualMode::Shelter => {
-                draw_text("High Shelter", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(0.54, 0.27, 0.07, 1.0));
-                draw_text("No Shelter", legend_x + 10.0, legend_y + 90.0, 20.0, BLACK);
+            VisualMode::Infrastructure => {
+                draw_text("Roads (Spd)", legend_x + 10.0, legend_y + 35.0, 16.0, GRAY);
+                draw_text("Houses (Rest)", legend_x + 10.0, legend_y + 60.0, 16.0, ORANGE);
+                draw_text("Farms (Food)", legend_x + 10.0, legend_y + 85.0, 16.0, GREEN);
+                draw_text("Granary (Store)", legend_x + 10.0, legend_y + 110.0, 16.0, MAGENTA);
             },
             VisualMode::Temperature => {
                 draw_text("Hot", legend_x + 10.0, legend_y + 60.0, 20.0, RED);
@@ -344,6 +350,10 @@ async fn main() {
             VisualMode::Tribes => {
                 draw_text("Similar Colors =", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);
                 draw_text("Same Tribe / Kin", legend_x + 10.0, legend_y + 90.0, 20.0, Color::new(0.0, 1.0, 0.5, 1.0));
+            },
+            VisualMode::Water => {
+                draw_text("High Water", legend_x + 10.0, legend_y + 60.0, 20.0, Color::new(0.0, 0.8, 1.0, 1.0));
+                draw_text("Dry / Saltwater", legend_x + 10.0, legend_y + 90.0, 20.0, DARKGRAY);
             },
             VisualMode::Default => {
                 draw_text("Biome / Terrain", legend_x + 10.0, legend_y + 60.0, 20.0, WHITE);

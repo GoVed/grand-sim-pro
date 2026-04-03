@@ -26,7 +26,7 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
   <img src="readme_imgs/agent_info_ui.png" alt="Cognitive Architecture Graph showing an agent's innate personality traits and glowing bipartite neural pathways" width="80%">
 </p>
 
-Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 64 nodes each) evaluating **128 distinct sensory inputs** (including Phenotypic Identity, Recurrent Memory, a 3x3 Flattened LiDAR Vision Grid, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 6,000 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 64 nodes each) evaluating **160 distinct sensory inputs** (including Phenotypic Identity, Recurrent Memory, a 3x3 Flattened LiDAR Vision Grid with localized infrastructure detection, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 6,000 synaptic weights and drives **30 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, 2 Water Logistics intents, and 4 Infrastructure Construction intents). 
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.
@@ -42,7 +42,7 @@ Instead of downloading the entire 165MB+ map state back to the CPU every frame, 
 </p>
 
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
-- **Seamless Wrapping:** 2D map coordinates are mapped to 4D mathematical angles, guaranteeing that moving off the right edge of the map wraps perfectly to the left edge like a true globe.
+- **Seamless Wrapping & Biomes:** 2D map coordinates are mapped to 4D mathematical angles, guaranteeing that moving off the right edge of the map wraps perfectly to the left edge like a true globe. Procedural rivers carve down mountains, forming dynamic inland lakes and saltwater oceans.
 - **Topological Contours:** The generator extracts exact heightmap elevations and visualizes them using dynamic contour lines on the rendered texture.
 
 ### 🗺️ Pheromone Grid, Spatial Awareness & Communication
@@ -64,11 +64,16 @@ The simulation implements an Automated Market Maker (AMM) style liquidity pool o
 - **Food Spoilage:** Physical organic food rots over time (accelerated by warm temperatures), limiting how much can be passively hoarded.
 - **Capitalism & Survival:** Because hoarding physical food causes encumbrance and inevitably rots, agents are organically incentivized to invent commerce—farming food, carrying it to a profitable market tile, selling it for weightless, non-perishable USD, and using that Wealth to pay for life-extending healthcare, boat travel, or reproduction.
 
+### 🏗️ Civilization & Infrastructure
+Agents can expend wealth to construct mutually exclusive infrastructure on tiles: **Roads, Houses, Farms, and Granaries**.
+- These structures grant massive survival bonuses (e.g., 2x movement speed on roads, highly efficient sleep in houses, or 90% rot reduction in granaries).
+- **Decay & Maintenance:** Infrastructure is subjected to realistic weathering and active wear-and-tear from population usage. Heavily trafficked roads and actively farmed land will decay over time, requiring continuous economic maintenance.
+
 ### ⛰️ Advanced Terrain Physics & Resource Mechanics
 Agents do not just walk freely; the environment fights back.
 - **Elevation & Seasons:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement. Additionally, a global seasonal clock dictates temperatures. Poles and high elevations are freezing, burning agent calories exponentially faster.
 - **Hydration & Satiation:** Biological needs are strictly mapped to real-world metrics (Grams of Food, Kg of Water). Coastlines provide baseline water, but tiles themselves possess dynamic water storage capacities. Agents use Neural Network intents to explicitly pick up or drop water into local tiles, effectively allowing them to build inland reservoirs.
-- **Ocean Traversal:** Deep water is impassable unless an agent has passively gathered enough resources on land to overcome the "boat threshold," allowing them to cross oceans.
+- **Water Obstacles:** Rivers, lakes, and oceans are physical obstacles. They are impassable unless an agent has gathered enough wealth to overcome the "boat threshold," forcing populations to build around natural water formations or pay for transit.
 - **Encumbrance & Crowding:** Inventory represents physical mass. Carrying large amounts of food and water severely encumbers agents, slowing their movement speed. Additionally, high populations on a single tile create a physical crowding penalty, organically forcing herds to spread out.
 
 ### 🧬 Biological Lifecycle & Genetics
@@ -83,7 +88,7 @@ Agents are subject to the harsh realities of life mapped to a realistic timeline
 
 ### ⚙️ Real-Time Configuration (`sim_config.json`)
 On its first run, the simulation generates a `sim_config.json` file, mapping the environment to realistic metrics (e.g., 1 Resource = $1 USD, 1 Tick = 1 Minute).
-You can freely tweak base speeds, climbing penalties, boat costs, genetic mutation rates, spawn cluster sizes, and reproduction limits dynamically without recompiling the project.
+You can freely tweak over 50 physical parameters dynamically without recompiling the project—including base speeds, climbing penalties, boat costs, combat damage multipliers, pregnancy encumbrance, and infrastructure decay rates!
 
 ### 📊 Real-Time Telemetry
 <p align="center">
