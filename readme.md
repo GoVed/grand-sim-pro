@@ -15,7 +15,7 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 ## Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
-Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **48 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 3,300 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
+Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 32 nodes each) evaluating **64 distinct sensory inputs** (including Recurrent Memory, Look-Ahead Vision, Directional Hearing, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 3,900 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.

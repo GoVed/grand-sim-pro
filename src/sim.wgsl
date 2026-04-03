@@ -41,9 +41,10 @@ struct Agent {
     _pad_intent1: f32,
     _pad_intent2: f32,
     _pad_intent3: f32,
-    w1: array<f32, 1536>, // 48 * 32
-    w2: array<f32, 1024>, // 32 * 32
-    w3: array<f32, 832>,  // 32 * 26
+    w1_weights: array<f32, 512>, // 64 * 8 Fixed-K Sparse weights
+    w1_indices: array<u32, 512>, // 64 * 8 Fixed-K Sparse indices
+    w2: array<f32, 4096>, // 64 * 64
+    w3: array<f32, 1664>, // 64 * 26
     food: f32,
     water: f32,
     stamina: f32,
@@ -190,6 +191,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_f_h = map_heights[look_f_idx];
     let look_f_res = f32(atomicLoad(&map_cells[look_f_idx].res_value)) / 1000.0 * vision_multiplier;
     let look_f_pop = map_cells[look_f_idx].population * vision_multiplier;
+    let look_f_comm1 = map_cells[look_f_idx].comm1;
+    let look_f_comm2 = map_cells[look_f_idx].comm2;
+    let look_f_comm3 = map_cells[look_f_idx].comm3;
+    let look_f_comm4 = map_cells[look_f_idx].comm4;
+
+    let angle_b = agent.heading + 3.14159; // 180 deg
+    let look_b_x = agent.x + cos(angle_b) * look_dist;
+    let look_b_y = agent.y + sin(angle_b) * look_dist;
+    var lb_wx = look_b_x % map_w_f32; if (lb_wx < 0.0) { lb_wx = lb_wx + map_w_f32; }
+    var lb_wy = look_b_y % map_h_f32; if (lb_wy < 0.0) { lb_wy = lb_wy + map_h_f32; }
+    let look_b_idx = clamp(u32(lb_wy) * map_width + u32(lb_wx), 0u, max_idx);
+    let look_b_comm1 = map_cells[look_b_idx].comm1;
+    let look_b_comm2 = map_cells[look_b_idx].comm2;
+    let look_b_comm3 = map_cells[look_b_idx].comm3;
+    let look_b_comm4 = map_cells[look_b_idx].comm4;
 
     let angle_l = agent.heading - 0.785398; // -45 deg
     let look_l_x = agent.x + cos(angle_l) * look_dist;
@@ -200,6 +216,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_l_h = map_heights[look_l_idx];
     let look_l_res = f32(atomicLoad(&map_cells[look_l_idx].res_value)) / 1000.0 * vision_multiplier;
     let look_l_pop = map_cells[look_l_idx].population * vision_multiplier;
+    let look_l_comm1 = map_cells[look_l_idx].comm1;
+    let look_l_comm2 = map_cells[look_l_idx].comm2;
+    let look_l_comm3 = map_cells[look_l_idx].comm3;
+    let look_l_comm4 = map_cells[look_l_idx].comm4;
 
     let angle_r = agent.heading + 0.785398; // +45 deg
     let look_r_x = agent.x + cos(angle_r) * look_dist;
@@ -210,9 +230,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let look_r_h = map_heights[look_r_idx];
     let look_r_res = f32(atomicLoad(&map_cells[look_r_idx].res_value)) / 1000.0 * vision_multiplier;
     let look_r_pop = map_cells[look_r_idx].population * vision_multiplier;
+    let look_r_comm1 = map_cells[look_r_idx].comm1;
+    let look_r_comm2 = map_cells[look_r_idx].comm2;
+    let look_r_comm3 = map_cells[look_r_idx].comm3;
+    let look_r_comm4 = map_cells[look_r_idx].comm4;
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 48>(
+    var inputs = array<f32, 64>(
         1.0, local_res_value / 1000.0,
         local_population,
         local_avg_speed + (pseudo_rand * 0.1 - 0.05), 
@@ -242,15 +266,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         agent.wealth / cfg.boat_cost,
         local_avg_ask / 10.0,
         local_avg_bid / 10.0,
-        day_intensity, 0.0, 0.0
+        day_intensity,
+        look_f_comm1, look_f_comm2, look_f_comm3, look_f_comm4,
+        look_b_comm1, look_b_comm2, look_b_comm3, look_b_comm4,
+        look_l_comm1, look_l_comm2, look_l_comm3, look_l_comm4,
+        look_r_comm1, look_r_comm2, look_r_comm3, look_r_comm4,
+        0.0, 0.0
     );
 
-    var hidden1 = array<f32, 32>();
-    for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
+    var hidden1 = array<f32, 64>();
+    for (var h1 = 0u; h1 < 64u; h1 = h1 + 1u) {
         var sum = 0.0;
         if (h1 < agent.hidden_count) {
-            for (var i = 0u; i < 48u; i = i + 1u) {
-                sum = sum + inputs[i] * agent.w1[h1 * 48u + i];
+            for (var k = 0u; k < 8u; k = k + 1u) {
+                let in_idx = agent.w1_indices[h1 * 8u + k];
+                sum = sum + inputs[in_idx] * agent.w1_weights[h1 * 8u + k];
             }
             hidden1[h1] = tanh(sum);
         } else {
@@ -258,13 +288,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    var hidden2 = array<f32, 32>();
-    for (var h2 = 0u; h2 < 32u; h2 = h2 + 1u) {
+    var hidden2 = array<f32, 64>();
+    for (var h2 = 0u; h2 < 64u; h2 = h2 + 1u) {
         var sum = 0.0;
         if (h2 < agent.hidden_count) {
-            for (var h1 = 0u; h1 < 32u; h1 = h1 + 1u) {
+            for (var h1 = 0u; h1 < 64u; h1 = h1 + 1u) {
                 if (h1 < agent.hidden_count) {
-                    sum = sum + hidden1[h1] * agent.w2[h1 * 32u + h2];
+                    sum = sum + hidden1[h1] * agent.w2[h1 * 64u + h2];
                 }
             }
             hidden2[h2] = tanh(sum);
@@ -560,13 +590,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let lr = dopamine_signal * learn_intent * 0.0005; // Smaller base learning rate, modulated by dopamine
 
         for (var h1 = 0u; h1 < agent.hidden_count; h1 = h1 + 1u) {
-            for (var i = 0u; i < 48u; i = i + 1u) {
-                agent.w1[h1 * 48u + i] = clamp(agent.w1[h1 * 48u + i] + lr * inputs[i] * hidden1[h1], -2.0, 2.0);
+            for (var k = 0u; k < 8u; k = k + 1u) {
+                let in_idx = agent.w1_indices[h1 * 8u + k];
+                agent.w1_weights[h1 * 8u + k] = clamp(agent.w1_weights[h1 * 8u + k] + lr * inputs[in_idx] * hidden1[h1], -2.0, 2.0);
             }
         }
         for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) {
             for (var h1 = 0u; h1 < agent.hidden_count; h1 = h1 + 1u) {
-                agent.w2[h1 * 32u + h2] = clamp(agent.w2[h1 * 32u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
+                agent.w2[h1 * 64u + h2] = clamp(agent.w2[h1 * 64u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
             }
         }
         for (var o = 0u; o < 26u; o = o + 1u) {

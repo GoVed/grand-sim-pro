@@ -12,10 +12,10 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 
-pub const NUM_INPUTS: usize = 48;
-pub const NUM_HIDDEN_MAX: usize = 32;
+pub const NUM_INPUTS: usize = 64;
+pub const NUM_HIDDEN_MAX: usize = 64;
 pub const NUM_OUTPUTS: usize = 26;
-pub const W1_SIZE: usize = NUM_INPUTS * NUM_HIDDEN_MAX;
+pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
 pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
 pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
 
@@ -25,7 +25,11 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Age", "Gender", "Fwd Res", "Fwd Elev", "Fwd Pop", "Left Res", "Left Elev", "Left Pop",
     "Right Res", "Right Elev", "Right Pop", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
     "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid", "Daylight",
-    "Unused 2", "Unused 3"
+    "Fwd Comm 1", "Fwd Comm 2", "Fwd Comm 3", "Fwd Comm 4",
+    "Back Comm 1", "Back Comm 2", "Back Comm 3", "Back Comm 4",
+    "Left Comm 1", "Left Comm 2", "Left Comm 3", "Left Comm 4",
+    "Right Comm 1", "Right Comm 2", "Right Comm 3", "Right Comm 4",
+    "Unused 1", "Unused 2"
 ];
 
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
@@ -39,6 +43,10 @@ pub struct AgentWeights {
     pub hidden_count: u32,
     #[serde(default)]
     pub inputs: std::collections::HashMap<String, Vec<f32>>,
+    #[serde(default)]
+    pub w1_weights: Vec<f32>,
+    #[serde(default)]
+    pub w1_indices: Vec<u32>,
     pub w2: Vec<f32>,
     #[serde(default)]
     pub outputs: std::collections::HashMap<String, Vec<f32>>,
@@ -83,7 +91,8 @@ pub struct Person {
     pub _pad_intent1: f32, // Maintains 16-byte WGSL vector alignment before arrays
     pub _pad_intent2: f32,
     pub _pad_intent3: f32,
-    pub w1: [f32; W1_SIZE],
+    pub w1_weights: [f32; W1_SIZE],
+    pub w1_indices: [u32; W1_SIZE],
     pub w2: [f32; W2_SIZE],
     pub w3: [f32; W3_SIZE],
     pub food: f32,      // Replaces simple inventory
@@ -93,7 +102,7 @@ pub struct Person {
     pub age: f32,
     pub id: u32,             // Unique ID to track pregnancies
     pub gestation_timer: f32,
-    pub is_pregnant: f32,    // Perfect 8784 byte alignment 
+    pub is_pregnant: f32,    // End of Person struct
 }
 
 impl Person {
@@ -103,13 +112,19 @@ impl Person {
         let mut rng = rand::thread_rng();
         
         // Xavier/Glorot Initialization limits to prevent neuron saturation
-        let w1_limit = (6.0 / (NUM_INPUTS as f32 + hidden_count as f32)).sqrt();
+        let w1_limit = (6.0 / (8.0 + hidden_count as f32)).sqrt(); // 8 inputs per hidden node
         let w2_limit = (6.0 / (hidden_count as f32 + hidden_count as f32)).sqrt();
         let w3_limit = (6.0 / (hidden_count as f32 + NUM_OUTPUTS as f32)).sqrt();
 
-        let mut w1 = [0.0; W1_SIZE];
-        for i in 0..(NUM_INPUTS * hidden_count) {
-            w1[i] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit;
+        let mut w1_weights = [0.0; W1_SIZE];
+        let mut w1_indices = [0; W1_SIZE];
+        for h in 0..NUM_HIDDEN_MAX {
+            let mut available: Vec<u32> = (0..NUM_INPUTS as u32).collect();
+            for k in 0..8 {
+                let idx = rng.gen_range(0..available.len());
+                w1_indices[h * 8 + k] = available.remove(idx);
+                w1_weights[h * 8 + k] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit;
+            }
         }
 
         let mut w2 = [0.0; W2_SIZE];
@@ -154,7 +169,8 @@ impl Person {
             _pad_intent1: 0.0,
             _pad_intent2: 0.0,
             _pad_intent3: 0.0,
-            w1,
+            w1_weights,
+            w1_indices,
             w2,
             w3,
             food: 50000.0, 
@@ -212,9 +228,11 @@ impl Person {
         child.is_pregnant = 0.0;
         
         // 1. Crossover Genetics and Mutate
-        for i in 0..child.w1.len() {
-            child.w1[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1[i] } else { parent2.w1[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w1[i] = (child.w1[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
+        for i in 0..child.w1_weights.len() {
+            child.w1_weights[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1_weights[i] } else { parent2.w1_weights[i] };
+            child.w1_indices[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1_indices[i] } else { parent2.w1_indices[i] };
+            if rng.r#gen::<f32>() < 0.1 { child.w1_weights[i] = (child.w1_weights[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
+            if rng.r#gen::<f32>() < 0.02 { child.w1_indices[i] = rng.gen_range(0..NUM_INPUTS as u32); }
         }
         
         for i in 0..child.w2.len() {
@@ -231,11 +249,17 @@ impl Person {
         if rng.r#gen::<f32>() < 0.05 && child.hidden_count < NUM_HIDDEN_MAX as u32 {
             let h = child.hidden_count as usize;
             
-            let w1_limit = (6.0 / (NUM_INPUTS as f32 + h as f32 + 1.0)).sqrt();
+            let w1_limit = (6.0 / (8.0 + h as f32 + 1.0)).sqrt();
             let w2_limit = (6.0 / ((h as f32 + 1.0) * 2.0)).sqrt();
             let w3_limit = (6.0 / (h as f32 + 1.0 + NUM_OUTPUTS as f32)).sqrt();
 
-            for i in 0..NUM_INPUTS { child.w1[h * NUM_INPUTS + i] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit; }
+            let mut available: Vec<u32> = (0..NUM_INPUTS as u32).collect();
+            for k in 0..8 {
+                let idx = rng.gen_range(0..available.len());
+                child.w1_indices[h * 8 + k] = available.remove(idx);
+                child.w1_weights[h * 8 + k] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit;
+            }
+
             for i in 0..NUM_HIDDEN_MAX { child.w2[h * NUM_HIDDEN_MAX + i] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit; } // H1 out
             for i in 0..NUM_HIDDEN_MAX { child.w2[i * NUM_HIDDEN_MAX + h] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit; } // H2 in
             for i in 0..NUM_OUTPUTS { child.w3[h * NUM_OUTPUTS + i] = (rng.r#gen::<f32>() * 2.0 * w3_limit) - w3_limit; } 
@@ -288,8 +312,11 @@ impl Person {
         child.is_pregnant = 0.0;
         child.heading = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
         
-        for w in child.w1.iter_mut() {
+        for w in child.w1_weights.iter_mut() {
             if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        }
+        for idx in child.w1_indices.iter_mut() {
+            if rng.r#gen::<f32>() < mutation_rate * 0.1 { *idx = rng.gen_range(0..NUM_INPUTS as u32); }
         }
         for w in child.w2.iter_mut() {
             if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
@@ -302,14 +329,6 @@ impl Person {
 
     pub fn extract_weights(&self) -> AgentWeights {
         let mut inputs = std::collections::HashMap::new();
-        for i in 0..NUM_INPUTS {
-            let mut w = Vec::with_capacity(NUM_HIDDEN_MAX);
-            for h in 0..NUM_HIDDEN_MAX {
-                w.push(self.w1[h * NUM_INPUTS + i]);
-            }
-            inputs.insert(INPUT_LABELS[i].to_string(), w);
-        }
-
         let mut outputs = std::collections::HashMap::new();
         for o in 0..NUM_OUTPUTS {
             let mut w = Vec::with_capacity(NUM_HIDDEN_MAX);
@@ -322,6 +341,8 @@ impl Person {
         AgentWeights {
             hidden_count: self.hidden_count,
             inputs,
+            w1_weights: self.w1_weights.to_vec(),
+            w1_indices: self.w1_indices.to_vec(),
             w2: self.w2.to_vec(),
             outputs,
             w1: Vec::new(),
@@ -332,17 +353,11 @@ impl Person {
     pub fn apply_weights(&mut self, weights: &AgentWeights) {
         self.hidden_count = weights.hidden_count.min(NUM_HIDDEN_MAX as u32);
         
-        if !weights.inputs.is_empty() {
-            for i in 0..NUM_INPUTS {
-                if let Some(w) = weights.inputs.get(INPUT_LABELS[i]) {
-                    for h in 0..NUM_HIDDEN_MAX {
-                        if h < w.len() { self.w1[h * NUM_INPUTS + i] = w[h]; }
-                    }
-                }
-            }
-        } else if !weights.w1.is_empty() {
-            let w1_len = self.w1.len().min(weights.w1.len());
-            self.w1[..w1_len].copy_from_slice(&weights.w1[..w1_len]);
+        if !weights.w1_weights.is_empty() && !weights.w1_indices.is_empty() {
+            let w1_len = self.w1_weights.len().min(weights.w1_weights.len());
+            self.w1_weights[..w1_len].copy_from_slice(&weights.w1_weights[..w1_len]);
+            let idx_len = self.w1_indices.len().min(weights.w1_indices.len());
+            self.w1_indices[..idx_len].copy_from_slice(&weights.w1_indices[..idx_len]);
         }
 
         let w2_len = self.w2.len().min(weights.w2.len());
