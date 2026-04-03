@@ -1,8 +1,13 @@
-# Grand Sim Pro
+<div align="center">
+  <h1>🌍 Grand Sim Pro</h1>
+  <p><b>A massively parallel, GPU-accelerated genetic survival simulator.</b></p>
+</div>
 
-Grand Sim Pro is a massively parallel, GPU-accelerated genetic survival simulator. It leverages modern Rust, the `wgpu` graphics API, and Compute Shaders to simulate thousands of autonomous neural-network-driven agents in real-time. 
+Grand Sim Pro leverages modern Rust, the `wgpu` graphics API, and Compute Shaders to simulate thousands of autonomous neural-network-driven agents in real-time. 
 
 By offloading the heaviest computational workloads directly to the GPU's VRAM, the engine bypasses traditional CPU bottlenecks, allowing for the simulation of complex ecosystems, terrain physics, and survival mechanics at blistering speeds.
+
+![Main UI showing the simulation running with procedural terrain, biomes, and a massive agent population](readme_imgs/main_ui.png)
 
 ## Architecture
 
@@ -12,9 +17,15 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 - **WGSL Compute Shaders (`wgpu`):** Instead of looping through agents sequentially on the CPU, the simulation math is written in WebGPU Shading Language (`sim.wgsl`). The GPU executes neural network evaluations, physics calculations, and terrain collisions for every single agent simultaneously.
 - **Memory Synchronization:** Structs strictly formatted in memory via `bytemuck` are safely shuttled across the PCIe bus, guaranteeing precise alignment between the Rust CPU state and the WGSL GPU state.
 
-## Core Features
+---
+
+## ✨ Core Features
 
 ### 🧠 GPU-Accelerated Neural Networks
+<p align="center">
+  <img src="readme_imgs/agent_info_ui.png" alt="Cognitive Architecture Graph showing an agent's innate personality traits and glowing bipartite neural pathways" width="80%">
+</p>
+
 Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 64 nodes each) evaluating **80 distinct sensory inputs** (including Phenotypic Identity, Recurrent Memory, Look-Ahead Vision, Directional Hearing, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 6,000 synaptic weights and drives **26 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, and 2 Water Logistics intents). 
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
@@ -26,16 +37,28 @@ Every agent contains a massive **Deep Neural Network** with two hidden layers (u
 Instead of downloading the entire 165MB+ map state back to the CPU every frame, the simulation features a dedicated `render_main` Compute Shader. The GPU directly translates millions of `CellState` structs into packed RGBA pixel data entirely in VRAM. The CPU only fetches the final compressed 8MB frame, massively alleviating PCIe bandwidth bottlenecks and allowing for ultra-widescreen, densely populated procedural maps.
 
 ### 🌍 Procedural Topography & 4D Wrapping
+<p align="center">
+  <img src="readme_imgs/terrain_graphics_ui.png" alt="Topographical terrain generation showcasing procedural rivers, oceans, and elevation contour lines" width="80%">
+</p>
+
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
 - **Seamless Wrapping:** 2D map coordinates are mapped to 4D mathematical angles, guaranteeing that moving off the right edge of the map wraps perfectly to the left edge like a true globe.
 - **Topological Contours:** The generator extracts exact heightmap elevations and visualizes them using dynamic contour lines on the rendered texture.
 
 ### 🗺️ Pheromone Grid, Spatial Awareness & Communication
+<p align="center">
+  <img src="readme_imgs/identity_graphics_ui.png" alt="Emergent Tribal Identity view showing dynamic territory borders formed by agents with similar phenotypic colors" width="80%">
+</p>
+
 The map doesn't just store resources—it acts as a biological grid. As agents traverse the tiles, they leave behind continuously decaying "pheromone" traces of their speed, community-sharing intent, aggression, and pregnancy status.
 - **Pseudo-Communication:** Agents feature 4 dedicated abstract output channels (`comm1..4`). These signals mix directly into the tile's pheromones, which are then read by neighboring agents on the next frame. The neural networks must autonomously figure out how to invent and decode their own localized languages!
 - **Emergent Tribal Identity (Phenotypes):** Agents possess inheritable and mutating phenotypic markers (represented as an RGB color). They constantly emit this phenotype into the ground. Agents can sense their own phenotype and compare it to the scent of the local tile and their neighbors, naturally evolving Kin Selection (e.g., "Cooperate with those who smell like me, attack those who don't") without any hardcoded "Friend/Enemy" logic!
 
 ### 💹 Localized AMM Economies & Trade
+<p align="center">
+  <img src="readme_imgs/amm_graphics_ui.png" alt="Agents clustering around high-value economic zones and market centers" width="80%">
+</p>
+
 The simulation implements an Automated Market Maker (AMM) style liquidity pool on every single tile, separating physical **Food** from weightless **Wealth** (USD).
 - **Micro-Economies:** Agents read the local `Ask` and `Bid` prices of the cell they stand on, and can output their own intended prices alongside a `Buy` or `Sell` intent.
 - **Food Spoilage:** Physical organic food rots over time (accelerated by warm temperatures), limiting how much can be passively hoarded.
@@ -63,6 +86,12 @@ On its first run, the simulation generates a `sim_config.json` file, mapping the
 You can freely tweak base speeds, climbing penalties, boat costs, genetic mutation rates, spawn cluster sizes, and reproduction limits dynamically without recompiling the project.
 
 ### 📊 Real-Time Telemetry
+<p align="center">
+  <img src="readme_imgs/real_time_gen_ui.png" alt="Real-time generational information" width="45%">
+  &nbsp;
+  <img src="readme_imgs/survival_graph_ui.png" alt="Survival graph showing evolutionary progress" width="45%">
+</p>
+
 The `macroquad` UI tracks engine performance precisely, displaying:
 - Live Population Counts
 - Compute Latency (ms per loop)
@@ -71,7 +100,9 @@ The `macroquad` UI tracks engine performance precisely, displaying:
 - Generational Survival Line Graph (Press G to evaluate population learning trends)
 - Average FPS & 1% Lows 
 
-## Prerequisites
+---
+
+## 💻 Prerequisites
 
 To build and run this project natively on your machine, you need:
 - Rust
@@ -79,7 +110,9 @@ To build and run this project natively on your machine, you need:
 
 *(Note: If running on Linux via a sandboxed environment like Flatpak, ensure you have exposed X11/Wayland display permissions).*
 
-## Running the Simulation
+---
+
+## 🚀 Running the Simulation
 
 Because the simulation runs as a native application, you can compile and launch it with full optimizations using a single command:
 

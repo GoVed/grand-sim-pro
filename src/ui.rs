@@ -153,48 +153,141 @@ pub fn draw_inspector(
         let input_labels = crate::agent::INPUT_LABELS;
         let output_labels = crate::agent::OUTPUT_LABELS;
 
-        // --- Render Top Influences List ---
-        let mut all_weights = Vec::with_capacity(crate::agent::NUM_INPUTS * 26);
+        // --- Extract Baselines & Remove from reactive matrix ---
+        let mut baselines = [0.0_f32; 26];
         for o in 0..26 {
-            for i in 0..crate::agent::NUM_INPUTS { all_weights.push((i, o, w_eff[o][i])); }
-        }
-        all_weights.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-        
-        draw_text("Top Direct Positive Behaviors:", 50.0, 160.0, 16.0, Color::new(0.0, 1.0, 0.5, 1.0));
-        for (idx, &(i, o, w)) in all_weights.iter().take(8).enumerate() {
-            draw_text(&format!("{}. {} -> {} ({:.2})", idx + 1, input_labels[i], output_labels[o], w), 50.0, 185.0 + idx as f32 * 20.0, 14.0, WHITE);
+            baselines[o] = w_eff[o][0]; // Input 0 is the constant Bias
+            w_eff[o][0] = 0.0; // Remove bias from the reactive pathway calculations
         }
         
-        draw_text("Top Direct Negative Behaviors:", 50.0, 360.0, 16.0, Color::new(1.0, 0.2, 0.2, 1.0));
-        for (idx, &(i, o, w)) in all_weights.iter().rev().take(8).enumerate() {
-            draw_text(&format!("{}. {} -> {} ({:.2})", idx + 1, input_labels[i], output_labels[o], w), 50.0, 385.0 + idx as f32 * 20.0, 14.0, WHITE);
+        let traits = [
+            ("Hostility (Attack)", baselines[4]),
+            ("Defensiveness", baselines[25]),
+            ("Wanderlust (Speed)", baselines[1]),
+            ("Laziness (Rest)", baselines[5]),
+            ("Generosity (Drop Items)", baselines[2] + baselines[23]),
+            ("Commerce (Trade)", baselines[19] + baselines[20]),
+            ("Sociability (Comm/Mate)", baselines[3] + baselines[6] + baselines[7] + baselines[8] + baselines[9]),
+            ("Curiosity (Learn)", baselines[10]),
+        ];
+
+        let trait_x = 70.0;
+        let mut trait_y = 150.0;
+        draw_text("INNATE PERSONALITY (Baseline Bias)", trait_x, trait_y, 18.0, WHITE);
+        draw_text("Natural tendencies excluding environmental stimuli.", trait_x, trait_y + 20.0, 14.0, GRAY);
+        trait_y += 50.0;
+
+        let bar_w = 90.0; 
+        for (name, val) in traits.iter() {
+            draw_text(name, trait_x, trait_y + 5.0, 16.0, WHITE);
+            let center_x = trait_x + 190.0 + bar_w;
+            draw_line(center_x, trait_y - 10.0, center_x, trait_y + 10.0, 2.0, GRAY); 
+            
+            let draw_val = val.clamp(-3.0, 3.0) / 3.0; 
+            let bar_len = draw_val.abs() * bar_w;
+            let color = if *val > 0.0 { Color::new(0.0, 1.0, 0.5, 1.0) } else { Color::new(1.0, 0.2, 0.2, 1.0) };
+            
+            if *val > 0.0 { draw_rectangle(center_x, trait_y - 8.0, bar_len, 16.0, color); } 
+            else { draw_rectangle(center_x - bar_len, trait_y - 8.0, bar_len, 16.0, color); }
+            
+            draw_text(&format!("{:.2}", val), trait_x + 190.0 + bar_w * 2.0 + 15.0, trait_y + 5.0, 16.0, color);
+            trait_y += 35.0;
         }
 
-        // --- Render Interactive Heatmap ---
-        let start_x = 350.0; let start_y = 160.0; let cs = 12.0;
-        draw_text("Effective Influence Matrix (Linearized Approximation)", start_x, start_y - 20.0, 18.0, WHITE);
-        draw_text("Hover over cells to inspect exact input-to-output mappings", start_x, start_y - 5.0, 14.0, GRAY);
+        trait_y += 20.0;
+        draw_text("STRONGEST SINGLE TRIGGERS", trait_x, trait_y, 18.0, WHITE);
+        trait_y += 25.0;
         
+        let mut all_weights = Vec::with_capacity(80 * 26);
+        for o in 0..26 { for i in 1..80 { all_weights.push((i, o, w_eff[o][i])); } }
+        all_weights.sort_by(|a, b| b.2.abs().partial_cmp(&a.2.abs()).unwrap_or(std::cmp::Ordering::Equal));
+        
+        for (idx, &(i, o, w)) in all_weights.iter().take(6).enumerate() {
+            let color = if w > 0.0 { Color::new(0.0, 1.0, 0.5, 1.0) } else { Color::new(1.0, 0.2, 0.2, 1.0) };
+            let text = format!("{}. {} -> {} ({:.2})", idx + 1, input_labels[i], output_labels[o], w);
+            draw_text(&text, trait_x, trait_y, 16.0, color);
+            trait_y += 25.0;
+        }
+
+        // --- Cognitive Architecture (Bipartite Graph) ---
+        let graph_x = 600.0;
+        let graph_y = 150.0;
+        draw_text("DOMINANT REACTIVE PATHWAYS", graph_x, graph_y, 18.0, WHITE);
+        draw_text("How sensory inputs dynamically trigger behavioral outputs.", graph_x, graph_y + 20.0, 14.0, GRAY);
+
+        let mut input_importance = [(0usize, 0.0_f32); 80];
+        for i in 1..80 {
+            let mut sum = 0.0;
+            for o in 0..26 { sum += w_eff[o][i].abs(); }
+            input_importance[i] = (i, sum);
+        }
+        input_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut output_importance = [(0usize, 0.0_f32); 26];
         for o in 0..26 {
-            for i in 0..crate::agent::NUM_INPUTS {
-                let val = w_eff[o][i];
-                let norm = if max_abs_val > 0.0 { val / max_abs_val } else { 0.0 };
-                let color = if norm > 0.0 { Color::new(0.0, norm.min(1.0), 0.0, 1.0) } else { Color::new((-norm).min(1.0), 0.0, 0.0, 1.0) };
-                draw_rectangle(start_x + i as f32 * cs, start_y + o as f32 * cs, cs - 1.0, cs - 1.0, color);
+            let mut sum = 0.0;
+            for i in 1..80 { sum += w_eff[o][i].abs(); }
+            output_importance[o] = (o, sum);
+        }
+        output_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let top_n = 12;
+        let top_inputs = &input_importance[0..top_n];
+        let top_outputs = &output_importance[0..top_n];
+
+        let mut max_path_w = 0.0_f32;
+        for &(i, _) in top_inputs {
+            for &(o, _) in top_outputs {
+                let w = w_eff[o][i].abs();
+                if w > max_path_w { max_path_w = w; }
             }
         }
-        
-        // Interactive Tooltip Overlay
-        if mx >= start_x && mx < start_x + crate::agent::NUM_INPUTS as f32 * cs && my >= start_y && my < start_y + 26.0 * cs {
-            let i = ((mx - start_x) / cs) as usize;
-            let o = ((my - start_y) / cs) as usize;
-            if i < crate::agent::NUM_INPUTS && o < 26 {
-                let text = format!("{} -> {} : {:.2}", input_labels[i], output_labels[o], w_eff[o][i]);
-                let bg_width = measure_text(&text, None, 16, 1.0).width + 20.0;
-                draw_rectangle(mx + 10.0, my - 25.0, bg_width, 25.0, Color::new(0.1, 0.1, 0.1, 0.95));
-                draw_text(&text, mx + 20.0, my - 8.0, 16.0, YELLOW);
-                draw_rectangle_lines(start_x + i as f32 * cs, start_y + o as f32 * cs, cs - 1.0, cs - 1.0, 2.0, YELLOW);
+
+        let path_y_start = graph_y + 60.0;
+        let left_col_x = graph_x;
+        let right_col_x = graph_x + 350.0;
+        let row_spacing = 38.0;
+
+        // S-Curve Bezier function for elegant biological routing
+        let draw_bezier = |x1: f32, y1: f32, x2: f32, y2: f32, thickness: f32, color: Color| {
+            let segments = 15;
+            let mut prev_x = x1; let mut prev_y = y1;
+            let cp_x = x1 + (x2 - x1) * 0.5;
+            for i in 1..=segments {
+                let t = i as f32 / segments as f32; let u = 1.0 - t;
+                let x = u * u * u * x1 + 3.0 * u * u * t * cp_x + 3.0 * u * t * t * cp_x + t * t * t * x2;
+                let y = u * u * u * y1 + 3.0 * u * u * t * y1 + 3.0 * u * t * t * y2 + t * t * t * y2;
+                draw_line(prev_x, prev_y, x, y, thickness, color);
+                prev_x = x; prev_y = y;
             }
+        };
+
+        for (l_idx, &(i, _)) in top_inputs.iter().enumerate() {
+            for (r_idx, &(o, _)) in top_outputs.iter().enumerate() {
+                let w = w_eff[o][i];
+                if w.abs() > max_path_w * 0.15 { // Only draw significant pathways to avoid visual clutter
+                    let alpha = (w.abs() / max_path_w).clamp(0.15, 0.8);
+                    let thickness = (w.abs() / max_path_w) * 5.0;
+                    let color = if w > 0.0 { Color::new(0.0, 1.0, 0.5, alpha) } else { Color::new(1.0, 0.2, 0.2, alpha) };
+                    
+                    let x1 = left_col_x + 110.0; 
+                    let y1 = path_y_start + l_idx as f32 * row_spacing - 5.0;
+                    let x2 = right_col_x - 10.0; 
+                    let y2 = path_y_start + r_idx as f32 * row_spacing - 5.0;
+                    
+                    draw_bezier(x1, y1, x2, y2, thickness, color);
+                }
+            }
+        }
+
+        for (l_idx, &(i, _)) in top_inputs.iter().enumerate() {
+            let y = path_y_start + l_idx as f32 * row_spacing;
+            draw_text(input_labels[i], left_col_x, y, 16.0, LIGHTGRAY);
+        }
+        
+        for (r_idx, &(o, _)) in top_outputs.iter().enumerate() {
+            let y = path_y_start + r_idx as f32 * row_spacing;
+            draw_text(output_labels[o], right_col_x, y, 16.0, LIGHTGRAY);
         }
     } else {
         inspector_agents.sort_by(|a, b| {
