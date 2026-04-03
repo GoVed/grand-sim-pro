@@ -12,7 +12,7 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 
-pub const NUM_INPUTS: usize = 80;
+pub const NUM_INPUTS: usize = 128;
 pub const NUM_HIDDEN_MAX: usize = 64;
 pub const NUM_OUTPUTS: usize = 26;
 pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
@@ -22,17 +22,19 @@ pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
 pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Bias", "Local Res", "Local Pop", "Avg Speed", "Avg Share", "Avg Repro", "Avg Aggr", "Avg Preg",
     "Avg Turn", "Avg Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4", "Health", "Food", "Water", "Stamina",
-    "Age", "Gender", "Fwd Res", "Fwd Elev", "Fwd Pop", "Left Res", "Left Elev", "Left Pop",
-    "Right Res", "Right Elev", "Right Pop", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
+    "Age", "Gender", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
     "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid", "Daylight",
-    "Fwd Comm 1", "Fwd Comm 2", "Fwd Comm 3", "Fwd Comm 4",
-    "Back Comm 1", "Back Comm 2", "Back Comm 3", "Back Comm 4",
-    "Left Comm 1", "Left Comm 2", "Left Comm 3", "Left Comm 4",
-    "Right Comm 1", "Right Comm 2", "Right Comm 3", "Right Comm 4",
     "Own Pheno R", "Own Pheno G", "Own Pheno B",
     "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
-    "Fwd Pheno R", "Fwd Pheno G", "Fwd Pheno B", "Back Pheno R", "Back Pheno G", "Back Pheno B",
-    "Left Pheno R", "Left Pheno G", "Left Pheno B", "Right Pheno R", "Right Pheno G", "Right Pheno B"
+    "FL Res", "FL Elev", "FL Pop", "FL C1", "FL C2", "FL C3", "FL C4", "FL PR", "FL PG", "FL PB",
+    "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB",
+    "FR Res", "FR Elev", "FR Pop", "FR C1", "FR C2", "FR C3", "FR C4", "FR PR", "FR PG", "FR PB",
+    "L Res", "L Elev", "L Pop", "L C1", "L C2", "L C3", "L C4", "L PR", "L PG", "L PB",
+    "R Res", "R Elev", "R Pop", "R C1", "R C2", "R C3", "R C4", "R PR", "R PG", "R PB",
+    "BL Res", "BL Elev", "BL Pop", "BL C1", "BL C2", "BL C3", "BL C4", "BL PR", "BL PG", "BL PB",
+    "B Res", "B Elev", "B Pop", "B C1", "B C2", "B C3", "B C4", "B PR", "B PG", "B PB",
+    "BR Res", "BR Elev", "BR Pop", "BR C1", "BR C2", "BR C3", "BR C4", "BR PR", "BR PG", "BR PB",
+    "Pad 1", "Pad 2", "Pad 3", "Pad 4", "Pad 5"
 ];
 
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [

@@ -198,8 +198,8 @@ pub fn draw_inspector(
         draw_text("STRONGEST SINGLE TRIGGERS", trait_x, trait_y, 18.0, WHITE);
         trait_y += 25.0;
         
-        let mut all_weights = Vec::with_capacity(80 * 26);
-        for o in 0..26 { for i in 1..80 { all_weights.push((i, o, w_eff[o][i])); } }
+        let mut all_weights = Vec::with_capacity(crate::agent::NUM_INPUTS * 26);
+        for o in 0..26 { for i in 1..crate::agent::NUM_INPUTS { all_weights.push((i, o, w_eff[o][i])); } }
         all_weights.sort_by(|a, b| b.2.abs().partial_cmp(&a.2.abs()).unwrap_or(std::cmp::Ordering::Equal));
         
         for (idx, &(i, o, w)) in all_weights.iter().take(6).enumerate() {
@@ -215,8 +215,8 @@ pub fn draw_inspector(
         draw_text("DOMINANT REACTIVE PATHWAYS", graph_x, graph_y, 18.0, WHITE);
         draw_text("How sensory inputs dynamically trigger behavioral outputs.", graph_x, graph_y + 20.0, 14.0, GRAY);
 
-        let mut input_importance = [(0usize, 0.0_f32); 80];
-        for i in 1..80 {
+        let mut input_importance = [(0usize, 0.0_f32); crate::agent::NUM_INPUTS];
+        for i in 1..crate::agent::NUM_INPUTS {
             let mut sum = 0.0;
             for o in 0..26 { sum += w_eff[o][i].abs(); }
             input_importance[i] = (i, sum);
@@ -226,7 +226,7 @@ pub fn draw_inspector(
         let mut output_importance = [(0usize, 0.0_f32); 26];
         for o in 0..26 {
             let mut sum = 0.0;
-            for i in 1..80 { sum += w_eff[o][i].abs(); }
+            for i in 1..crate::agent::NUM_INPUTS { sum += w_eff[o][i].abs(); }
             output_importance[o] = (o, sum);
         }
         output_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));

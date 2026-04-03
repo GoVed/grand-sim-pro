@@ -193,118 +193,101 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, current_height * 2.0);
     let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; // Nights are colder
 
-    // Cone of Vision: Forward, Left, and Right
-    let look_dist = 10.0;
+    // Flattened 3x3 LiDAR Vision Grid
     var vis_mult = 1.0;
     if (agent.rest_intent > 0.5 || agent.stamina <= 0.0) { vis_mult = 0.1; } // Eyes are closed while sleeping
     let vision_multiplier = (0.3 + day_intensity * 0.7) * vis_mult; 
-    let look_f_x = agent.x + cos(agent.heading) * look_dist;
-    let look_f_y = agent.y + sin(agent.heading) * look_dist;
-    var lf_wx = look_f_x % map_w_f32; if (lf_wx < 0.0) { lf_wx = lf_wx + map_w_f32; }
-    var lf_wy = look_f_y % map_h_f32; if (lf_wy < 0.0) { lf_wy = lf_wy + map_h_f32; }
-    let look_f_idx = clamp(u32(lf_wy) * map_width + u32(lf_wx), 0u, max_idx);
-    let look_f_h = map_heights[look_f_idx];
-    let look_f_res = f32(atomicLoad(&map_cells[look_f_idx].res_value)) / 1000.0 * vision_multiplier;
-    let look_f_pop = map_cells[look_f_idx].population * vision_multiplier;
-    let look_f_comm1 = map_cells[look_f_idx].comm1;
-    let look_f_comm2 = map_cells[look_f_idx].comm2;
-    let look_f_comm3 = map_cells[look_f_idx].comm3;
-    let look_f_comm4 = map_cells[look_f_idx].comm4;
-    let look_f_pheno_r = map_cells[look_f_idx].pheno_r;
-    let look_f_pheno_g = map_cells[look_f_idx].pheno_g;
-    let look_f_pheno_b = map_cells[look_f_idx].pheno_b;
-
-    let angle_b = agent.heading + 3.14159; // 180 deg
-    let look_b_x = agent.x + cos(angle_b) * look_dist;
-    let look_b_y = agent.y + sin(angle_b) * look_dist;
-    var lb_wx = look_b_x % map_w_f32; if (lb_wx < 0.0) { lb_wx = lb_wx + map_w_f32; }
-    var lb_wy = look_b_y % map_h_f32; if (lb_wy < 0.0) { lb_wy = lb_wy + map_h_f32; }
-    let look_b_idx = clamp(u32(lb_wy) * map_width + u32(lb_wx), 0u, max_idx);
-    let look_b_comm1 = map_cells[look_b_idx].comm1;
-    let look_b_comm2 = map_cells[look_b_idx].comm2;
-    let look_b_comm3 = map_cells[look_b_idx].comm3;
-    let look_b_comm4 = map_cells[look_b_idx].comm4;
-    let look_b_pheno_r = map_cells[look_b_idx].pheno_r;
-    let look_b_pheno_g = map_cells[look_b_idx].pheno_g;
-    let look_b_pheno_b = map_cells[look_b_idx].pheno_b;
-
-    let angle_l = agent.heading - 0.785398; // -45 deg
-    let look_l_x = agent.x + cos(angle_l) * look_dist;
-    let look_l_y = agent.y + sin(angle_l) * look_dist;
-    var ll_wx = look_l_x % map_w_f32; if (ll_wx < 0.0) { ll_wx = ll_wx + map_w_f32; }
-    var ll_wy = look_l_y % map_h_f32; if (ll_wy < 0.0) { ll_wy = ll_wy + map_h_f32; }
-    let look_l_idx = clamp(u32(ll_wy) * map_width + u32(ll_wx), 0u, max_idx);
-    let look_l_h = map_heights[look_l_idx];
-    let look_l_res = f32(atomicLoad(&map_cells[look_l_idx].res_value)) / 1000.0 * vision_multiplier;
-    let look_l_pop = map_cells[look_l_idx].population * vision_multiplier;
-    let look_l_comm1 = map_cells[look_l_idx].comm1;
-    let look_l_comm2 = map_cells[look_l_idx].comm2;
-    let look_l_comm3 = map_cells[look_l_idx].comm3;
-    let look_l_comm4 = map_cells[look_l_idx].comm4;
-    let look_l_pheno_r = map_cells[look_l_idx].pheno_r;
-    let look_l_pheno_g = map_cells[look_l_idx].pheno_g;
-    let look_l_pheno_b = map_cells[look_l_idx].pheno_b;
-
-    let angle_r = agent.heading + 0.785398; // +45 deg
-    let look_r_x = agent.x + cos(angle_r) * look_dist;
-    let look_r_y = agent.y + sin(angle_r) * look_dist;
-    var lr_wx = look_r_x % map_w_f32; if (lr_wx < 0.0) { lr_wx = lr_wx + map_w_f32; }
-    var lr_wy = look_r_y % map_h_f32; if (lr_wy < 0.0) { lr_wy = lr_wy + map_h_f32; }
-    let look_r_idx = clamp(u32(lr_wy) * map_width + u32(lr_wx), 0u, max_idx);
-    let look_r_h = map_heights[look_r_idx];
-    let look_r_res = f32(atomicLoad(&map_cells[look_r_idx].res_value)) / 1000.0 * vision_multiplier;
-    let look_r_pop = map_cells[look_r_idx].population * vision_multiplier;
-    let look_r_comm1 = map_cells[look_r_idx].comm1;
-    let look_r_comm2 = map_cells[look_r_idx].comm2;
-    let look_r_comm3 = map_cells[look_r_idx].comm3;
-    let look_r_comm4 = map_cells[look_r_idx].comm4;
-    let look_r_pheno_r = map_cells[look_r_idx].pheno_r;
-    let look_r_pheno_g = map_cells[look_r_idx].pheno_g;
-    let look_r_pheno_b = map_cells[look_r_idx].pheno_b;
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 80>(
-        1.0, local_res_value / 1000.0,
-        local_population,
-        local_avg_speed + (pseudo_rand * 0.1 - 0.05), 
-        local_avg_share + (pseudo_rand * 0.1 - 0.05),
-        local_avg_reproduce + (pseudo_rand * 0.1 - 0.05),
-        local_avg_aggression,
-        local_avg_pregnancy,
-        local_avg_turn,
-        local_avg_rest,
-        local_comm1, local_comm2, local_comm3, local_comm4,
-        agent.health / cfg.max_health,
-        (agent.food / 1000.0) / cfg.boat_cost, 
-        agent.water / cfg.max_water, // Water input scaling
-        agent.stamina / cfg.max_stamina,
-        agent.age / cfg.max_age,
-        agent.gender,
-        look_f_res, look_f_h, look_f_pop,
-        look_l_res, look_l_h, look_l_pop,
-        look_r_res, look_r_h, look_r_pop,
-        local_temp,
-        season_sine,
-        agent.is_pregnant, 
-        ((agent.food / 1000.0) + agent.water) / 250.0,
-        local_population / 15.0,
-        agent.mem1, agent.mem2, agent.mem3, agent.mem4,
-        agent.mem5, agent.mem6, agent.mem7, agent.mem8,
-        agent.wealth / cfg.boat_cost,
-        local_avg_ask / 10.0,
-        local_avg_bid / 10.0,
-        day_intensity,
-        look_f_comm1, look_f_comm2, look_f_comm3, look_f_comm4,
-        look_b_comm1, look_b_comm2, look_b_comm3, look_b_comm4,
-        look_l_comm1, look_l_comm2, look_l_comm3, look_l_comm4,
-        look_r_comm1, look_r_comm2, look_r_comm3, look_r_comm4,
-        agent.pheno_r, agent.pheno_g, agent.pheno_b,
-        local_pheno_r, local_pheno_g, local_pheno_b,
-        look_f_pheno_r, look_f_pheno_g, look_f_pheno_b,
-        look_b_pheno_r, look_b_pheno_g, look_b_pheno_b,
-        look_l_pheno_r, look_l_pheno_g, look_l_pheno_b,
-        look_r_pheno_r, look_r_pheno_g, look_r_pheno_b
-    );
+    var inputs = array<f32, 128>();
+    inputs[0] = 1.0;
+    inputs[1] = local_res_value / 1000.0;
+    inputs[2] = local_population;
+    inputs[3] = local_avg_speed + (pseudo_rand * 0.1 - 0.05);
+    inputs[4] = local_avg_share + (pseudo_rand * 0.1 - 0.05);
+    inputs[5] = local_avg_reproduce + (pseudo_rand * 0.1 - 0.05);
+    inputs[6] = local_avg_aggression;
+    inputs[7] = local_avg_pregnancy;
+    inputs[8] = local_avg_turn;
+    inputs[9] = local_avg_rest;
+    inputs[10] = local_comm1;
+    inputs[11] = local_comm2;
+    inputs[12] = local_comm3;
+    inputs[13] = local_comm4;
+    inputs[14] = agent.health / cfg.max_health;
+    inputs[15] = (agent.food / 1000.0) / cfg.boat_cost; 
+    inputs[16] = agent.water / cfg.max_water;
+    inputs[17] = agent.stamina / cfg.max_stamina;
+    inputs[18] = agent.age / cfg.max_age;
+    inputs[19] = agent.gender;
+    inputs[20] = local_temp;
+    inputs[21] = season_sine;
+    inputs[22] = agent.is_pregnant; 
+    inputs[23] = ((agent.food / 1000.0) + agent.water) / 250.0;
+    inputs[24] = local_population / 15.0;
+    inputs[25] = agent.mem1;
+    inputs[26] = agent.mem2;
+    inputs[27] = agent.mem3;
+    inputs[28] = agent.mem4;
+    inputs[29] = agent.mem5;
+    inputs[30] = agent.mem6;
+    inputs[31] = agent.mem7;
+    inputs[32] = agent.mem8;
+    inputs[33] = agent.wealth / cfg.boat_cost;
+    inputs[34] = local_avg_ask / 10.0;
+    inputs[35] = local_avg_bid / 10.0;
+    inputs[36] = day_intensity;
+    inputs[37] = agent.pheno_r;
+    inputs[38] = agent.pheno_g;
+    inputs[39] = agent.pheno_b;
+    inputs[40] = local_pheno_r;
+    inputs[41] = local_pheno_g;
+    inputs[42] = local_pheno_b;
+
+    var input_idx = 43u;
+    let cos_h = cos(agent.heading);
+    let sin_h = sin(agent.heading);
+    let view_spacing = 8.0; // Sample tiles 8 pixels apart for good spread
+
+    // Read the 3x3 grid (skipping the center since we already have local data)
+    for (var ly_i = 1; ly_i >= -1; ly_i -= 1) { // Front to Back
+        for (var lx_i = -1; lx_i <= 1; lx_i += 1) { // Left to Right
+            if (lx_i == 0 && ly_i == 0) { continue; } // Skip the agent's current center cell
+            
+            let ly = f32(ly_i);
+            let lx = f32(lx_i);
+
+            let fwd = ly * view_spacing;
+            let lat = lx * view_spacing;
+
+            // Rotate relative to agent heading
+            let rot_x = fwd * cos_h - lat * sin_h;
+            let rot_y = fwd * sin_h + lat * cos_h;
+
+            let sample_x = agent.x + rot_x;
+            let sample_y = agent.y + rot_y;
+
+            // 4D Map Wrap
+            var wrap_x = sample_x % map_w_f32; if (wrap_x < 0.0) { wrap_x = wrap_x + map_w_f32; }
+            var wrap_y = sample_y % map_h_f32; if (wrap_y < 0.0) { wrap_y = wrap_y + map_h_f32; }
+
+            let sample_idx = clamp(u32(wrap_y) * map_width + u32(wrap_x), 0u, max_idx);
+
+            // Populate the LiDAR input layer array
+            inputs[input_idx] = f32(atomicLoad(&map_cells[sample_idx].res_value)) / 1000.0 * vision_multiplier;
+            inputs[input_idx + 1u] = map_heights[sample_idx];
+            inputs[input_idx + 2u] = map_cells[sample_idx].population * vision_multiplier;
+            inputs[input_idx + 3u] = map_cells[sample_idx].comm1;
+            inputs[input_idx + 4u] = map_cells[sample_idx].comm2;
+            inputs[input_idx + 5u] = map_cells[sample_idx].comm3;
+            inputs[input_idx + 6u] = map_cells[sample_idx].comm4;
+            inputs[input_idx + 7u] = map_cells[sample_idx].pheno_r;
+            inputs[input_idx + 8u] = map_cells[sample_idx].pheno_g;
+            inputs[input_idx + 9u] = map_cells[sample_idx].pheno_b;
+            
+            input_idx += 10u;
+        }
+    }
 
     var hidden1 = array<f32, 64>();
     for (var h1 = 0u; h1 < 64u; h1 = h1 + 1u) {
