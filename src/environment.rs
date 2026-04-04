@@ -39,7 +39,7 @@ pub struct CellState {
     pub pheno_r: f32,        // Local dominant phenotype marker
     pub pheno_g: f32,
     pub pheno_b: f32,
-    pub _pad_infra1: f32,    // Pad to maintain 16-byte align (112 bytes total)
+    pub base_moisture: f32,  // Replaces pad: Defines the local biome humidity
     pub _pad_infra2: f32,
     pub _pad_infra3: f32,
 }
@@ -51,33 +51,47 @@ pub struct Environment {
 
 impl Environment {
     pub fn new(width: u32, height: u32, seed: u32, config: &crate::config::SimConfig) -> Self {
-        let fbm = Fbm::<Perlin>::new(seed);
+        let fbm_elevation = Fbm::<Perlin>::new(seed);
+        let fbm_moisture = Fbm::<Perlin>::new(seed.wrapping_add(12345)); // Offset seed for moisture
         
         let mut height_map = Vec::with_capacity((width * height) as usize);
         let mut map_cells = Vec::with_capacity((width * height) as usize);
 
-        // Calculate the radius for our 4D mapping to match the original noise scale
-        let radius_x = width as f64 / (150.0 * 2.0 * std::f64::consts::PI);
-        let radius_y = height as f64 / (150.0 * 2.0 * std::f64::consts::PI);
+        // Using a massive scalar for true global continents
+        let r_elev = width as f64 / 450.0;
+        let r_moist = width as f64 / 250.0;
 
         for y in 0..height {
             for x in 0..width {
-                // Convert X and Y to angles
-                let angle_x = (x as f64 / width as f64) * 2.0 * std::f64::consts::PI;
-                let angle_y = (y as f64 / height as f64) * 2.0 * std::f64::consts::PI;
+                // Spherical Mapping: X maps to Longitude (0 to 2PI), Y maps to Latitude (0 to PI)
+                let theta = (x as f64 / width as f64) * 2.0 * std::f64::consts::PI;
+                let phi = (y as f64 / height as f64) * std::f64::consts::PI;
                 
-                // Sample 4D noise for seamless wrapping
-                let val = fbm.get([
-                    angle_x.cos() * radius_x, angle_x.sin() * radius_x,
-                    angle_y.cos() * radius_y, angle_y.sin() * radius_y
-                ]);
+                let nx = phi.sin() * theta.cos();
+                let ny = phi.sin() * theta.sin();
+                let nz = phi.cos();
+                
+                // Sample mathematically perfect 3D spherical noise
+                let val = (fbm_elevation.get([nx * r_elev, ny * r_elev, nz * r_elev]) as f32) - 0.05;
+                let moisture = fbm_moisture.get([nx * r_moist, ny * r_moist, nz * r_moist]) as f32;
 
                 height_map.push(val as f32);
                 
                 // Initialize land biomes based on elevation
                 // Lower elevations start with more resources (lush), higher elevations are barren
                 let elevation_mult = (1.0 - (val as f32 * 2.0)).clamp(0.05, 1.0);
-                let base_res = if val >= 0.0 { config.max_tile_resource * elevation_mult } else { 0.0 };
+                
+                let dist_from_equator = (y as f32 - height as f32 / 2.0).abs() / (height as f32 / 2.0);
+                let base_temp = (1.0 - dist_from_equator * 2.0) - val.max(0.0) * 2.0;
+                
+                let mut biome_mult = 1.0;
+                if base_temp < -0.4 { biome_mult = 0.01; } // Snow
+                else if base_temp < -0.2 { biome_mult = 0.05; } // Tundra
+                else if moisture < -0.3 { biome_mult = 0.02; } // Desert
+                else if moisture < 0.0 { biome_mult = 0.4; } // Savanna
+                else if moisture > 0.3 { biome_mult = 1.5; } // Jungle
+                
+                let base_res = if val >= 0.0 { config.max_tile_resource * elevation_mult * biome_mult } else { 0.0 };
                 
                 map_cells.push(CellState {
                     res_value: (base_res * 1000.0) as i32,
@@ -105,7 +119,7 @@ impl Environment {
                     pheno_r: 0.0,
                     pheno_g: 0.0,
                     pheno_b: 0.0,
-                    _pad_infra1: 0.0,
+                    base_moisture: moisture,
                     _pad_infra2: 0.0,
                     _pad_infra3: 0.0,
                 });
@@ -115,6 +129,17 @@ impl Environment {
         // --- Procedural River Generation ---
         let num_rivers = (width * height) / 15000; // Map size scales the number of rivers
         let mut rng = rand::thread_rng();
+        
+        // Helper closure to calculate spherical coordinate wrapping for rivers
+        let wrap_coords = |cx: i32, cy: i32, dx: i32, dy: i32, w: i32, h: i32| -> (u32, u32) {
+            let mut nx = cx + dx;
+            let mut ny = cy + dy;
+            if ny < 0 { ny = -ny; nx += w / 2; } // North Pole cross
+            else if ny >= h { ny = 2 * h - 1 - ny; nx += w / 2; } // South Pole cross
+            
+            nx = nx.rem_euclid(w);
+            (nx as u32, ny as u32)
+        };
 
         for _ in 0..num_rivers {
             let mut sx = rng.gen_range(0..width);
@@ -122,7 +147,7 @@ impl Environment {
             let mut attempts = 0;
             
             // Find a high elevation mountain spring to start the river
-            while height_map[(sy * width + sx) as usize] < 0.3 && attempts < 100 {
+            while height_map[(sy * width + sx) as usize] < 0.2 && attempts < 100 {
                 sx = rng.gen_range(0..width);
                 sy = rng.gen_range(0..height);
                 attempts += 1;
@@ -143,11 +168,10 @@ impl Environment {
                 let mut nx = cx;
                 let mut ny = cy;
                 
-                // Check all 8 neighbors (accounting for seamless 4D wrapping)
+                // Check all 8 neighbors (accounting for spherical wrapping)
                 let dirs = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)];
                 for &(dx, dy) in dirs.iter() {
-                    let tx = ((cx as i32 + dx + width as i32) % width as i32) as u32;
-                    let ty = ((cy as i32 + dy + height as i32) % height as i32) as u32;
+                    let (tx, ty) = wrap_coords(cx as i32, cy as i32, dx, dy, width as i32, height as i32);
                     let tidx = (ty * width + tx) as usize;
                     if height_map[tidx] < min_h {
                         min_h = height_map[tidx];
@@ -174,6 +198,20 @@ impl Environment {
                 if height_map[idx] > -0.01 {
                     height_map[idx] = -0.01;
                 }
+                
+                // Carve walkable riverbanks (0.01) so agents can reach the water without a boat
+                let cx = (idx as u32) % width;
+                let cy = (idx as u32) / width;
+                let dirs = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)];
+                for &(dx, dy) in dirs.iter() {
+                    let (tx, ty) = wrap_coords(cx as i32, cy as i32, dx, dy, width as i32, height as i32);
+                    let tidx = (ty * width + tx) as usize;
+                    
+                    map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
+                    if height_map[tidx] > 0.01 {
+                        height_map[tidx] = 0.01;
+                    }
+                }
             }
 
             // If the river ends in a landlocked pit, flood it to create a lake
@@ -181,19 +219,23 @@ impl Environment {
                 if let Some(&last_idx) = river_path.last() {
                     let lx = (last_idx as u32) % width;
                     let ly = (last_idx as u32) / width;
-                    let lake_radius = rng.gen_range(2..6);
+                    let lake_radius = rng.gen_range(2..6) as i32;
                     
-                    for dy in -lake_radius..=lake_radius {
-                        for dx in -lake_radius..=lake_radius {
-                            if dx * dx + dy * dy <= lake_radius * lake_radius {
-                                let tx = ((lx as i32 + dx + width as i32) % width as i32) as u32;
-                                let ty = ((ly as i32 + dy + height as i32) % height as i32) as u32;
+                    for dy in -(lake_radius + 1)..=(lake_radius + 1) {
+                        for dx in -(lake_radius + 1)..=(lake_radius + 1) {
+                            let dist_sq = dx * dx + dy * dy;
+                            if dist_sq <= lake_radius * lake_radius {
+                                let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
                                 let tidx = (ty * width + tx) as usize;
                                 
                                 map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
-                                if height_map[tidx] > -0.01 {
-                                    height_map[tidx] = -0.01;
-                                }
+                                if height_map[tidx] > -0.01 { height_map[tidx] = -0.01; }
+                            } else if dist_sq <= (lake_radius + 1) * (lake_radius + 1) {
+                                let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
+                                let tidx = (ty * width + tx) as usize;
+                                
+                                map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
+                                if height_map[tidx] > 0.01 { height_map[tidx] = 0.01; }
                             }
                         }
                     }

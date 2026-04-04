@@ -15,11 +15,11 @@
   "max_health": 100.0,
   "starvation_rate": 0.1,
   "reproduction_cost": 500.0,
-  "map_width": 800,
-  "map_height": 600,
+  "map_width": 500,
+  "map_height": 300,
   "display_width": 1280,
   "display_height": 720,
-  "agent_count": 4000,
+  "agent_count": 512,
   "current_tick": 0,
   "max_stamina": 100.0,
   "max_water": 25.0,
@@ -29,7 +29,7 @@
   "tick_to_mins": 10.0,
   "founder_count": 64,
   "random_spawn_percentage": 0.1,
-  "mutation_rate": 0.05,
+  "mutation_rate": 0.15,
   "mutation_strength": 0.05,
   "spawn_group_size": 100,
   "crossover_rate": 0.5,
@@ -53,8 +53,8 @@
   "combat_bystander_damage": 0.5,
   "combat_attacker_damage": 2.0,
   "combat_steal_amount": 5.0,
+  "infra_build_ticks": 6.0,
   "pad1": [
-    0,
     0
   ]
 }

@@ -92,6 +92,15 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             if data.sim.env.height_map[idx] >= 0.0 { return (px, py); }
                         }
                     };
+                    
+                    let get_spawn_coords = |cx: f32, cy: f32, rng: &mut rand::rngs::ThreadRng, w: f32, h: f32| -> (f32, f32) {
+                        let mut px = cx + rng.gen_range(-5.0f32..5.0f32);
+                        let mut py = cy + rng.gen_range(-5.0f32..5.0f32);
+                        if py < 0.0 { py = -py; px += w / 2.0; }
+                        else if py >= h { py = 2.0 * h - 1.0 - py; px += w / 2.0; }
+                        px = px.rem_euclid(w);
+                        (px, py)
+                    };
 
                     let mut current_spawn_pt = get_land_spawn_point(&mut rng);
                     let mut spawn_count = 0;
@@ -99,8 +108,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     // Create totally random agents
                     for _ in 0..random_agents_count {
                         if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
-                        let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(map_w);
-                        let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(map_h);
+                        let (px, py) = get_spawn_coords(current_spawn_pt.0, current_spawn_pt.1, &mut rng, map_w, map_h);
 
                         let mut random_agent = Person::new(px, py, &data.config);
                         random_agent.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
@@ -113,8 +121,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         let founder = &data.sim.agents[i];
                         for _ in 0..children_per_founder {
                             if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
-                            let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(map_w);
-                            let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(map_h);
+                            let (px, py) = get_spawn_coords(current_spawn_pt.0, current_spawn_pt.1, &mut rng, map_w, map_h);
 
                             let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
                             child.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
@@ -125,8 +132,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     // Fill any remaining slots with descendants of the first founder
                     while new_population.len() < target_pop { // This handles cases where target_pop is not perfectly divisible
                         if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
-                        let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(map_w);
-                        let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(map_h);
+                        let (px, py) = get_spawn_coords(current_spawn_pt.0, current_spawn_pt.1, &mut rng, map_w, map_h);
 
                         let mut child = data.sim.agents[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
                         child.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);

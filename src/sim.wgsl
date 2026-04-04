@@ -42,13 +42,17 @@ struct Agent {
     build_house_intent: f32,
     build_farm_intent: f32,
     build_storage_intent: f32,
+    destroy_infra_intent: f32,
     pheno_r: f32,
     pheno_g: f32,
     pheno_b: f32,
+    _pad_agent1: f32,
+    _pad_agent2: f32,
+    _pad_agent3: f32,
     w1_weights: array<f32, 512>, // 64 * 8 Fixed-K Sparse weights
     w1_indices: array<u32, 512>, // 64 * 8 Fixed-K Sparse indices
     w2: array<f32, 4096>, // 64 * 64
-    w3: array<f32, 1920>, // 64 * 30
+    w3: array<f32, 1984>, // 64 * 31
     food: f32,
     water: f32,
     stamina: f32,
@@ -114,7 +118,8 @@ struct SimConfig {
     combat_bystander_damage: f32,
     combat_attacker_damage: f32,
     combat_steal_amount: f32,
-    pad1: vec2<u32>,
+    infra_build_ticks: f32,
+    pad1: u32,
 }
 
 struct CellState {
@@ -143,7 +148,7 @@ struct CellState {
     pheno_r: f32,
     pheno_g: f32,
     pheno_b: f32,
-    _pad_infra1: f32,
+    base_moisture: f32,
     _pad_infra2: f32,
     _pad_infra3: f32,
 }
@@ -227,6 +232,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; 
     let effective_temp = local_temp + (local_infra_housing / cfg.max_infra) * 2.0; // Houses provide massive insulation
 
+    // Longitude Convergence: Simulates the narrowing of the sphere at the poles
+    let agent_lat = (abs(agent.y - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 1.570796; // 0 to PI/2
+    let lon_scale = 1.0 / max(cos(agent_lat), 0.15); // Up to ~6.6x horizontal stretch at the extreme poles
+
     // Flattened 3x3 LiDAR Vision Grid
     var vis_mult = 1.0;
     if (agent.rest_intent > 0.5 || agent.stamina <= 0.0) { vis_mult = 0.1; } // Eyes are closed while sleeping
@@ -299,15 +308,23 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let lat = lx * view_spacing;
 
             // Rotate relative to agent heading
-            let rot_x = fwd * cos_h - lat * sin_h;
-            let rot_y = fwd * sin_h + lat * cos_h;
+            var rot_x = fwd * cos_h - lat * sin_h;
+            var rot_y = fwd * sin_h + lat * cos_h;
+            
+            // Apply longitude convergence strictly to the global X axis
+            rot_x = rot_x * lon_scale;
 
             let sample_x = agent.x + rot_x;
             let sample_y = agent.y + rot_y;
 
-            // 4D Map Wrap
-            var wrap_x = sample_x % map_w_f32; if (wrap_x < 0.0) { wrap_x = wrap_x + map_w_f32; }
-            var wrap_y = sample_y % map_h_f32; if (wrap_y < 0.0) { wrap_y = wrap_y + map_h_f32; }
+            // Spherical Map Wrap for LiDAR
+            var wrap_x = sample_x;
+            var wrap_y = sample_y;
+            if (wrap_y < 0.0) { wrap_y = -wrap_y; wrap_x = wrap_x + map_w_f32 / 2.0; }
+            else if (wrap_y >= map_h_f32) { wrap_y = 2.0 * map_h_f32 - 1.0 - wrap_y; wrap_x = wrap_x + map_w_f32 / 2.0; }
+            
+            wrap_x = wrap_x % map_w_f32; 
+            if (wrap_x < 0.0) { wrap_x = wrap_x + map_w_f32; }
 
             let sample_idx = clamp(u32(wrap_y) * map_width + u32(wrap_x), 0u, max_idx);
 
@@ -360,12 +377,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    var outputs = array<f32, 30>(); 
-    for (var o = 0u; o < 30u; o = o + 1u) {
+    var outputs = array<f32, 31>(); 
+    for (var o = 0u; o < 31u; o = o + 1u) {
         var sum = 0.0;
         for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) { // Use agent.hidden_count
             if (h2 < agent.hidden_count) {
-                sum = sum + hidden2[h2] * agent.w3[h2 * 30u + o];
+                sum = sum + hidden2[h2] * agent.w3[h2 * 31u + o];
             }
         }
         outputs[o] = tanh(sum);
@@ -434,6 +451,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     agent.build_storage_intent = clamp(outputs[29] * 0.5 + 0.5, 0.0, 1.0);
     if (resting) { agent.build_storage_intent = 0.0; }
+    
+    agent.destroy_infra_intent = clamp(outputs[30] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting) { agent.destroy_infra_intent = 0.0; }
 
     var base_speed = speed_intent * cfg.base_speed;
     if (resting) {
@@ -442,11 +462,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Evaluate intended destination to gauge the slope
-    let next_x = agent.x + cos(agent.heading) * base_speed;
+    let next_x = agent.x + cos(agent.heading) * base_speed * lon_scale;
     let next_y = agent.y + sin(agent.heading) * base_speed;
 
-    var wrap_x = next_x % map_w_f32; if (wrap_x < 0.0) { wrap_x = wrap_x + map_w_f32; }
-    var wrap_y = next_y % map_h_f32; if (wrap_y < 0.0) { wrap_y = wrap_y + map_h_f32; }
+    var wrap_x = next_x; 
+    var wrap_y = next_y;
+    if (wrap_y < 0.0) { wrap_y = -wrap_y; wrap_x = wrap_x + map_w_f32 / 2.0; }
+    else if (wrap_y >= map_h_f32) { wrap_y = 2.0 * map_h_f32 - 1.0 - wrap_y; wrap_x = wrap_x + map_w_f32 / 2.0; }
+    
+    wrap_x = wrap_x % map_w_f32; 
+    if (wrap_x < 0.0) { wrap_x = wrap_x + map_w_f32; }
 
     let next_idx = u32(wrap_y) * map_width + u32(wrap_x);
     let safe_idx = clamp(next_idx, 0u, max_idx);
@@ -487,10 +512,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Recalculate true next position with slope-adjusted speed
     let act_spd = select(actual_speed, 0.0, resting);
-    let final_next_x = agent.x + cos(agent.heading) * act_spd;
+    let final_next_x = agent.x + cos(agent.heading) * act_spd * lon_scale;
     let final_next_y = agent.y + sin(agent.heading) * act_spd;
-    var final_wrap_x = final_next_x % map_w_f32; if (final_wrap_x < 0.0) { final_wrap_x = final_wrap_x + map_w_f32; }
-    var final_wrap_y = final_next_y % map_h_f32; if (final_wrap_y < 0.0) { final_wrap_y = final_wrap_y + map_h_f32; }
+    
+    var final_wrap_x = final_next_x; 
+    var final_wrap_y = final_next_y;
+    var final_heading = agent.heading;
+    
+    if (final_wrap_y < 0.0) { final_wrap_y = -final_wrap_y; final_wrap_x = final_wrap_x + map_w_f32 / 2.0; final_heading = final_heading + 3.14159265; }
+    else if (final_wrap_y >= map_h_f32) { final_wrap_y = 2.0 * map_h_f32 - 1.0 - final_wrap_y; final_wrap_x = final_wrap_x + map_w_f32 / 2.0; final_heading = final_heading + 3.14159265; }
+    
+    final_wrap_x = final_wrap_x % map_w_f32; 
+    if (final_wrap_x < 0.0) { final_wrap_x = final_wrap_x + map_w_f32; }
 
     let final_idx = u32(final_wrap_y) * map_width + u32(final_wrap_x);
     let safe_final_idx = clamp(final_idx, 0u, max_idx);
@@ -584,20 +617,60 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         
         // Execute Infrastructure Construction
-        if (!resting && agent.wealth >= cfg.infra_cost) {
+        let build_ticks = max(1.0, cfg.infra_build_ticks);
+        let build_amount = i32(1000.0 / build_ticks);
+        let cost_amount = cfg.infra_cost / build_ticks;
+
+        if (!resting && agent.wealth >= cost_amount) {
             let has_other_than_road = local_infra_housing > 0.0 || local_infra_farms > 0.0 || local_infra_storage > 0.0;
             let has_other_than_house = local_infra_roads > 0.0 || local_infra_farms > 0.0 || local_infra_storage > 0.0;
             let has_other_than_farm = local_infra_roads > 0.0 || local_infra_housing > 0.0 || local_infra_storage > 0.0;
             let has_other_than_storage = local_infra_roads > 0.0 || local_infra_housing > 0.0 || local_infra_farms > 0.0;
 
             if (agent.build_road_intent > 0.5 && local_infra_roads < cfg.max_infra && !has_other_than_road) {
-                agent.wealth = agent.wealth - cfg.infra_cost; atomicAdd(&map_cells[safe_current_idx].infra_roads, 1000);
+                agent.wealth = agent.wealth - cost_amount; 
+                atomicAdd(&map_cells[safe_current_idx].infra_roads, build_amount);
+                atomicMin(&map_cells[safe_current_idx].infra_roads, i32(cfg.max_infra * 1000.0));
             } else if (agent.build_house_intent > 0.5 && local_infra_housing < cfg.max_infra && !has_other_than_house) {
-                agent.wealth = agent.wealth - cfg.infra_cost; atomicAdd(&map_cells[safe_current_idx].infra_housing, 1000);
+                agent.wealth = agent.wealth - cost_amount; 
+                atomicAdd(&map_cells[safe_current_idx].infra_housing, build_amount);
+                atomicMin(&map_cells[safe_current_idx].infra_housing, i32(cfg.max_infra * 1000.0));
             } else if (agent.build_farm_intent > 0.5 && local_infra_farms < cfg.max_infra && !has_other_than_farm) {
-                agent.wealth = agent.wealth - cfg.infra_cost; atomicAdd(&map_cells[safe_current_idx].infra_farms, 1000);
+                agent.wealth = agent.wealth - cost_amount; 
+                atomicAdd(&map_cells[safe_current_idx].infra_farms, build_amount);
+                atomicMin(&map_cells[safe_current_idx].infra_farms, i32(cfg.max_infra * 1000.0));
             } else if (agent.build_storage_intent > 0.5 && local_infra_storage < cfg.max_infra && !has_other_than_storage) {
-                agent.wealth = agent.wealth - cfg.infra_cost; atomicAdd(&map_cells[safe_current_idx].infra_storage, 1000);
+                agent.wealth = agent.wealth - cost_amount; 
+                atomicAdd(&map_cells[safe_current_idx].infra_storage, build_amount);
+                atomicMin(&map_cells[safe_current_idx].infra_storage, i32(cfg.max_infra * 1000.0));
+            }
+        }
+        
+        if (!resting && agent.destroy_infra_intent > 0.5) {
+            let destroy_cost = (cfg.infra_cost * 0.5) / build_ticks; // Demolition costs 50% of the build cost
+            if (agent.wealth >= destroy_cost) {
+                var destroyed = false;
+                if (local_infra_roads > 0.0) { 
+                    atomicSub(&map_cells[safe_current_idx].infra_roads, build_amount); 
+                    atomicMax(&map_cells[safe_current_idx].infra_roads, 0); // Safely clamp
+                    destroyed = true;
+                } else if (local_infra_housing > 0.0) { 
+                    atomicSub(&map_cells[safe_current_idx].infra_housing, build_amount); 
+                    atomicMax(&map_cells[safe_current_idx].infra_housing, 0);
+                    destroyed = true;
+                } else if (local_infra_farms > 0.0) { 
+                    atomicSub(&map_cells[safe_current_idx].infra_farms, build_amount); 
+                    atomicMax(&map_cells[safe_current_idx].infra_farms, 0);
+                    destroyed = true;
+                } else if (local_infra_storage > 0.0) { 
+                    atomicSub(&map_cells[safe_current_idx].infra_storage, build_amount); 
+                    atomicMax(&map_cells[safe_current_idx].infra_storage, 0);
+                    destroyed = true;
+                }
+                
+                if (destroyed) {
+                    agent.wealth = agent.wealth - destroy_cost;
+                }
             }
         }
         
@@ -625,8 +698,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Low moisture + high elevation = barren tundra.
         let elevation_mult = clamp(1.0 - (current_height * 2.0), 0.05, 1.0);
         let moisture_mult = clamp(0.05 + (local_market_water / 100.0), 0.05, 5.0);
+        
+        var biome_mult = 1.0;
+        let m = map_cells[safe_current_idx].base_moisture;
+        if (base_temp < -0.4) { biome_mult = 0.01; } // Snow
+        else if (base_temp < -0.2) { biome_mult = 0.05; } // Tundra
+        else if (m < -0.3) { biome_mult = 0.02; } // Desert
+        else if (m < 0.0) { biome_mult = 0.4; } // Savanna
+        else if (m > 0.3) { biome_mult = 1.5; } // Jungle
+        
         let farm_mult = 1.0 + (local_infra_farms / cfg.max_infra) * 5.0; // Up to 6x regen
-        let biome_regen_rate = cfg.regen_rate * elevation_mult * moisture_mult * farm_mult;
+        let biome_regen_rate = cfg.regen_rate * elevation_mult * moisture_mult * farm_mult * biome_mult;
         
         atomicAdd(&map_cells[safe_current_idx].res_value, i32(biome_regen_rate * 1000.0));
         atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.max_tile_resource * 1000.0));
@@ -690,6 +772,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if (agent.food >= move_cost) {
             agent.x = final_wrap_x;
             agent.y = final_wrap_y;
+            agent.heading = final_heading;
             agent.food = agent.food - move_cost;
             agent.speed = act_spd;
         } else {
@@ -745,9 +828,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 agent.w2[h1 * 64u + h2] = clamp(agent.w2[h1 * 64u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
             }
         }
-        for (var o = 0u; o < 30u; o = o + 1u) {
+        for (var o = 0u; o < 31u; o = o + 1u) {
             for (var h2 = 0u; h2 < agent.hidden_count; h2 = h2 + 1u) {
-                agent.w3[h2 * 30u + o] = clamp(agent.w3[h2 * 30u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
+                agent.w3[h2 * 31u + o] = clamp(agent.w3[h2 * 31u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
             }
         }
     }
@@ -838,16 +921,48 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             } else { r = 40u; g = 40u; b = 40u; } // Dry Land
         }
     } else { // Default / Age / Gender / DayNight
-        if (height < -0.2) { r = 10u; g = 50u; b = 150u; }
-        else if (height < 0.0) { r = 30u; g = 100u; b = 200u; }
-        else if (height < 0.1) { r = 240u; g = 230u; b = 140u; }
-        else if (height < 0.4) { r = 34u; g = 139u; b = 34u; }
-        else { r = 100u; g = 100u; b = 100u; }
-        if (height >= 0.0 && abs(height % 0.1) < 0.015) { r = 0u; g = 0u; b = 0u; }
+        var base_r = 0u; var base_g = 0u; var base_b = 0u;
+        
+        // Continental Biome Logic
+        if (height < -0.2) { base_r = 10u; base_g = 40u; base_b = 120u; } // Deep Ocean
+        else if (height < 0.0) { base_r = 30u; base_g = 80u; base_b = 180u; } // Shallow Ocean
+        else {
+            let dist_from_equator = abs(f32(y) - f32(cfg.map_height) / 2.0) / (f32(cfg.map_height) / 2.0);
+            let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, height * 2.0);
+            let m = map_cells[idx].base_moisture;
+            
+            if (base_temp < -0.4) { base_r = 240u; base_g = 240u; base_b = 255u; } // Snow
+            else if (base_temp < -0.2) { base_r = 120u; base_g = 150u; base_b = 140u; } // Tundra / Taiga
+            else if (m < -0.3) { base_r = 210u; base_g = 190u; base_b = 130u; } // Desert / Sand
+            else if (m < 0.0) { base_r = 160u; base_g = 160u; base_b = 90u; } // Savanna / Scrub
+            else if (m > 0.3) { base_r = 20u; base_g = 100u; base_b = 30u; } // Jungle
+            else { base_r = 40u; base_g = 140u; base_b = 50u; } // Forest / Grassland
+        }
+        
+        // 2.5D Directional Topography Shading
+        var lx = x - 1u; if (x == 0u) { lx = cfg.map_width - 1u; }
+        var ty = y; if (y > 0u) { ty = y - 1u; } // Don't shadow off the edge of the pole
+        let hx = map_heights[y * cfg.map_width + lx];
+        let hy = map_heights[ty * cfg.map_width + x];
+        
+        let dx = height - hx;
+        let dy = height - hy;
+        
+        // Calculate directional sunlight multiplier
+        var shade = clamp(1.0 + (dx + dy) * 15.0, 0.3, 1.8);
+        if (height < 0.0) { shade = clamp(1.0 + (dx + dy) * 2.0, 0.8, 1.2); } // Water reflects softer
+        
+        r = u32(clamp(f32(base_r) * shade, 0.0, 255.0));
+        g = u32(clamp(f32(base_g) * shade, 0.0, 255.0));
+        b = u32(clamp(f32(base_b) * shade, 0.0, 255.0));
+        
+        // Add subtle topological contour lines
+        if (height >= 0.0 && abs(height % 0.1) < 0.01) { r = u32(f32(r) * 0.6); g = u32(f32(g) * 0.6); b = u32(f32(b) * 0.6); }
+        
         if (mode == 11u) {
             let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
             let day_intensity = sin(((f32(cfg.current_tick) % ticks_per_day) / ticks_per_day) * 6.28318 - 1.5708) * 0.5 + 0.5;
-            let intensity = max(0.25, pow(day_intensity, 0.7));
+            let intensity = max(0.15, pow(day_intensity, 0.7));
             r = u32(f32(r) * intensity); g = u32(f32(g) * intensity); b = u32(f32(b) * intensity);
         }
     }

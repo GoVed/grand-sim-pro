@@ -35,14 +35,16 @@ Every agent contains a massive **Deep Neural Network** with two hidden layers (u
 
 ### 🎨 Dedicated GPU Rendering Pipeline
 Instead of downloading the entire 165MB+ map state back to the CPU every frame, the simulation features a dedicated `render_main` Compute Shader. The GPU directly translates millions of `CellState` structs into packed RGBA pixel data entirely in VRAM. The CPU only fetches the final compressed 8MB frame, massively alleviating PCIe bandwidth bottlenecks and allowing for ultra-widescreen, densely populated procedural maps.
+- **2.5D Directional Shading:** The compute shader dynamically calculates elevation slopes to cast realistic topographical shadows across mountains and valleys, giving the 2D grid a breathtaking 3D illusion with zero performance penalty!
 
-### 🌍 Procedural Topography & 4D Wrapping
+### 🌍 Procedural Continents & Spherical Projection
 <p align="center">
   <img src="readme_imgs/terrain_graphics_ui.png" alt="Topographical terrain generation showcasing procedural rivers, oceans, and elevation contour lines" width="80%">
 </p>
 
 The environment is generated using Fractal Brownian Motion (FBM) layered over Perlin noise. 
-- **Seamless Wrapping & Biomes:** 2D map coordinates are mapped to 4D mathematical angles, guaranteeing that moving off the right edge of the map wraps perfectly to the left edge like a true globe. Procedural rivers carve down mountains, forming dynamic inland lakes and saltwater oceans.
+- **Spherical Mapping & Continents:** 2D map coordinates are mapped to a mathematically perfect 3D spherical projection. The map naturally generates massive continental landmasses with distinct, freezing North and South poles. If an agent walks directly over a pole, their longitude shifts 180 degrees seamlessly!
+- **Dynamic Biomes:** A secondary moisture noise layer interacts with global latitude temperatures to organically paint diverse biomes: Snow, Tundra, Deserts, Savannas, Jungles, and Forests.
 - **Topological Contours:** The generator extracts exact heightmap elevations and visualizes them using dynamic contour lines on the rendered texture.
 
 ### 🗺️ Pheromone Grid, Spatial Awareness & Communication
@@ -71,7 +73,8 @@ Agents can expend wealth to construct mutually exclusive infrastructure on tiles
 
 ### ⛰️ Advanced Terrain Physics & Resource Mechanics
 Agents do not just walk freely; the environment fights back.
-- **Elevation & Seasons:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement. Additionally, a global seasonal clock dictates temperatures. Poles and high elevations are freezing, burning agent calories exponentially faster.
+- **Elevation & Biome Survival:** Agents evaluate the topographical slope of the terrain. Walking uphill severely slows movement. Resources organically scale with biomes—deserts and snow caps are biologically barren (producing 1% to 5% baseline resources), forcing populations to migrate to lush equatorial jungles or invent agriculture to terraform the land!
+- **Longitude Convergence:** To accurately simulate a 3D globe on a flat 2D memory array, the physics engine mathematically stretches horizontal movement and LiDAR vision at the poles. Agents can traverse the extreme north and south edges up to 6.6x faster, seamlessly matching spherical trigonometry.
 - **Hydration & Satiation:** Biological needs are strictly mapped to real-world metrics (Grams of Food, Kg of Water). Coastlines provide baseline water, but tiles themselves possess dynamic water storage capacities. Agents use Neural Network intents to explicitly pick up or drop water into local tiles, effectively allowing them to build inland reservoirs.
 - **Water Obstacles:** Rivers, lakes, and oceans are physical obstacles. They are impassable unless an agent has gathered enough wealth to overcome the "boat threshold," forcing populations to build around natural water formations or pay for transit.
 - **Encumbrance & Crowding:** Inventory represents physical mass. Carrying large amounts of food and water severely encumbers agents, slowing their movement speed. Additionally, high populations on a single tile create a physical crowding penalty, organically forcing herds to spread out.

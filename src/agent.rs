@@ -14,10 +14,10 @@ use serde::{Serialize, Deserialize};
 
 pub const NUM_INPUTS: usize = 160;
 pub const NUM_HIDDEN_MAX: usize = 64;
-pub const NUM_OUTPUTS: usize = 30;
+pub const NUM_OUTPUTS: usize = 31;
 pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
 pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
-pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS; // 64 * 30 = 1920
+pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS; // 64 * 31 = 1984
 
 pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Bias", "Local Res", "Local Pop", "Avg Speed", "Avg Share", "Avg Repro", "Avg Aggr", "Avg Preg",
@@ -40,7 +40,8 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
     "Turn", "Speed", "Drop Res", "Reproduce", "Attack", "Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4",
     "Learn", "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8",
-    "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Defend Intent", "Build Road", "Build House", "Build Farm", "Build Storage"
+    "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Defend Intent", "Build Road", "Build House", "Build Farm", "Build Storage",
+    "Destroy Infra"
 ];
 
 #[derive(Serialize, Deserialize)]
@@ -97,9 +98,13 @@ pub struct Person {
     pub build_house_intent: f32,
     pub build_farm_intent: f32,
     pub build_storage_intent: f32,
-    pub pheno_r: f32, // Replaces padding: Visual/Pheromone marker
+    pub destroy_infra_intent: f32,
+    pub pheno_r: f32, // Visual/Pheromone marker
     pub pheno_g: f32,
     pub pheno_b: f32,
+    pub _pad_agent1: f32, // Structural padding to keep memory strictly 16-byte aligned
+    pub _pad_agent2: f32,
+    pub _pad_agent3: f32,
     pub w1_weights: [f32; W1_SIZE],
     pub w1_indices: [u32; W1_SIZE],
     pub w2: [f32; W2_SIZE],
@@ -179,9 +184,13 @@ impl Person {
             build_house_intent: 0.0,
             build_farm_intent: 0.0,
             build_storage_intent: 0.0,
+            destroy_infra_intent: 0.0,
             pheno_r: (rng.r#gen::<f32>() * 2.0) - 1.0,
             pheno_g: (rng.r#gen::<f32>() * 2.0) - 1.0,
             pheno_b: (rng.r#gen::<f32>() * 2.0) - 1.0,
+            _pad_agent1: 0.0,
+            _pad_agent2: 0.0,
+            _pad_agent3: 0.0,
             w1_weights,
             w1_indices,
             w2,
@@ -237,6 +246,10 @@ impl Person {
         child.build_house_intent = 0.0;
         child.build_farm_intent = 0.0;
         child.build_storage_intent = 0.0;
+        child.destroy_infra_intent = 0.0;
+        child._pad_agent1 = 0.0;
+        child._pad_agent2 = 0.0;
+        child._pad_agent3 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -329,6 +342,10 @@ impl Person {
         child.build_house_intent = 0.0;
         child.build_farm_intent = 0.0;
         child.build_storage_intent = 0.0;
+        child.destroy_infra_intent = 0.0;
+        child._pad_agent1 = 0.0;
+        child._pad_agent2 = 0.0;
+        child._pad_agent3 = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;

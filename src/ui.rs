@@ -175,6 +175,7 @@ pub fn draw_inspector(
             ("Construct (House)", baselines[27]),
             ("Construct (Farm)", baselines[28]),
             ("Construct (Granary)", baselines[29]),
+            ("Destroy (Infra)", baselines[30]),
         ];
 
         let trait_x = 70.0;
@@ -375,7 +376,8 @@ pub fn draw_inspector(
             if a.build_road_intent > 0.5 { draw_text("[ROD]", st_x, y, 14.0, GRAY); st_x += 35.0; }
             if a.build_house_intent > 0.5 { draw_text("[HOU]", st_x, y, 14.0, ORANGE); st_x += 35.0; }
             if a.build_farm_intent > 0.5 { draw_text("[FRM]", st_x, y, 14.0, GREEN); st_x += 35.0; }
-            if a.build_storage_intent > 0.5 { draw_text("[STO]", st_x, y, 14.0, MAGENTA); }
+            if a.build_storage_intent > 0.5 { draw_text("[STO]", st_x, y, 14.0, MAGENTA); st_x += 35.0; }
+            if a.destroy_infra_intent > 0.5 { draw_text("[DEL]", st_x, y, 14.0, RED); }
             
             let out_str = format!("B:{:.1} S:{:.1} A:{:.1} B:{:.1}", a.buy_intent, a.sell_intent, a.ask_price, a.bid_price);
             draw_text(&out_str, 800.0, y, 16.0, WHITE);
@@ -417,6 +419,7 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &crate::agent::Pers
     if a.build_house_intent > 0.5 { state_str.push_str("[HOU] "); }
     if a.build_farm_intent > 0.5 { state_str.push_str("[FRM] "); }
     if a.build_storage_intent > 0.5 { state_str.push_str("[STO] "); }
+    if a.destroy_infra_intent > 0.5 { state_str.push_str("[DEL] "); }
     if state_str.is_empty() { state_str.push_str("[IDLE]"); }
     
     draw_text(&format!("State: {}", state_str), panel_x + 20.0, py, 16.0, WHITE); py += dy + 10.0;
