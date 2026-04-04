@@ -67,7 +67,8 @@ pub struct SimConfig {
     pub combat_bystander_damage: f32, // HP lost when caught in an aggressive tile without defending
     pub combat_attacker_damage: f32,  // HP lost when actively fighting other attackers
     pub combat_steal_amount: f32, // Max resources stolen per tick when attacking
-    pub pad1: [u32; 2],           // 8-byte uniform alignment pad to make total size 224 bytes (multiple of 16)
+    pub infra_build_ticks: f32,   // Ticks required to build or destroy 1 unit of infrastructure
+    pub pad1: [u32; 1],           // 4-byte uniform alignment pad to make total size 224 bytes (multiple of 16)
 }
 
 impl Default for SimConfig {
@@ -127,7 +128,8 @@ impl Default for SimConfig {
             combat_bystander_damage: 0.5,
             combat_attacker_damage: 2.0,
             combat_steal_amount: 5.0,
-            pad1: [0; 2],
+            infra_build_ticks: 6.0,   // Takes 1 hour (6 ticks) of labor to build 1 unit of infrastructure
+            pad1: [0; 1],
         }
     }
 }
