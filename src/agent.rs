@@ -12,12 +12,12 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 
-pub const NUM_INPUTS: usize = 128;
+pub const NUM_INPUTS: usize = 160;
 pub const NUM_HIDDEN_MAX: usize = 64;
-pub const NUM_OUTPUTS: usize = 26;
+pub const NUM_OUTPUTS: usize = 30;
 pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
 pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
-pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
+pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS; // 64 * 30 = 1920
 
 pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Bias", "Local Res", "Local Pop", "Avg Speed", "Avg Share", "Avg Repro", "Avg Aggr", "Avg Preg",
@@ -26,21 +26,21 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Wealth", "Avg Ask", "Avg Bid", "Daylight",
     "Own Pheno R", "Own Pheno G", "Own Pheno B",
     "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
-    "FL Res", "FL Elev", "FL Pop", "FL C1", "FL C2", "FL C3", "FL C4", "FL PR", "FL PG", "FL PB",
-    "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB",
-    "FR Res", "FR Elev", "FR Pop", "FR C1", "FR C2", "FR C3", "FR C4", "FR PR", "FR PG", "FR PB",
-    "L Res", "L Elev", "L Pop", "L C1", "L C2", "L C3", "L C4", "L PR", "L PG", "L PB",
-    "R Res", "R Elev", "R Pop", "R C1", "R C2", "R C3", "R C4", "R PR", "R PG", "R PB",
-    "BL Res", "BL Elev", "BL Pop", "BL C1", "BL C2", "BL C3", "BL C4", "BL PR", "BL PG", "BL PB",
-    "B Res", "B Elev", "B Pop", "B C1", "B C2", "B C3", "B C4", "B PR", "B PG", "B PB",
-    "BR Res", "BR Elev", "BR Pop", "BR C1", "BR C2", "BR C3", "BR C4", "BR PR", "BR PG", "BR PB",
-    "Pad 1", "Pad 2", "Pad 3", "Pad 4", "Pad 5"
+    "FL Res", "FL Elev", "FL Pop", "FL C1", "FL C2", "FL C3", "FL C4", "FL PR", "FL PG", "FL PB", "FL Road", "FL House", "FL Farm", "FL Store",
+    "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB", "F Road", "F House", "F Farm", "F Store",
+    "FR Res", "FR Elev", "FR Pop", "FR C1", "FR C2", "FR C3", "FR C4", "FR PR", "FR PG", "FR PB", "FR Road", "FR House", "FR Farm", "FR Store",
+    "L Res", "L Elev", "L Pop", "L C1", "L C2", "L C3", "L C4", "L PR", "L PG", "L PB", "L Road", "L House", "L Farm", "L Store",
+    "R Res", "R Elev", "R Pop", "R C1", "R C2", "R C3", "R C4", "R PR", "R PG", "R PB", "R Road", "R House", "R Farm", "R Store",
+    "BL Res", "BL Elev", "BL Pop", "BL C1", "BL C2", "BL C3", "BL C4", "BL PR", "BL PG", "BL PB", "BL Road", "BL House", "BL Farm", "BL Store",
+    "B Res", "B Elev", "B Pop", "B C1", "B C2", "B C3", "B C4", "B PR", "B PG", "B PB", "B Road", "B House", "B Farm", "B Store",
+    "BR Res", "BR Elev", "BR Pop", "BR C1", "BR C2", "BR C3", "BR C4", "BR PR", "BR PG", "BR PB", "BR Road", "BR House", "BR Farm", "BR Store",
+    "Loc Road", "Loc House", "Loc Farm", "Loc Storage", "Pad 1"
 ];
 
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
     "Turn", "Speed", "Drop Res", "Reproduce", "Attack", "Rest", "Comm 1", "Comm 2", "Comm 3", "Comm 4",
     "Learn", "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8",
-    "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Defend Intent"
+    "Buy Intent", "Sell Intent", "Ask Price", "Bid Price", "Drop H2O", "Pickup H2O", "Defend Intent", "Build Road", "Build House", "Build Farm", "Build Storage"
 ];
 
 #[derive(Serialize, Deserialize)]
@@ -93,6 +93,10 @@ pub struct Person {
     pub drop_water_intent: f32,
     pub pickup_water_intent: f32,
     pub defend_intent: f32,
+    pub build_road_intent: f32,
+    pub build_house_intent: f32,
+    pub build_farm_intent: f32,
+    pub build_storage_intent: f32,
     pub pheno_r: f32, // Replaces padding: Visual/Pheromone marker
     pub pheno_g: f32,
     pub pheno_b: f32,
@@ -171,6 +175,10 @@ impl Person {
             drop_water_intent: 0.0,
             pickup_water_intent: 0.0,
             defend_intent: 0.0,
+            build_road_intent: 0.0,
+            build_house_intent: 0.0,
+            build_farm_intent: 0.0,
+            build_storage_intent: 0.0,
             pheno_r: (rng.r#gen::<f32>() * 2.0) - 1.0,
             pheno_g: (rng.r#gen::<f32>() * 2.0) - 1.0,
             pheno_b: (rng.r#gen::<f32>() * 2.0) - 1.0,
@@ -225,6 +233,10 @@ impl Person {
         child.drop_water_intent = 0.0;
         child.pickup_water_intent = 0.0;
         child.defend_intent = 0.0;
+        child.build_road_intent = 0.0;
+        child.build_house_intent = 0.0;
+        child.build_farm_intent = 0.0;
+        child.build_storage_intent = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -313,6 +325,10 @@ impl Person {
         child.drop_water_intent = 0.0;
         child.pickup_water_intent = 0.0;
         child.defend_intent = 0.0;
+        child.build_road_intent = 0.0;
+        child.build_house_intent = 0.0;
+        child.build_farm_intent = 0.0;
+        child.build_storage_intent = 0.0;
         child.id = rng.r#gen::<u32>();
         child.gestation_timer = 0.0;
         child.is_pregnant = 0.0;
@@ -338,7 +354,30 @@ impl Person {
     }
 
     pub fn extract_weights(&self) -> AgentWeights {
-        let inputs = std::collections::HashMap::new();
+        let mut inputs = std::collections::HashMap::new();
+        // Initialize map with all input labels and zeroed weight vectors.
+        // The vector represents the weights from this input to each hidden neuron.
+        for i in 0..NUM_INPUTS {
+            inputs.insert(INPUT_LABELS[i].to_string(), vec![0.0; NUM_HIDDEN_MAX]);
+        }
+
+        // Populate the map by de-sparsifying the w1 connections.
+        for h in 0..NUM_HIDDEN_MAX {
+            if (h as u32) < self.hidden_count {
+                for k in 0..8 { // 8 sparse connections per hidden node
+                    let conn_idx = h * 8 + k;
+                    let input_idx = self.w1_indices[conn_idx] as usize;
+                    let weight = self.w1_weights[conn_idx];
+
+                    if let Some(label) = INPUT_LABELS.get(input_idx) {
+                        if let Some(weights_vec) = inputs.get_mut(*label) {
+                            weights_vec[h] = weight;
+                        }
+                    }
+                }
+            }
+        }
+
         let mut outputs = std::collections::HashMap::new();
         for o in 0..NUM_OUTPUTS {
             let mut w = Vec::with_capacity(NUM_HIDDEN_MAX);

@@ -48,10 +48,11 @@ pub fn draw_metrics(
         VisualMode::MarketFood => "Market Food",
         VisualMode::AskPrice => "Ask Price",
         VisualMode::BidPrice => "Bid Price",
-        VisualMode::Shelter => "Shelter",
+        VisualMode::Infrastructure => "Infrastructure",
         VisualMode::DayNight => "Day/Night",
         VisualMode::Temperature => "Temperature",
         VisualMode::Tribes => "Identity / Tribes",
+        VisualMode::Water => "Drinkable Water",
     };
     draw_text(&format!("Visuals [R]: {}", mode_str), 20.0, y, 16.0, WHITE);
     y += dy;
@@ -71,8 +72,8 @@ pub fn draw_metrics(
 }
 
 pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_mode: &mut VisualMode) {
-    draw_rectangle(280.0, 10.0, 160.0, 310.0, Color::new(0.0, 0.04, 0.04, 0.9));
-    draw_rectangle_lines(280.0, 10.0, 160.0, 310.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_rectangle(280.0, 10.0, 200.0, 360.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(280.0, 10.0, 200.0, 360.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
     draw_text("VISUALS", 290.0, 30.0, 16.0, Color::new(0.0, 1.0, 0.8, 1.0));
     
     let modes = [
@@ -85,15 +86,16 @@ pub fn draw_visuals_panel(mx: f32, my: f32, left_clicked: bool, current_visual_m
         (VisualMode::MarketFood, "7. Market Food"),
         (VisualMode::AskPrice, "8. Ask Price"),
         (VisualMode::BidPrice, "9. Bid Price"),
-        (VisualMode::Shelter, "0. Shelter"),
+        (VisualMode::Infrastructure, "0. Infrastructure"),
         (VisualMode::Temperature, "T. Temperature"),
         (VisualMode::DayNight, "N. Day/Night"),
         (VisualMode::Tribes, "I. Identity / Tribes"),
+        (VisualMode::Water, "W. Drinkable Water"),
     ];
     
     let mut vy = 55.0;
     for (mode, label) in modes.iter() {
-        let is_hover = mx > 290.0 && mx < 430.0 && my > vy - 12.0 && my < vy + 4.0;
+        let is_hover = mx > 290.0 && mx < 470.0 && my > vy - 12.0 && my < vy + 4.0;
         let color = if *current_visual_mode == *mode { WHITE } else if is_hover { GRAY } else { DARKGRAY };
         draw_text(label, 290.0, vy, 16.0, color);
         if left_clicked && is_hover { *current_visual_mode = *mode; }
@@ -123,15 +125,15 @@ pub fn draw_inspector(
         draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.0}g | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
 
         // --- Calculate Linearized Effective Influence Matrix ---
-        let mut w_eff = [[0.0_f32; crate::agent::NUM_INPUTS]; 26];
+        let mut w_eff = [[0.0_f32; crate::agent::NUM_INPUTS]; crate::agent::NUM_OUTPUTS];
         let mut max_abs_val = 0.0_f32;
         let h_count = a.hidden_count as usize;
         
-        for o in 0..26 {
+        for o in 0..crate::agent::NUM_OUTPUTS {
             for i in 0..crate::agent::NUM_INPUTS {
                 let mut sum = 0.0;
                 for h2 in 0..h_count {
-                    let w3_val = a.w3[h2 * 26 + o];
+                    let w3_val = a.w3[h2 * crate::agent::NUM_OUTPUTS + o];
                     let mut h1_sum = 0.0;
                     for h1 in 0..h_count {
                         let mut w1_val = 0.0;
@@ -154,8 +156,8 @@ pub fn draw_inspector(
         let output_labels = crate::agent::OUTPUT_LABELS;
 
         // --- Extract Baselines & Remove from reactive matrix ---
-        let mut baselines = [0.0_f32; 26];
-        for o in 0..26 {
+        let mut baselines = [0.0_f32; crate::agent::NUM_OUTPUTS];
+        for o in 0..crate::agent::NUM_OUTPUTS {
             baselines[o] = w_eff[o][0]; // Input 0 is the constant Bias
             w_eff[o][0] = 0.0; // Remove bias from the reactive pathway calculations
         }
@@ -169,6 +171,10 @@ pub fn draw_inspector(
             ("Commerce (Trade)", baselines[19] + baselines[20]),
             ("Sociability (Comm/Mate)", baselines[3] + baselines[6] + baselines[7] + baselines[8] + baselines[9]),
             ("Curiosity (Learn)", baselines[10]),
+            ("Construct (Road)", baselines[26]),
+            ("Construct (House)", baselines[27]),
+            ("Construct (Farm)", baselines[28]),
+            ("Construct (Granary)", baselines[29]),
         ];
 
         let trait_x = 70.0;
@@ -199,7 +205,7 @@ pub fn draw_inspector(
         trait_y += 25.0;
         
         let mut all_weights = Vec::with_capacity(crate::agent::NUM_INPUTS * 26);
-        for o in 0..26 { for i in 1..crate::agent::NUM_INPUTS { all_weights.push((i, o, w_eff[o][i])); } }
+        for o in 0..crate::agent::NUM_OUTPUTS { for i in 1..crate::agent::NUM_INPUTS { all_weights.push((i, o, w_eff[o][i])); } }
         all_weights.sort_by(|a, b| b.2.abs().partial_cmp(&a.2.abs()).unwrap_or(std::cmp::Ordering::Equal));
         
         for (idx, &(i, o, w)) in all_weights.iter().take(6).enumerate() {
@@ -218,13 +224,13 @@ pub fn draw_inspector(
         let mut input_importance = [(0usize, 0.0_f32); crate::agent::NUM_INPUTS];
         for i in 1..crate::agent::NUM_INPUTS {
             let mut sum = 0.0;
-            for o in 0..26 { sum += w_eff[o][i].abs(); }
+            for o in 0..crate::agent::NUM_OUTPUTS { sum += w_eff[o][i].abs(); }
             input_importance[i] = (i, sum);
         }
         input_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let mut output_importance = [(0usize, 0.0_f32); 26];
-        for o in 0..26 {
+        let mut output_importance = [(0usize, 0.0_f32); crate::agent::NUM_OUTPUTS];
+        for o in 0..crate::agent::NUM_OUTPUTS {
             let mut sum = 0.0;
             for i in 1..crate::agent::NUM_INPUTS { sum += w_eff[o][i].abs(); }
             output_importance[o] = (o, sum);
@@ -310,7 +316,7 @@ pub fn draw_inspector(
             ("ID", 60.0, SortCol::Index), ("Age", 120.0, SortCol::Age), ("HP", 180.0, SortCol::Health), 
             ("Fd", 230.0, SortCol::Food), ("Wlth", 300.0, SortCol::Wealth), ("Gen", 360.0, SortCol::Gender), 
             ("Spd", 410.0, SortCol::Speed), ("Dir", 460.0, SortCol::Heading), ("State", 500.0, SortCol::State), 
-            ("Markets (Buy, Sel, Ask, Bid)", 600.0, SortCol::Outputs)
+            ("Markets (Buy, Sel, Ask, Bid)", 800.0, SortCol::Outputs)
         ];
 
         for (label, hx, col) in headers.iter() {
@@ -334,7 +340,7 @@ pub fn draw_inspector(
             let (a_id, a) = &inspector_agents[idx];
             let y = 100.0 + i as f32 * row_h;
             
-            let loc_x = 800.0;
+            let loc_x = 1050.0;
             let is_hover_locate = mx > loc_x && mx < loc_x + 60.0 && my > y - 12.0 && my < y + 4.0;
             
             if mx > 50.0 && mx < screen_width() - 50.0 && my > y - 15.0 && my < y + 5.0 {
@@ -365,10 +371,14 @@ pub fn draw_inspector(
             if a.is_pregnant > 0.5 { draw_text("[PRG]", st_x, y, 14.0, YELLOW); st_x += 35.0; }
             if a.rest_intent > 0.5 { draw_text("[Zzz]", st_x, y, 14.0, SKYBLUE); st_x += 35.0; }
             if a.attack_intent > 0.5 { draw_text("[ATK]", st_x, y, 14.0, RED); st_x += 35.0; }
-            if a.defend_intent > 0.5 { draw_text("[DEF]", st_x, y, 14.0, GREEN); }
+            if a.defend_intent > 0.5 { draw_text("[DEF]", st_x, y, 14.0, GREEN); st_x += 35.0; }
+            if a.build_road_intent > 0.5 { draw_text("[ROD]", st_x, y, 14.0, GRAY); st_x += 35.0; }
+            if a.build_house_intent > 0.5 { draw_text("[HOU]", st_x, y, 14.0, ORANGE); st_x += 35.0; }
+            if a.build_farm_intent > 0.5 { draw_text("[FRM]", st_x, y, 14.0, GREEN); st_x += 35.0; }
+            if a.build_storage_intent > 0.5 { draw_text("[STO]", st_x, y, 14.0, MAGENTA); }
             
             let out_str = format!("B:{:.1} S:{:.1} A:{:.1} B:{:.1}", a.buy_intent, a.sell_intent, a.ask_price, a.bid_price);
-            draw_text(&out_str, 600.0, y, 16.0, WHITE);
+            draw_text(&out_str, 800.0, y, 16.0, WHITE);
             draw_text("[Locate]", loc_x, y, 16.0, if is_hover_locate { YELLOW } else { LIGHTGRAY });
         }
         draw_text(&format!("Showing {} - {} of {}", *inspector_scroll, (*inspector_scroll + visible).min(inspector_agents.len()), inspector_agents.len()), 60.0, 550.0, 16.0, GRAY);
@@ -403,6 +413,10 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &crate::agent::Pers
     if a.rest_intent > 0.5 { state_str.push_str("[Zzz] "); }
     if a.attack_intent > 0.5 { state_str.push_str("[ATK] "); }
     if a.defend_intent > 0.5 { state_str.push_str("[DEF] "); }
+    if a.build_road_intent > 0.5 { state_str.push_str("[ROD] "); }
+    if a.build_house_intent > 0.5 { state_str.push_str("[HOU] "); }
+    if a.build_farm_intent > 0.5 { state_str.push_str("[FRM] "); }
+    if a.build_storage_intent > 0.5 { state_str.push_str("[STO] "); }
     if state_str.is_empty() { state_str.push_str("[IDLE]"); }
     
     draw_text(&format!("State: {}", state_str), panel_x + 20.0, py, 16.0, WHITE); py += dy + 10.0;

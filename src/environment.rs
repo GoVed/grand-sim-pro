@@ -32,11 +32,16 @@ pub struct CellState {
     pub market_food: i32,    // Fixed-point (val * 1000) for GPU atomics
     pub market_wealth: i32,  // Fixed-point (val * 1000) for GPU atomics
     pub market_water: i32,   // Fixed-point (val * 1000) for GPU atomics
-    pub shelter_level: f32,  // Physical structures built by agents (replaces padding to maintain 80 bytes)
+    pub infra_roads: i32,    // Fixed-point (val * 1000) for GPU atomics
+    pub infra_housing: i32,  // Fixed-point (val * 1000) for GPU atomics
+    pub infra_farms: i32,    // Fixed-point (val * 1000) for GPU atomics
+    pub infra_storage: i32,  // Fixed-point (val * 1000) for GPU atomics
     pub pheno_r: f32,        // Local dominant phenotype marker
     pub pheno_g: f32,
     pub pheno_b: f32,
-    pub _pad_pheno: f32,     // Pad to maintain 16-byte align (96 bytes total)
+    pub _pad_infra1: f32,    // Pad to maintain 16-byte align (112 bytes total)
+    pub _pad_infra2: f32,
+    pub _pad_infra3: f32,
 }
 
 pub struct Environment {
@@ -93,11 +98,16 @@ impl Environment {
                     market_food: 50_000_000,
                     market_wealth: (base_res * 1000.0) as i32, // Cells start with money to buy initial farmed crops
                     market_water: if val <= 0.05 { (config.max_tile_water * 1000.0) as i32 } else { 0 }, // Shorelines & Oceans start with water
-                shelter_level: 0.0,
-                pheno_r: 0.0,
-                pheno_g: 0.0,
-                pheno_b: 0.0,
-                _pad_pheno: 0.0,
+                    infra_roads: 0,
+                    infra_housing: 0,
+                    infra_farms: 0,
+                    infra_storage: 0,
+                    pheno_r: 0.0,
+                    pheno_g: 0.0,
+                    pheno_b: 0.0,
+                    _pad_infra1: 0.0,
+                    _pad_infra2: 0.0,
+                    _pad_infra3: 0.0,
                 });
             }
         }
@@ -122,6 +132,7 @@ impl Environment {
             let mut cx = sx;
             let mut cy = sy;
             let mut river_path = Vec::new();
+            let mut is_lake = false;
             
             // Trace downhill until we hit a pit, the ocean, or the max length
             while river_path.len() < 1500 {
@@ -145,20 +156,47 @@ impl Environment {
                     }
                 }
                 
-                if nx == cx && ny == cy { break; } // Hit a local pit/lake
+                if nx == cx && ny == cy {
+                    is_lake = true;
+                    break;
+                } // Hit a local pit/lake
                 cx = nx;
                 cy = ny;
                 if min_h <= 0.05 { break; } // Reached the ocean/shoreline
             }
 
             // Carve the river into the map arrays
-            for idx in river_path {
+            for &idx in &river_path {
                 map_cells[idx].market_water = (config.max_tile_water * 1000.0) as i32;
                 
-                // Erode terrain to 0.01 (Shoreline level) so it naturally replenishes water forever
-                // and allows crossing on foot without a boat (boat requires < 0.0)
-                if height_map[idx] > 0.01 {
-                    height_map[idx] = 0.01;
+                // Erode terrain to -0.01 (Shallow Water) so it naturally replenishes water forever
+                // Requires a boat to cross, making rivers and lakes actual water obstacles
+                if height_map[idx] > -0.01 {
+                    height_map[idx] = -0.01;
+                }
+            }
+
+            // If the river ends in a landlocked pit, flood it to create a lake
+            if is_lake {
+                if let Some(&last_idx) = river_path.last() {
+                    let lx = (last_idx as u32) % width;
+                    let ly = (last_idx as u32) / width;
+                    let lake_radius = rng.gen_range(2..6);
+                    
+                    for dy in -lake_radius..=lake_radius {
+                        for dx in -lake_radius..=lake_radius {
+                            if dx * dx + dy * dy <= lake_radius * lake_radius {
+                                let tx = ((lx as i32 + dx + width as i32) % width as i32) as u32;
+                                let ty = ((ly as i32 + dy + height as i32) % height as i32) as u32;
+                                let tidx = (ty * width + tx) as usize;
+                                
+                                map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
+                                if height_map[tidx] > -0.01 {
+                                    height_map[tidx] = -0.01;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

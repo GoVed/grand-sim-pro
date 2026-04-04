@@ -47,11 +47,27 @@ pub struct SimConfig {
     pub mutation_strength: f32,   // Magnitude of mutation
     pub spawn_group_size: u32,    // How many agents spawn together in a cluster
     pub crossover_rate: f32,      // Probability of inheriting a specific weight from the other parent
-    pub shelter_cost: f32,        // Cost in USD/resources to build 1 unit of shelter
-    pub max_shelter: f32,         // Maximum shelter value a tile can hold
+    pub infra_cost: f32,          // Cost in USD/resources to build 1 unit of infrastructure
+    pub max_infra: f32,           // Maximum infrastructure value a tile can hold per category
+    pub decay_rate_roads: f32,    // Probability of losing 1 infrastructure unit per tick per agent usage
+    pub decay_rate_housing: f32,
+    pub decay_rate_farms: f32,
+    pub decay_rate_storage: f32,
     pub load_saved_agents_on_start: u32, // Set to 1 to load agents from 'saved_agents_weights' dir
     pub visual_mode: u32,         // Tells the GPU which map overlay to render
-    pub pad1: [u32; 2],           // 8-byte uniform alignment pad to make total size 160 bytes (multiple of 16)
+    pub max_carry_weight: f32,    // Amount of kg an agent can carry before being severely encumbered
+    pub crowding_threshold: f32,  // Population per tile before movement penalties apply
+    pub pregnancy_speed_mult: f32,// Speed penalty when carrying a child
+    pub pregnancy_cost_mult: f32, // Multiplier for calorie/water burn when pregnant
+    pub defend_cost_mult: f32,    // Calorie burn multiplier when holding a defensive stance
+    pub base_spoilage_rate: f32,  // Base fraction of food that rots per tick
+    pub infra_road_speed_bonus: f32, // Max speed multiplier provided by roads
+    pub infra_housing_rest_bonus: f32, // Caloric burn reduction when sleeping in a house
+    pub infra_storage_rot_reduction: f32, // Percentage of rot prevented by granaries
+    pub combat_bystander_damage: f32, // HP lost when caught in an aggressive tile without defending
+    pub combat_attacker_damage: f32,  // HP lost when actively fighting other attackers
+    pub combat_steal_amount: f32, // Max resources stolen per tick when attacking
+    pub pad1: [u32; 2],           // 8-byte uniform alignment pad to make total size 224 bytes (multiple of 16)
 }
 
 impl Default for SimConfig {
@@ -77,7 +93,7 @@ impl Default for SimConfig {
             map_height: 600,          // Default 600 tiles tall
             display_width: 1280,      // Scale up default window size
             display_height: 720,
-            agent_count: 4000,        // 4k initial default population
+            agent_count: 1000,        // 4k initial default population
             current_tick: 0,
             max_stamina: 100.0,
             max_water: 25.0,          // Max kg of water an agent can carry
@@ -91,10 +107,26 @@ impl Default for SimConfig {
             mutation_strength: 0.05,  // Mutation range of +/- 0.05
             spawn_group_size: 100,    // Spawn in tribes of 100
             crossover_rate: 0.5,      // 50% chance to inherit gene from parent B vs parent A
-            shelter_cost: 100.0,      // $100 equivalent required to increase tile shelter level
-            max_shelter: 1000.0,      // Max shelter cap per tile
+            infra_cost: 100.0,        // $100 equivalent required to increase a tile's infra level
+            max_infra: 1000.0,        // Max cap per infrastructure type
+            decay_rate_roads: 0.004,  // ~5 years of continuous usage to destroy
+            decay_rate_housing: 0.001,// ~20 years of continuous usage
+            decay_rate_farms: 0.02,   // ~1 year of continuous usage (crops need constant maintenance)
+            decay_rate_storage: 0.002,// ~10 years of continuous usage
             load_saved_agents_on_start: 0,
             visual_mode: 0,
+            max_carry_weight: 100.0,
+            crowding_threshold: 15.0,
+            pregnancy_speed_mult: 0.7,
+            pregnancy_cost_mult: 1.5,
+            defend_cost_mult: 1.5,
+            base_spoilage_rate: 0.0001,
+            infra_road_speed_bonus: 2.0,
+            infra_housing_rest_bonus: 0.3,
+            infra_storage_rot_reduction: 0.9,
+            combat_bystander_damage: 0.5,
+            combat_attacker_damage: 2.0,
+            combat_steal_amount: 5.0,
             pad1: [0; 2],
         }
     }
