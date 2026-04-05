@@ -14,10 +14,10 @@ use crate::shared::{VisualMode, SortCol, format_time};
 pub fn draw_metrics(
     pop_count: usize, compute_time: u128, speed: usize, ticks: u64, tick_to_mins: f32,
     fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool, show_generation_graph: bool,
-    paused: bool, restart_msg: bool
+    show_config_panel: bool, paused: bool, restart_msg: bool
 ) {
-    draw_rectangle(10.0, 10.0, 260.0, 280.0, Color::new(0.0, 0.04, 0.04, 0.9));
-    draw_rectangle_lines(10.0, 10.0, 260.0, 280.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_rectangle(10.0, 10.0, 260.0, 300.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(10.0, 10.0, 260.0, 300.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
     
     let mut y = 30.0;
     let dy = 20.0;
@@ -59,6 +59,8 @@ pub fn draw_metrics(
     draw_text(&format!("Inspector [TAB]: {}", if show_inspector { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
     y += dy;
     draw_text(&format!("Gen Graph [G]: {}", if show_generation_graph { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Config Panel [C]: {}", if show_config_panel { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
     y += dy;
     draw_text("Save Agents [S]", 20.0, y, 16.0, WHITE);
 

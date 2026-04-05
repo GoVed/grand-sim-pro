@@ -45,7 +45,10 @@ impl SimulationManager {
         let get_land_spawn_point = |rng: &mut rand::rngs::ThreadRng| -> (f32, f32) {
             loop {
                 let px = rng.gen_range(0.0..width as f32);
-                let py = rng.gen_range(0.0..height as f32);
+                // Spherical area-weighted Y selection (Inverse Cosine mapping)
+                let u = rng.gen_range(0.0f32..1.0f32);
+                let phi = (1.0 - 2.0 * u).acos();
+                let py = (phi / std::f32::consts::PI) * height as f32;
                 let idx = (py as usize).clamp(0, (height - 1) as usize) * (width as usize) + (px as usize).clamp(0, (width - 1) as usize);
                 if env.height_map[idx] >= 0.0 { return (px, py); }
             }

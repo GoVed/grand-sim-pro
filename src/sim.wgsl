@@ -542,7 +542,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     
     // Simply managing and holding massive weight increases baseline metabolism
     let carrying_effort = 1.0 + (total_weight / 50.0);
-    let metabolic_rate = cfg.baseline_cost * maturity * rest_mult * preg_mult * defend_mult * carrying_effort;
+    
+    // Add a caloric penalty for actively channeling manual labor intents.
+    // This violently punishes agents that blindly spam build/destroy on empty tiles!
+    var intent_exertion = 0.0;
+    if (!resting) {
+        if (agent.build_road_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agent.build_house_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agent.build_farm_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agent.build_storage_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agent.destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; } // Destroying is heavy, exhausting labor
+    }
+    
+    let metabolic_rate = cfg.baseline_cost * maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
 
     agent.water = agent.water - metabolic_rate;
     let cold_penalty = max(0.0, -effective_temp) * 0.1;
