@@ -31,7 +31,7 @@
   "random_spawn_percentage": 0.1,
   "mutation_rate": 0.05,
   "mutation_strength": 0.05,
-  "spawn_group_size": 100,
+  "spawn_group_size": 16,
   "crossover_rate": 0.5,
   "infra_cost": 100.0,
   "max_infra": 1000.0,

@@ -87,7 +87,10 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     let get_land_spawn_point = |rng: &mut rand::rngs::ThreadRng| -> (f32, f32) {
                         loop {
                             let px = rng.gen_range(0.0f32..map_w);
-                            let py = rng.gen_range(0.0f32..map_h);
+                            // Spherical area-weighted Y selection (Inverse Cosine mapping)
+                            let u = rng.gen_range(0.0f32..1.0f32);
+                            let phi = (1.0 - 2.0 * u).acos();
+                            let py = (phi / std::f32::consts::PI) * map_h;
                             let idx = (py as usize).clamp(0, (data.config.map_height - 1) as usize) * (data.config.map_width as usize) + (px as usize).clamp(0, (data.config.map_width - 1) as usize);
                             if data.sim.env.height_map[idx] >= 0.0 { return (px, py); }
                         }

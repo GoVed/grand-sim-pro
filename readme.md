@@ -93,9 +93,11 @@ Agents are subject to the harsh realities of life mapped to a realistic timeline
 - **Snapshot Evolution:** If you observe an incredibly successful ecosystem, press `S` to instantly serialize and save the complex internal weights of the top currently living agents into JSON format (`saved_agents_weights/`).
 - **Pre-seeded Founders:** Set `load_saved_agents_on_start: 1` in the configuration to inject these highly evolved brains into a completely fresh simulation at boot, effectively transferring knowledge across independent runs.
 
-### ⚙️ Real-Time Configuration (`sim_config.json`)
+### ⚙️ Live Configuration Panel & `sim_config.json`
 On its first run, the simulation generates a `sim_config.json` file, mapping the environment to realistic metrics (e.g., 1 Resource = $1 USD, 1 Tick = 1 Minute).
-You can freely tweak over 50 physical parameters dynamically without recompiling the project—including base speeds, climbing penalties, boat costs, combat damage multipliers, pregnancy encumbrance, and infrastructure decay rates!
+
+Press **C** to open the in-game Live Configuration Panel. You can freely tweak over 50 physical parameters dynamically in real-time without recompiling the project or restarting the simulation—including base speeds, climbing penalties, boat costs, combat damage multipliers, pregnancy encumbrance, and infrastructure decay rates!
+Modifications can be saved directly back to the `sim_config.json` file via the UI.
 
 ### 📊 Real-Time Telemetry
 <p align="center">
@@ -139,10 +141,12 @@ cargo run --release
 - **Spacebar:** Pause / Resume the simulation
 - **S Key:** Save the neural network weights of the top living agents to the `saved_agents_weights` directory
 - **G Key:** Toggle the Generational Survival Graph to track evolutionary progress over time
+- **C Key:** Toggle the Live Configuration Panel to dynamically tweak physics and simulation parameters
 - **R Key:** Open Visuals Panel to toggle map views (Resources, Market Prices, Age, Gender, Pregnancy overlays)
 - **T Key:** Toggle Temperature map visualization
 - **N Key:** Toggle Day/Night shadow visualization
 - **I Key:** Toggle Identity / Tribes visual mode to see emergent phenotypic borders
+- **W Key:** Toggle Drinkable Water map visualization
 - **TAB Key:** Open the Live Inspector. Click an agent's row to inspect its live Neural Network Heatmap, or click `[Locate]` to lock the camera and open the side-panel Agent Tracker.
 - **Up Arrow:** Exponentially increase simulation speed (compute loops per frame)
 - **Down Arrow:** Exponentially decrease simulation speed

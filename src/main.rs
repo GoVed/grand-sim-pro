@@ -411,7 +411,7 @@ async fn main() {
             low_1_fps = count_1_percent as f32 / low_1_sum;
         }
         
-        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, paused, restart_msg);
+        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, paused, restart_msg);
         if show_visuals_panel { ui::draw_visuals_panel(mx, my, left_clicked, &mut current_visual_mode); }
         if show_generation_graph {
             ui::draw_generation_graph(&generation_times, loaded_config.tick_to_mins);
