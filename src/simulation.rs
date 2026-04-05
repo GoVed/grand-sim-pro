@@ -53,6 +53,7 @@ impl SimulationManager {
 
         let mut agents = Vec::with_capacity(count as usize);
         let mut current_spawn_pt = get_land_spawn_point(&mut rng);
+        let mut current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
         let mut spawn_count = 0;
 
         let random_agents_count = if founders.is_empty() { count as usize } else { (count as f32 * config.random_spawn_percentage) as usize };
@@ -60,10 +61,18 @@ impl SimulationManager {
         let children_per_founder = if founders.is_empty() { 0 } else { descendant_agents_count / founders.len().max(1) };
 
         for _ in 0..random_agents_count {
-            if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+            if spawn_count >= spawn_group_size { 
+                current_spawn_pt = get_land_spawn_point(&mut rng); 
+                current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
+                spawn_count = 0; 
+            }
             let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
             let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-            agents.push(Person::new(px, py, config));
+            let mut agent = Person::new(px, py, config);
+            agent.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+            agent.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+            agent.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+            agents.push(agent);
             spawn_count += 1;
         }
 
@@ -73,11 +82,18 @@ impl SimulationManager {
 
             for founder in &founders {
                 for _ in 0..children_per_founder {
-                    if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                    if spawn_count >= spawn_group_size { 
+                        current_spawn_pt = get_land_spawn_point(&mut rng); 
+                        current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
+                        spawn_count = 0; 
+                    }
                     let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                     let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
                     let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
                     child.age = rng.gen_range(0.0f32..config.max_age * 0.8);
+                    child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                    child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                    child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                     agents.push(child);
                     spawn_count += 1;
                 }
@@ -85,11 +101,18 @@ impl SimulationManager {
 
             // Fill remaining slots
             while agents.len() < count as usize {
-                if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                if spawn_count >= spawn_group_size { 
+                    current_spawn_pt = get_land_spawn_point(&mut rng); 
+                    current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
+                    spawn_count = 0; 
+                }
                 let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                 let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
                 let mut child = founders[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
                 child.age = rng.gen_range(0.0f32..config.max_age * 0.8);
+                child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                 agents.push(child);
                 spawn_count += 1;
             }

@@ -124,6 +124,18 @@ pub fn draw_inspector(
         
         draw_text(&format!("Stats: Age {} | HP {:.1} | Food {:.0}g | H2O {:.1} | Wealth ${:.1}", format_time(a.age as u64, tick_to_mins), a.health, a.food, a.water, a.wealth), 160.0, 80.0, 20.0, WHITE);
 
+        // --- Draw Memory Registers ---
+        let mem_x = 900.0;
+        let mem_y = 80.0;
+        draw_text("Memory State:", mem_x, mem_y, 18.0, LIGHTGRAY);
+        let mems = [a.mem1, a.mem2, a.mem3, a.mem4, a.mem5, a.mem6, a.mem7, a.mem8];
+        for (idx, &m) in mems.iter().enumerate() {
+            let m_cx = mem_x + 130.0 + idx as f32 * 24.0;
+            let m_col = if m > 0.0 { Color::new(0.0, m.min(1.0), 0.8, 1.0) } else { Color::new(m.abs().min(1.0), 0.0, 0.0, 1.0) };
+            draw_rectangle(m_cx, mem_y - 14.0, 20.0, 16.0, m_col);
+            draw_rectangle_lines(m_cx, mem_y - 14.0, 20.0, 16.0, 1.0, DARKGRAY);
+        }
+
         // --- Calculate Linearized Effective Influence Matrix ---
         let mut w_eff = [[0.0_f32; crate::agent::NUM_INPUTS]; crate::agent::NUM_OUTPUTS];
         let mut max_abs_val = 0.0_f32;
@@ -178,7 +190,7 @@ pub fn draw_inspector(
             ("Destroy (Infra)", baselines[30]),
         ];
 
-        let trait_x = 70.0;
+        let trait_x = 60.0;
         let mut trait_y = 150.0;
         draw_text("INNATE PERSONALITY (Baseline Bias)", trait_x, trait_y, 18.0, WHITE);
         draw_text("Natural tendencies excluding environmental stimuli.", trait_x, trait_y + 20.0, 14.0, GRAY);
@@ -212,12 +224,12 @@ pub fn draw_inspector(
         for (idx, &(i, o, w)) in all_weights.iter().take(6).enumerate() {
             let color = if w > 0.0 { Color::new(0.0, 1.0, 0.5, 1.0) } else { Color::new(1.0, 0.2, 0.2, 1.0) };
             let text = format!("{}. {} -> {} ({:.2})", idx + 1, input_labels[i], output_labels[o], w);
-            draw_text(&text, trait_x, trait_y, 16.0, color);
+            draw_text(&text, trait_x, trait_y, 15.0, color);
             trait_y += 25.0;
         }
 
         // --- Cognitive Architecture (Bipartite Graph) ---
-        let graph_x = 600.0;
+        let graph_x = 520.0; // Shifted right to balance spacing with the Personality panel
         let graph_y = 150.0;
         draw_text("DOMINANT REACTIVE PATHWAYS", graph_x, graph_y, 18.0, WHITE);
         draw_text("How sensory inputs dynamically trigger behavioral outputs.", graph_x, graph_y + 20.0, 14.0, GRAY);
@@ -252,8 +264,21 @@ pub fn draw_inspector(
 
         let path_y_start = graph_y + 60.0;
         let left_col_x = graph_x;
-        let right_col_x = graph_x + 350.0;
-        let row_spacing = 38.0;
+        let right_col_x = graph_x + 250.0;
+        let row_spacing = 35.0;
+
+        let mut hovered_in = None;
+        let mut hovered_out = None;
+        
+        // Detect Mouse Hover over Input/Output labels
+        for (l_idx, &(i, _)) in top_inputs.iter().enumerate() {
+            let y = path_y_start + l_idx as f32 * row_spacing;
+            if mx > left_col_x - 10.0 && mx < left_col_x + 110.0 && my > y - 14.0 && my < y + 6.0 { hovered_in = Some(i); }
+        }
+        for (r_idx, &(o, _)) in top_outputs.iter().enumerate() {
+            let y = path_y_start + r_idx as f32 * row_spacing;
+            if mx > right_col_x - 10.0 && mx < right_col_x + 130.0 && my > y - 14.0 && my < y + 6.0 { hovered_out = Some(o); }
+        }
 
         // S-Curve Bezier function for elegant biological routing
         let draw_bezier = |x1: f32, y1: f32, x2: f32, y2: f32, thickness: f32, color: Color| {
@@ -273,8 +298,22 @@ pub fn draw_inspector(
             for (r_idx, &(o, _)) in top_outputs.iter().enumerate() {
                 let w = w_eff[o][i];
                 if w.abs() > max_path_w * 0.15 { // Only draw significant pathways to avoid visual clutter
-                    let alpha = (w.abs() / max_path_w).clamp(0.15, 0.8);
-                    let thickness = (w.abs() / max_path_w) * 5.0;
+                    let is_active = hovered_in == Some(i) || hovered_out == Some(o);
+                    let any_hovered = hovered_in.is_some() || hovered_out.is_some();
+                    
+                    let mut alpha = (w.abs() / max_path_w).clamp(0.15, 0.8);
+                    let mut thickness = (w.abs() / max_path_w) * 5.0;
+                    
+                    // Apply hover dimming / highlighting
+                    if any_hovered {
+                        if is_active {
+                            alpha = (w.abs() / max_path_w).clamp(0.4, 1.0) + 0.2; // Boost
+                            thickness += 2.0;
+                        } else {
+                            alpha = 0.03; // Dim heavily to highlight selected
+                        }
+                    }
+
                     let color = if w > 0.0 { Color::new(0.0, 1.0, 0.5, alpha) } else { Color::new(1.0, 0.2, 0.2, alpha) };
                     
                     let x1 = left_col_x + 110.0; 
@@ -289,12 +328,53 @@ pub fn draw_inspector(
 
         for (l_idx, &(i, _)) in top_inputs.iter().enumerate() {
             let y = path_y_start + l_idx as f32 * row_spacing;
-            draw_text(input_labels[i], left_col_x, y, 16.0, LIGHTGRAY);
+            let is_hovered = hovered_in == Some(i);
+            let color = if is_hovered { WHITE } else if hovered_in.is_some() || hovered_out.is_some() { Color::new(0.4, 0.4, 0.4, 0.5) } else { LIGHTGRAY };
+            draw_text(input_labels[i], left_col_x, y, if is_hovered { 18.0 } else { 16.0 }, color);
         }
         
         for (r_idx, &(o, _)) in top_outputs.iter().enumerate() {
             let y = path_y_start + r_idx as f32 * row_spacing;
-            draw_text(output_labels[o], right_col_x, y, 16.0, LIGHTGRAY);
+            let is_hovered = hovered_out == Some(o);
+            let color = if is_hovered { WHITE } else if hovered_in.is_some() || hovered_out.is_some() { Color::new(0.4, 0.4, 0.4, 0.5) } else { LIGHTGRAY };
+            draw_text(output_labels[o], right_col_x, y, if is_hovered { 18.0 } else { 16.0 }, color);
+        }
+        
+        // --- Full Effective Influence Heatmap ---
+        let hm_x = 920.0;
+        let hm_y = 150.0;
+        draw_text("FULL INFLUENCE HEATMAP", hm_x, hm_y, 18.0, WHITE);
+        draw_text("Matrix of Top Inputs vs All Outputs.", hm_x, hm_y + 20.0, 14.0, GRAY);
+        
+        let hm_start_y = hm_y + 50.0;
+        let cell_size = 12.0;
+        let cell_pad = 2.0;
+        let top_16_inputs = &input_importance[0..16.min(input_importance.len())];
+        let mut tooltip = None;
+
+        for (row, _o) in (0..crate::agent::NUM_OUTPUTS).enumerate() {
+            let cy = hm_start_y + row as f32 * (cell_size + cell_pad);
+            draw_text(output_labels[row], hm_x + 16.0 * (cell_size + cell_pad) + 8.0, cy + 10.0, 14.0, Color::new(0.7, 0.7, 0.7, 0.8));
+            for (col, &(i, _)) in top_16_inputs.iter().enumerate() {
+                let w = w_eff[row][i];
+                let cx = hm_x + col as f32 * (cell_size + cell_pad);
+                let norm_w = (w.abs() / max_path_w).clamp(0.0, 1.0);
+                let color = if w > 0.0 { Color::new(0.0, norm_w, 0.0, 1.0) } else { Color::new(norm_w, 0.0, 0.0, 1.0) };
+                draw_rectangle(cx, cy, cell_size, cell_size, color);
+                
+                if mx > cx && mx < cx + cell_size && my > cy && my < cy + cell_size {
+                    draw_rectangle_lines(cx - 1.0, cy - 1.0, cell_size + 2.0, cell_size + 2.0, 1.0, WHITE);
+                    tooltip = Some((input_labels[i].to_string(), output_labels[row].to_string(), w));
+                }
+            }
+        }
+        
+        if let Some((in_lbl, out_lbl, w_val)) = tooltip {
+            let tt_str = format!("{} -> {}: {:.3}", in_lbl, out_lbl, w_val);
+            let tt_w = measure_text(&tt_str, None, 16, 1.0).width + 16.0;
+            draw_rectangle(mx + 15.0, my + 15.0, tt_w, 24.0, Color::new(0.1, 0.1, 0.1, 0.95));
+            draw_rectangle_lines(mx + 15.0, my + 15.0, tt_w, 24.0, 1.0, GRAY);
+            draw_text(&tt_str, mx + 23.0, my + 32.0, 16.0, if w_val > 0.0 { GREEN } else { RED });
         }
     } else {
         inspector_agents.sort_by(|a, b| {
