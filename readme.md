@@ -28,9 +28,13 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 
 Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 64 nodes each) evaluating **160 distinct sensory inputs** (including Phenotypic Identity, Recurrent Memory, a 3x3 Flattened LiDAR Vision Grid with localized infrastructure detection, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 6,000 synaptic weights and drives **30 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, 2 Water Logistics intents, and 4 Infrastructure Construction intents). 
 
+- **Interactive Bipartite Graph:** Hover over any sensory input or behavioral output in the Inspector to instantly isolate and visualize the exact neural pathways driving an agent's current reaction, dynamically dimming all other synaptic noise.
+- **Full Influence Heatmap:** A dense 2D matrix visually maps the agent's top 16 most critical sensory inputs against all 31 possible outputs simultaneously, complete with exact synaptic weight tooltips on hover.
+
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.
 - **Recurrent Memory Loops:** Agents feature 8 dedicated abstract memory channels. What they output to these memory states in one frame is fed directly back into their sensory inputs on the next, allowing them to recall context (like the direction of a shoreline or the location of an attacker).
+- **Memory State Visualizer:** The UI features a live array of 8 indicators showing the exact float values (`-1.0` to `1.0`) of an agent's recurrent memory channels, letting you literally watch them "think" and hold context in real-time.
 - **Sleep State & Dreaming:** When an agent rests or passes out from exhaustion, they enter a realistic sleep state. Voluntary motor functions (movement, attacking, trading) are physically paralyzed, and vision drops to 10%, but hearing and memory channels remain fully active. Because the Hebbian learning intent can remain active, agents can literally *dream*—consolidating memories and updating synapses while asleep!
 
 ### 🎨 Dedicated GPU Rendering Pipeline

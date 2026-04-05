@@ -103,15 +103,23 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     };
 
                     let mut current_spawn_pt = get_land_spawn_point(&mut rng);
+                    let mut current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
                     let mut spawn_count = 0;
 
                     // Create totally random agents
                     for _ in 0..random_agents_count {
-                        if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                        if spawn_count >= spawn_group_size { 
+                            current_spawn_pt = get_land_spawn_point(&mut rng); 
+                            current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
+                            spawn_count = 0; 
+                        }
                         let (px, py) = get_spawn_coords(current_spawn_pt.0, current_spawn_pt.1, &mut rng, map_w, map_h);
 
                         let mut random_agent = Person::new(px, py, &data.config);
                         random_agent.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
+                        random_agent.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                        random_agent.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                        random_agent.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                         new_population.push(random_agent);
                         spawn_count += 1;
                     }
@@ -120,22 +128,36 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     for i in 0..founders_count {
                         let founder = &data.sim.agents[i];
                         for _ in 0..children_per_founder {
-                            if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                            if spawn_count >= spawn_group_size { 
+                                current_spawn_pt = get_land_spawn_point(&mut rng); 
+                                current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
+                                spawn_count = 0; 
+                            }
                             let (px, py) = get_spawn_coords(current_spawn_pt.0, current_spawn_pt.1, &mut rng, map_w, map_h);
 
                             let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
                             child.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
+                            child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                             new_population.push(child);
                             spawn_count += 1;
                         }
                     }
                     // Fill any remaining slots with descendants of the first founder
                     while new_population.len() < target_pop { // This handles cases where target_pop is not perfectly divisible
-                        if spawn_count >= spawn_group_size { current_spawn_pt = get_land_spawn_point(&mut rng); spawn_count = 0; }
+                        if spawn_count >= spawn_group_size { 
+                            current_spawn_pt = get_land_spawn_point(&mut rng); 
+                            current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
+                            spawn_count = 0; 
+                        }
                         let (px, py) = get_spawn_coords(current_spawn_pt.0, current_spawn_pt.1, &mut rng, map_w, map_h);
 
                         let mut child = data.sim.agents[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
                         child.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
+                        child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                        child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                        child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                         new_population.push(child);
                         spawn_count += 1;
                     }
