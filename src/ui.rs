@@ -36,12 +36,12 @@ pub fn apply_sort(agents: &mut Vec<(usize, Person)>, col: SortCol, desc: bool) {
 }
 
 pub fn draw_metrics(
-    pop_count: usize, compute_time: f32, speed: usize, ticks: u64, tick_to_mins: f32,
+    pop_count: usize, compute_time: f32, ticks_per_sec: f32, speed: usize, ticks: u64, tick_to_mins: f32,
     fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool, show_generation_graph: bool,
     show_config_panel: bool, paused: bool, restart_msg: bool
 ) {
-    draw_rectangle(10.0, 10.0, 260.0, 300.0, Color::new(0.0, 0.04, 0.04, 0.9));
-    draw_rectangle_lines(10.0, 10.0, 260.0, 300.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    draw_rectangle(10.0, 10.0, 260.0, 320.0, Color::new(0.0, 0.04, 0.04, 0.9));
+    draw_rectangle_lines(10.0, 10.0, 260.0, 320.0, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
     
     let mut y = 30.0;
     let dy = 20.0;
@@ -51,6 +51,8 @@ pub fn draw_metrics(
     draw_text(&format!("Population: {}", pop_count), 20.0, y, 16.0, WHITE);
     y += dy;
     draw_text(&format!("Compute: {:.2}ms/loop", compute_time), 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text(&format!("Throughput: {:.0} ticks/s", ticks_per_sec), 20.0, y, 16.0, YELLOW);
     y += dy;
     draw_text(&format!("Speed: {}x (Up/Down)", speed), 20.0, y, 16.0, WHITE);
     y += dy;

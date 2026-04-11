@@ -133,6 +133,7 @@ async fn main() {
         ticks_per_loop: 5,
         total_ticks: 0,
         last_compute_time_micros: 0,
+        ticks_per_second: 0.0,
         generation_survival_times: Vec::new(),
     }));
 
@@ -167,6 +168,7 @@ async fn main() {
     let mut speed = 20;
     let mut ticks = 0;
     let mut compute_time: f32 = 0.0;
+    let mut ticks_per_sec: f32 = 0.0;
     let mut pop_count = 0;
     let mut restart_msg = false;
 
@@ -313,6 +315,7 @@ async fn main() {
             speed = data.ticks_per_loop;
             ticks = data.total_ticks;
             compute_time = data.last_compute_time_micros as f32 / 1000.0;
+            ticks_per_sec = data.ticks_per_second;
             pop_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
             restart_msg = data.restart_message_active;
             last_saved_config = data.last_saved_config;
@@ -418,7 +421,7 @@ async fn main() {
             low_1_fps = count_1_percent as f32 / low_1_sum;
         }
         
-        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.world.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, paused, restart_msg);
+        ui::draw_metrics(pop_count, compute_time, ticks_per_sec, speed, ticks, loaded_config.world.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, paused, restart_msg);
         if show_visuals_panel { ui::draw_visuals_panel(mx, my, left_clicked, &mut current_visual_mode); }
         if show_generation_graph { ui::draw_generation_graph(&generation_times, loaded_config.world.tick_to_mins); }
         if show_inspector {

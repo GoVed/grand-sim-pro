@@ -1,3 +1,4 @@
 /target
 Cargo.lock
 /saved_agents_weights
+telemetry.csv
