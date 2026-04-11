@@ -48,8 +48,18 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                     // Update local agents after genetics
                     agents = data.sim.agents.clone();
+                    
+                    // Spatial Sorting for GPU Locality & LDS efficiency
+                    let map_w = config.world.map_width as usize;
+                    agents.sort_by_key(|a| {
+                        if a.health <= 0.0 { return usize::MAX; }
+                        let ty = (a.y as usize).clamp(0, config.world.map_height as usize - 1);
+                        let tx = (a.x as usize).clamp(0, config.world.map_width as usize - 1);
+                        ty * map_w + tx
+                    });
+                    data.sim.agents = agents.clone();
 
-                    if modifications { gpu.update_agents(&agents); }
+                    if modifications || true { gpu.update_agents(&agents); }
                     last_fetch_time = Instant::now();
 
                     data.total_ticks += ticks_per_loop as u64;

@@ -129,6 +129,10 @@ pub fn get_filtered_config_items(
     // Combat
     push_item(&mut results, "C: Attacker Dmg", "combat.attacker_damage", config.combat.attacker_damage, last_saved.combat.attacker_damage, &q);
     push_item(&mut results, "C: Steal Amt", "combat.steal_amount", config.combat.steal_amount, last_saved.combat.steal_amount, &q);
+
+    // Telemetry
+    push_item(&mut results, "T: Enabled (0..1)", "telemetry.enabled", config.telemetry.enabled as f32, last_saved.telemetry.enabled as f32, &q);
+    push_item(&mut results, "T: Export Ticks", "telemetry.export_interval_ticks", config.telemetry.export_interval_ticks as f32, last_saved.telemetry.export_interval_ticks as f32, &q);
     
     results
 }

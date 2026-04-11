@@ -27,7 +27,7 @@ fn test_config_filtering_and_highlighting() {
     
     // 1. Test empty search
     let items = ui_logic::get_filtered_config_items(&config, &last_saved, "");
-    assert_eq!(items.len(), 5); // Regen, Max Food, Agent Count, Max Age, Mutation
+    assert_eq!(items.len(), 34); // Total count of all exposed config items
     
     // 2. Test specific search (Case Insensitive)
     let items_filtered = ui_logic::get_filtered_config_items(&config, &last_saved, "REGEN");
