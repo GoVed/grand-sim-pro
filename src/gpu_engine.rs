@@ -1,3 +1,13 @@
+/*
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
+ */
+
 use wgpu::util::DeviceExt;
 use pollster::block_on;
 
@@ -8,8 +18,10 @@ pub struct GpuEngine {
     render_pipeline: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
     render_bind_group: wgpu::BindGroup,
-    agent_buffer: wgpu::Buffer,
-    staging_buffer: wgpu::Buffer,
+    agent_state_buffer: wgpu::Buffer,
+    genetics_buffer: wgpu::Buffer,
+    staging_state_buffer: wgpu::Buffer,
+    staging_genetics_buffer: wgpu::Buffer,
     cell_buffer: wgpu::Buffer,
     render_buffer: wgpu::Buffer,
     staging_render_buffer: wgpu::Buffer,
@@ -19,8 +31,9 @@ pub struct GpuEngine {
 }
 
 impl GpuEngine {
-    pub fn new(agents: &[crate::agent::Person], map_heights: &[f32], map_cells: &[crate::environment::CellState], config: &crate::config::SimConfig) -> Self {
+    pub fn new(states: &[crate::agent::AgentState], genetics: &[crate::agent::Genetics], map_heights: &[f32], map_cells: &[crate::environment::CellState], config: &crate::config::SimConfig) -> Self {
         block_on(async {
+            // ... (Instance/Adapter setup same as before)
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::PRIMARY,
                 ..Default::default()
@@ -28,22 +41,34 @@ impl GpuEngine {
             let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await.unwrap();
             let (device, queue) = adapter.request_device(
                 &wgpu::DeviceDescriptor {
-                    required_limits: adapter.limits(), // Request max hardware limits instead of 128MB default
+                    required_limits: adapter.limits(),
                     ..Default::default()
                 },
                 None,
             ).await.unwrap();
 
-            let agent_bytes = bytemuck::cast_slice(agents);
-            let agent_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Agent Buffer"),
-                contents: agent_bytes,
+            let agent_state_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Agent State Buffer"),
+                contents: bytemuck::cast_slice(states),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
             });
 
-            let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Staging Buffer"),
-                size: agent_bytes.len() as wgpu::BufferAddress,
+            let genetics_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Genetics Buffer"),
+                contents: bytemuck::cast_slice(genetics),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            });
+
+            let staging_state_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Staging State Buffer"),
+                size: (states.len() * std::mem::size_of::<crate::agent::AgentState>()) as wgpu::BufferAddress,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+
+            let staging_genetics_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Staging Genetics Buffer"),
+                size: (genetics.len() * std::mem::size_of::<crate::agent::Genetics>()) as wgpu::BufferAddress,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -84,6 +109,7 @@ impl GpuEngine {
             });
 
             let shader = device.create_shader_module(wgpu::include_wgsl!("sim.wgsl"));
+            
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Sim Pipeline"), layout: None, module: &shader, entry_point: "main",
                 compilation_options: Default::default(), cache: None,
@@ -97,10 +123,11 @@ impl GpuEngine {
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Sim Bind Group"), layout: &pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: agent_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 0, resource: agent_state_buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 1, resource: height_buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 2, resource: cell_buffer.as_entire_binding() },
                     wgpu::BindGroupEntry { binding: 3, resource: config_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 5, resource: genetics_buffer.as_entire_binding() },
                 ],
             });
 
@@ -114,7 +141,7 @@ impl GpuEngine {
                 ],
             });
 
-            Self { device, queue, pipeline, render_pipeline, bind_group, render_bind_group, agent_buffer, staging_buffer, cell_buffer, render_buffer, staging_render_buffer, config_buffer, height_buffer, agent_count: agents.len() as u32 }
+            Self { device, queue, pipeline, render_pipeline, bind_group, render_bind_group, agent_state_buffer, genetics_buffer, staging_state_buffer, staging_genetics_buffer, cell_buffer, render_buffer, staging_render_buffer, config_buffer, height_buffer, agent_count: states.len() as u32 }
         })
     }
 
@@ -136,8 +163,9 @@ impl GpuEngine {
         }
     }
 
-    pub fn update_agents(&self, agents: &[crate::agent::Person]) {
-        self.queue.write_buffer(&self.agent_buffer, 0, bytemuck::cast_slice(agents));
+    pub fn update_agents(&self, states: &[crate::agent::AgentState], genetics: &[crate::agent::Genetics]) {
+        self.queue.write_buffer(&self.agent_state_buffer, 0, bytemuck::cast_slice(states));
+        self.queue.write_buffer(&self.genetics_buffer, 0, bytemuck::cast_slice(genetics));
     }
 
     pub fn update_config(&self, config: &crate::config::SimConfig) {
@@ -153,26 +181,40 @@ impl GpuEngine {
     }
 
     // OPTION 1: Throttled/Decoupled Fetching
-    pub fn fetch_agents(&self) -> Vec<crate::agent::Person> {
+    pub fn fetch_agents(&self) -> (Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>) {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.copy_buffer_to_buffer(&self.agent_buffer, 0, &self.staging_buffer, 0, self.staging_buffer.size());
+        encoder.copy_buffer_to_buffer(&self.agent_state_buffer, 0, &self.staging_state_buffer, 0, self.staging_state_buffer.size());
+        encoder.copy_buffer_to_buffer(&self.genetics_buffer, 0, &self.staging_genetics_buffer, 0, self.staging_genetics_buffer.size());
         self.queue.submit(Some(encoder.finish()));
 
-        let slice = self.staging_buffer.slice(..);
+        let state_slice = self.staging_state_buffer.slice(..);
+        let genetics_slice = self.staging_genetics_buffer.slice(..);
         
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx_s, rx_s) = std::sync::mpsc::channel();
+        let (tx_g, rx_g) = std::sync::mpsc::channel();
         
-        slice.map_async(wgpu::MapMode::Read, move |v| tx.send(v).unwrap());
+        state_slice.map_async(wgpu::MapMode::Read, move |v| tx_s.send(v).unwrap());
+        genetics_slice.map_async(wgpu::MapMode::Read, move |v| tx_g.send(v).unwrap());
         
         self.device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().unwrap();
+        rx_s.recv().unwrap().unwrap();
+        rx_g.recv().unwrap().unwrap();
 
-        let data = slice.get_mapped_range();
-        let agents: Vec<crate::agent::Person> = bytemuck::cast_slice(&data).to_vec();
-        drop(data);
-        self.staging_buffer.unmap();
+        let state_data = state_slice.get_mapped_range();
+        let genetics_data = genetics_slice.get_mapped_range();
         
-        agents
+        let states: &[crate::agent::AgentState] = bytemuck::cast_slice(&state_data);
+        let genetics: &[crate::agent::Genetics] = bytemuck::cast_slice(&genetics_data);
+        
+        let states_vec = states.to_vec();
+        let genetics_vec = genetics.to_vec();
+        
+        drop(state_data);
+        drop(genetics_data);
+        self.staging_state_buffer.unmap();
+        self.staging_genetics_buffer.unmap();
+        
+        (states_vec, genetics_vec)
     }
 
     // OPTION 2: GPU Accelerated Rendering Pipeline

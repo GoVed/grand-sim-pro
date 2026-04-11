@@ -24,11 +24,11 @@ pub fn apply_sort(agents: &mut Vec<(usize, Person)>, col: SortCol, desc: bool) {
         let (p1, p2) = (&a.1, &b.1);
         let res = match col {
             SortCol::Index => a.0.cmp(&b.0),
-            SortCol::Age => p1.age.partial_cmp(&p2.age).unwrap_or(std::cmp::Ordering::Equal),
-            SortCol::Health => p1.health.partial_cmp(&p2.health).unwrap_or(std::cmp::Ordering::Equal),
-            SortCol::Food => p1.food.partial_cmp(&p2.food).unwrap_or(std::cmp::Ordering::Equal),
-            SortCol::Wealth => p1.wealth.partial_cmp(&p2.wealth).unwrap_or(std::cmp::Ordering::Equal),
-            SortCol::Gender => p1.gender.partial_cmp(&p2.gender).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Age => p1.state.age.partial_cmp(&p2.state.age).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Health => p1.state.health.partial_cmp(&p2.state.health).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Food => p1.state.food.partial_cmp(&p2.state.food).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Wealth => p1.state.wealth.partial_cmp(&p2.state.wealth).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Gender => p1.state.gender.partial_cmp(&p2.state.gender).unwrap_or(std::cmp::Ordering::Equal),
             _ => std::cmp::Ordering::Equal,
         };
         if desc { res.reverse() } else { res }
@@ -177,18 +177,18 @@ pub fn draw_inspector(
         let color = if is_hover { WHITE } else { Color::new(0.8, 0.8, 0.8, 1.0) };
         let mut cur_x = panel_x + 20.0;
         draw_text(&format!("{}", idx), cur_x, y, 14.0, color); cur_x += 40.0;
-        draw_text(&format!("{}", format_time(a.age as u64, tick_to_mins)), cur_x, y, 14.0, color); cur_x += 80.0;
-        draw_text(&format!("{:.0}", a.health), cur_x, y, 14.0, color); cur_x += 60.0;
-        draw_text(&format!("{:.0}", a.food), cur_x, y, 14.0, color); cur_x += 80.0;
-        draw_text(&format!("{:.0}", a.wealth), cur_x, y, 14.0, color); cur_x += 80.0;
-        draw_text(if a.gender > 0.5 { "M" } else { "F" }, cur_x, y, 14.0, color); cur_x += 60.0;
+        draw_text(&format!("{}", format_time(a.state.age as u64, tick_to_mins)), cur_x, y, 14.0, color); cur_x += 80.0;
+        draw_text(&format!("{:.0}", a.state.health), cur_x, y, 14.0, color); cur_x += 60.0;
+        draw_text(&format!("{:.0}", a.state.food), cur_x, y, 14.0, color); cur_x += 80.0;
+        draw_text(&format!("{:.0}", a.state.wealth), cur_x, y, 14.0, color); cur_x += 80.0;
+        draw_text(if a.state.gender > 0.5 { "M" } else { "F" }, cur_x, y, 14.0, color); cur_x += 60.0;
         
         let locate_rect = Rect::new(cur_x, y - 12.0, 70.0, 16.0);
         let locate_hover = locate_rect.contains(vec2(mx, my));
         draw_rectangle(locate_rect.x, locate_rect.y, locate_rect.w, locate_rect.h, if locate_hover { YELLOW } else { Color::new(0.2, 0.2, 0.2, 1.0) });
         draw_text("[LOCATE]", locate_rect.x + 5.0, locate_rect.y + 12.0, 12.0, if locate_hover { BLACK } else { WHITE });
         
-        if left_clicked && locate_hover { *followed_agent_id = Some(a.id); *show_inspector = false; }
+        if left_clicked && locate_hover { *followed_agent_id = Some(a.state.id); *show_inspector = false; }
         if left_clicked && is_hover && !locate_hover { *selected_agent = Some(*a); }
         y += 25.0;
     }
@@ -208,7 +208,7 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
     draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, YELLOW);
 
     let mut py = panel_y + 30.0;
-    draw_text(&format!("NEURAL PROFILE: AGENT #{}", a.id), panel_x + 20.0, py, 24.0, YELLOW);
+    draw_text(&format!("NEURAL PROFILE: AGENT #{}", a.state.id), panel_x + 20.0, py, 24.0, YELLOW);
     py += 40.0;
 
     draw_text("BEHAVIORAL SIMULATION (Situational Probing)", panel_x + 20.0, py, 18.0, GRAY); py += 30.0;
@@ -236,21 +236,21 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
 
     py += 10.0;
     draw_text("BIOMETRICS:", panel_x + 20.0, py, 16.0, GRAY); py += 20.0;
-    draw_text(&format!("Age: {} | Sex: {}", format_time(a.age as u64, tick_to_mins), if a.gender > 0.5 { "Male" } else { "Female" }), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
-    draw_text(&format!("Health: {:.1} | Stamina: {:.1}", a.health, a.stamina), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
-    draw_text(&format!("Wealth: ${:.2} | Food: {:.0}g", a.wealth, a.food), panel_x + 20.0, py, 16.0, WHITE); py += 35.0;
+    draw_text(&format!("Age: {} | Sex: {}", format_time(a.state.age as u64, tick_to_mins), if a.state.gender > 0.5 { "Male" } else { "Female" }), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
+    draw_text(&format!("Health: {:.1} | Stamina: {:.1}", a.state.health, a.state.stamina), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
+    draw_text(&format!("Wealth: ${:.2} | Food: {:.0}g", a.state.wealth, a.state.food), panel_x + 20.0, py, 16.0, WHITE); py += 35.0;
 
     let matrix_x = panel_x + 20.0;
     draw_text("NEURAL INFLUENCE MATRIX (W3)", matrix_x, py, 14.0, GRAY); py += 20.0;
     let cell_size = 7.0;
-    for h in 0..a.hidden_count as usize {
+    for h in 0..a.state.hidden_count as usize {
         for o in 0..NUM_OUTPUTS {
-            let weight = a.w3[h * NUM_OUTPUTS + o];
+            let weight = a.genetics.w3[h * NUM_OUTPUTS + o];
             let color = if weight > 0.0 { Color::new(0.0, (weight * 0.5).min(1.0), 1.0, 1.0) } else { Color::new(1.0, (weight.abs() * 0.5).min(1.0), 0.0, 1.0) };
             draw_rectangle(matrix_x + o as f32 * cell_size, py + h as f32 * cell_size, cell_size - 1.0, cell_size - 1.0, color);
         }
     }
-    py += (a.hidden_count as f32 * cell_size) + 20.0;
+    py += (a.state.hidden_count as f32 * cell_size) + 20.0;
 
     draw_text("INTERACTIVE SENSORY-BEHAVIORAL INFLUENCE (Linear Approximation)", matrix_x, py, 14.0, GRAY); py += 30.0;
     
@@ -319,12 +319,12 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &Person, followed_i
     draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, YELLOW);
     let mut py = panel_y + 25.0;
     let dy = 18.0;
-    draw_text(&format!("TRACKING AGENT #{}", a.id), panel_x + 10.0, py, 16.0, YELLOW); py += dy + 5.0;
-    draw_text(&format!("Age: {}", format_time(a.age as u64, tick_to_mins)), panel_x + 10.0, py, 14.0, WHITE); py += dy;
-    draw_text(&format!("Health: {:.1}", a.health), panel_x + 10.0, py, 14.0, if a.health < 25.0 { RED } else { WHITE }); py += dy;
-    draw_text(&format!("Wealth: ${:.0}", a.wealth), panel_x + 10.0, py, 14.0, GREEN); py += dy;
-    draw_text(&format!("Food: {:.0}g", a.food), panel_x + 10.0, py, 14.0, WHITE); py += dy;
-    draw_text(&format!("Water: {:.1}kg", a.water), panel_x + 10.0, py, 14.0, Color::new(0.4, 0.6, 1.0, 1.0)); py += dy;
+    draw_text(&format!("TRACKING AGENT #{}", a.state.id), panel_x + 10.0, py, 16.0, YELLOW); py += dy + 5.0;
+    draw_text(&format!("Age: {}", format_time(a.state.age as u64, tick_to_mins)), panel_x + 10.0, py, 14.0, WHITE); py += dy;
+    draw_text(&format!("Health: {:.1}", a.state.health), panel_x + 10.0, py, 14.0, if a.state.health < 25.0 { RED } else { WHITE }); py += dy;
+    draw_text(&format!("Wealth: ${:.0}", a.state.wealth), panel_x + 10.0, py, 14.0, GREEN); py += dy;
+    draw_text(&format!("Food: {:.0}g", a.state.food), panel_x + 10.0, py, 14.0, WHITE); py += dy;
+    draw_text(&format!("Water: {:.1}kg", a.state.water), panel_x + 10.0, py, 14.0, Color::new(0.4, 0.6, 1.0, 1.0)); py += dy;
     
     let stop_btn = Rect::new(panel_x + 10.0, py + 10.0, 100.0, 25.0);
     draw_rectangle(stop_btn.x, stop_btn.y, stop_btn.w, stop_btn.h, Color::new(0.3, 0.1, 0.1, 1.0));

@@ -33,7 +33,6 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
             };
 
             if !is_paused {
-                let mut agents;
                 let start = Instant::now();
 
                 gpu.update_config(&config);
@@ -50,27 +49,42 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                 // Throttle PCIe bandwidth: Fetch the massive Agent state roughly at 60Hz instead of every compute loop.
                 if last_fetch_time.elapsed().as_millis() >= 16 {
-                    agents = gpu.fetch_agents();
+                    let (states, genetics) = gpu.fetch_agents();
 
                     let mut data = sim_thread_data.lock().unwrap();
-                    data.sim.agents = agents;
+                    data.sim.states = states;
+                    data.sim.genetics = genetics;
                     let modifications = data.sim.process_genetics_and_births(&config);
                     data.config.sim.current_tick += ticks_per_loop as u32;
 
                     // Update local agents after genetics
-                    agents = data.sim.agents.clone();
+                    let mut states = data.sim.states.clone();
                     
-                    // Spatial Sorting for GPU Locality & LDS efficiency
+                    // High-Performance Parallel Spatial Sorting
+                    // We sort indices instead of the 28KB structs to avoid massive memory bandwidth overhead
+                    use rayon::prelude::*;
                     let map_w = config.world.map_width as usize;
-                    agents.sort_by_key(|a| {
-                        if a.health <= 0.0 { return usize::MAX; }
-                        let ty = (a.y as usize).clamp(0, config.world.map_height as usize - 1);
-                        let tx = (a.x as usize).clamp(0, config.world.map_width as usize - 1);
+                    let map_h = config.world.map_height as usize;
+                    
+                    let mut indices: Vec<usize> = (0..states.len()).collect();
+                    indices.par_sort_by_key(|&i| {
+                        let s = &states[i];
+                        if s.health <= 0.0 { return usize::MAX; }
+                        let ty = (s.y as usize).clamp(0, map_h - 1);
+                        let tx = (s.x as usize).clamp(0, map_w - 1);
                         ty * map_w + tx
                     });
-                    data.sim.agents = agents.clone();
 
-                    if modifications || true { gpu.update_agents(&agents); }
+                    // Reorder states based on sorted indices. genetics remains UNCHANGED.
+                    let mut sorted_states = Vec::with_capacity(states.len());
+                    for &i in &indices {
+                        sorted_states.push(states[i]);
+                    }
+                    states = sorted_states;
+
+                    data.sim.states = states.clone();
+
+                    if modifications || true { gpu.update_agents(&data.sim.states, &data.sim.genetics); }
                     last_fetch_time = Instant::now();
 
                     data.total_ticks += ticks_per_loop as u64;
@@ -84,7 +98,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     }
 
                     // Check for auto-restart while we have the lock
-                    let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
+                    let living_count = data.sim.states.iter().filter(|s| s.health > 0.0).count();
                     if living_count < data.config.sim.founder_count as usize {
                         // ... (keep the restart logic inside the lock as it modifies everything)
                         data.restart_message_active = true;
@@ -98,7 +112,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             data.generation_survival_times.push(ticks);
                         }
 
-                        data.sim.agents.sort_by(|a, b| (b.health > 0.0).cmp(&(a.health > 0.0)));
+                        // Sort states so living agents (founders) are at the front
+                        data.sim.states.sort_by(|a, b| (b.health > 0.0).cmp(&(a.health > 0.0)));
 
                         let target_pop = data.config.sim.agent_count as usize;
                         let map_w = data.config.world.map_width as f32;
@@ -111,8 +126,9 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         let new_seed = rng.r#gen::<u32>();
                         data.sim.env = crate::environment::Environment::new(data.config.world.map_width, data.config.world.map_height, new_seed, &data.config);
 
-                        let mut new_population = Vec::with_capacity(target_pop);
-                        let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
+                        let mut new_states = Vec::with_capacity(target_pop);
+                        let mut new_genetics = Vec::with_capacity(target_pop);
+                        let living_count = data.sim.states.iter().filter(|s| s.health > 0.0).count();
                         let founders_count = living_count.max(1).min(data.config.sim.founder_count as usize);
 
                         let random_agents_count = (target_pop as f32 * data.config.genetics.random_spawn_percentage) as usize;
@@ -149,17 +165,22 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             else if py >= map_h { py = 2.0 * map_h - 1.0 - py; px += map_w / 2.0; }
                             px = px.rem_euclid(map_w);
 
-                            let mut random_agent = Person::new(px, py, &data.config);
-                            random_agent.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
-                            random_agent.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                            random_agent.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                            random_agent.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                            new_population.push(random_agent);
+                            let random_agent = Person::new(px, py, new_states.len() as u32, &data.config);
+                            let mut s = random_agent.state;
+                            s.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
+                            s.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            s.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            s.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            new_states.push(s);
+                            new_genetics.push(random_agent.genetics);
                             spawn_count += 1;
                         }
 
                         for i in 0..founders_count {
-                            let founder = &data.sim.agents[i];
+                            let founder_state = &data.sim.states[i];
+                            let founder_genetics = &data.sim.genetics[founder_state.genetics_index as usize];
+                            let founder = Person { state: *founder_state, genetics: *founder_genetics };
+                            
                             for _ in 0..children_per_founder {
                                 if spawn_count >= spawn_group_size { 
                                     loop {
@@ -179,16 +200,18 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                                 else if py >= map_h { py = 2.0 * map_h - 1.0 - py; px += map_w / 2.0; }
                                 px = px.rem_euclid(map_w);
 
-                                let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
-                                child.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
-                                child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                                child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                                child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                                new_population.push(child);
+                                let child = founder.clone_as_descendant(px, py, new_states.len() as u32, mutation_rate, mutation_strength, &data.config);
+                                let mut s = child.state;
+                                s.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
+                                s.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                                s.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                                s.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                                new_states.push(s);
+                                new_genetics.push(child.genetics);
                                 spawn_count += 1;
                             }
                         }
-                        while new_population.len() < target_pop {
+                        while new_states.len() < target_pop {
                             if spawn_count >= spawn_group_size { 
                                 loop {
                                     let px = rng.gen_range(0.0f32..map_w);
@@ -207,20 +230,27 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             else if py >= map_h { py = 2.0 * map_h - 1.0 - py; px += map_w / 2.0; }
                             px = px.rem_euclid(map_w);
 
-                            let mut child = data.sim.agents[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
-                            child.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
-                            child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                            child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                            child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                            new_population.push(child);
+                            let founder_state = &data.sim.states[0];
+                            let founder_genetics = &data.sim.genetics[founder_state.genetics_index as usize];
+                            let founder = Person { state: *founder_state, genetics: *founder_genetics };
+
+                            let child = founder.clone_as_descendant(px, py, new_states.len() as u32, mutation_rate, mutation_strength, &data.config);
+                            let mut s = child.state;
+                            s.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
+                            s.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            s.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            s.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                            new_states.push(s);
+                            new_genetics.push(child.genetics);
                             spawn_count += 1;
                         }
-                        data.sim.agents = new_population;
+                        data.sim.states = new_states;
+                        data.sim.genetics = new_genetics;
 
                         data.total_ticks = 0;
                         last_telemetry_tick = 0;
                         data.restart_message_active = false;
-                        gpu.update_agents(&data.sim.agents);
+                        gpu.update_agents(&data.sim.states, &data.sim.genetics);
                         gpu.update_heights(&data.sim.env.height_map);
                         gpu.update_cells(&data.sim.env.map_cells);
                         // [EXISTING RESTART LOGIC END]

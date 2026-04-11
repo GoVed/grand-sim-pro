@@ -5,11 +5,16 @@ This document outlines the technical design decisions and internal workings of t
 ## 1. Hybrid CPU-GPU Compute Engine
 The simulation utilizes a "Think on GPU, Synchronize on CPU" pattern to achieve massive parallelism.
 
+### Split Memory Architecture (Optimized)
+To overcome PCIe bandwidth bottlenecks and CPU-side sorting overhead, the engine uses a **Split-Vector Pattern**:
+- **`AgentState` (~200 bytes):** Contains dynamic, frequently updated fields (x, y, health, wealth, intents). This vector is fetched at 60Hz and is the primary target for CPU-side spatial sorting.
+- **`Genetics` (28 KB):** Contains static neural network weights. This massive buffer remains stable on the GPU.
+- **`genetics_index` Indirection:** Each `AgentState` contains a fixed pointer to its entry in the `Genetics` buffer. This allows the CPU to reorder (sort) the small state structs while the heavy weights stay in place, reducing sorting memory moves by **>100x**.
+
 ### Memory Alignment & Synchronization
 - **Strict Alignment:** All data structures shared with the GPU (`src/config.rs`, `src/agent.rs`) are marked with `#[repr(C)]` and use `bytemuck` for zero-copy casting. Memory is strictly 16-byte aligned to match WGSL requirements.
 - **Buffer Reuse:** To avoid per-frame allocation overhead, `SimulationManager` maintains reusable `Vec` and `HashMap` buffers for genetics and birth processing.
-- **Spatial Locality:** Before each GPU dispatch, the CPU performs a spatial sort of the agent population. This ensures that agents processed in the same GPU workgroup are spatially clustered, maximizing the hit rate of the LDS cache.
-- **Throttled Fetching:** While the GPU computes at high frequency, agent state is fetched back to the CPU at ~60Hz to conserve PCIe bandwidth.
+- **Decoupled Spatial Sorting:** Before each GPU dispatch, the CPU performs a **Parallel Spatial Sort** (`rayon`) of the `AgentState` population. This ensures that agents processed in the same GPU workgroup are spatially clustered, maximizing the hit rate of the LDS cache.
 
 ## 2. Logic-View Separation (UI)
 The UI is architected to be testable without an active graphics context (headless).

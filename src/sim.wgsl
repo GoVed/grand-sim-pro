@@ -8,12 +8,13 @@
  * See the LICENSE file in the project root for full license details.
  */
 
-struct Agent {
+struct AgentState {
     x: f32,
     y: f32,
     heading: f32,
     speed: f32,
     hidden_count: u32,
+    genetics_index: u32,
     gender: f32,
     reproduce_desire: f32,
     attack_intent: f32,
@@ -49,10 +50,6 @@ struct Agent {
     _pad_agent1: f32,
     _pad_agent2: f32,
     _pad_agent3: f32,
-    w1_weights: array<f32, 512>, // 64 * 8 Fixed-K Sparse weights
-    w1_indices: array<u32, 512>, // 64 * 8 Fixed-K Sparse indices
-    w2: array<f32, 4096>, // 64 * 64
-    w3: array<f32, 1984>, // 64 * 31
     food: f32,
     water: f32,
     stamina: f32,
@@ -61,6 +58,13 @@ struct Agent {
     id: u32,
     gestation_timer: f32,
     is_pregnant: f32,
+}
+
+struct Genetics {
+    w1_weights: array<f32, 512>, // 64 * 8 Fixed-K Sparse weights
+    w1_indices: array<u32, 512>, // 64 * 8 Fixed-K Sparse indices
+    w2: array<f32, 4096>, // 64 * 64
+    w3: array<f32, 1984>, // 64 * 31
 }
 
 struct WorldConfig {
@@ -189,11 +193,12 @@ struct CellState {
     _pad_infra3: f32,
 }
 
-@group(0) @binding(0) var<storage, read_write> agents: array<Agent>;
+@group(0) @binding(0) var<storage, read_write> agents: array<AgentState>;
 @group(0) @binding(1) var<storage, read> map_heights: array<f32>;
 @group(0) @binding(2) var<storage, read_write> map_cells: array<CellState>;
 @group(0) @binding(3) var<uniform> cfg: SimConfig;
 @group(0) @binding(4) var<storage, read_write> render_buffer: array<u32>;
+@group(0) @binding(5) var<storage, read_write> genetics: array<Genetics>;
 
 // Fast Local Memory Cache for workgroup map tiles (e.g., 10x10 patch + padding)
 // This significantly reduces global memory latency for vision sampling.
@@ -211,6 +216,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     // CRITICAL PERFORMANCE FIX: DO NOT load the massive 28KB Agent struct into registers!
     // We access members directly from the storage buffer instead.
     if (agents[idx].health <= 0.0) { return; }
+    let g_idx = agents[idx].genetics_index;
 
     // Store pre-update state for dopaminergic modulation
     let prev_health = agents[idx].health;
@@ -445,8 +451,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         let hidden_count = agents[idx].hidden_count;
         if (h1 < hidden_count) {
             for (var k = 0u; k < 8u; k = k + 1u) {
-                let in_idx = min(agents[idx].w1_indices[h1 * 8u + k], 159u);
-                sum = sum + inputs[in_idx] * agents[idx].w1_weights[h1 * 8u + k];
+                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 159u);
+                sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[h1 * 8u + k];
             }
             hidden1[h1] = tanh(sum);
         } else {
@@ -461,7 +467,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         if (h2 < hidden_count) {
             for (var h1 = 0u; h1 < 64u; h1 = h1 + 1u) {
                 if (h1 < hidden_count) {
-                    sum = sum + hidden1[h1] * agents[idx].w2[h1 * 64u + h2];
+                    sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 64u + h2];
                 }
             }
             hidden2[h2] = tanh(sum);
@@ -476,7 +482,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         let hidden_count = agents[idx].hidden_count;
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
             if (h2 < hidden_count) {
-                sum = sum + hidden2[h2] * agents[idx].w3[h2 * 31u + o];
+                sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 31u + o];
             }
         }
         outputs[o] = tanh(sum);
@@ -860,18 +866,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         let hidden_count = agents[idx].hidden_count;
         for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
             for (var k = 0u; k < 8u; k = k + 1u) {
-                let in_idx = min(agents[idx].w1_indices[h1 * 8u + k], 159u);
-                agents[idx].w1_weights[h1 * 8u + k] = clamp(agents[idx].w1_weights[h1 * 8u + k] + lr * inputs[in_idx] * hidden1[h1], -2.0, 2.0);
+                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 159u);
+                genetics[g_idx].w1_weights[h1 * 8u + k] = clamp(genetics[g_idx].w1_weights[h1 * 8u + k] + lr * inputs[in_idx] * hidden1[h1], -2.0, 2.0);
             }
         }
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
             for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
-                agents[idx].w2[h1 * 64u + h2] = clamp(agents[idx].w2[h1 * 64u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
+                genetics[g_idx].w2[h1 * 64u + h2] = clamp(genetics[g_idx].w2[h1 * 64u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
             }
         }
         for (var o = 0u; o < 31u; o = o + 1u) {
             for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
-                agents[idx].w3[h2 * 31u + o] = clamp(agents[idx].w3[h2 * 31u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
+                genetics[g_idx].w3[h2 * 31u + o] = clamp(genetics[g_idx].w3[h2 * 31u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
             }
         }
     }

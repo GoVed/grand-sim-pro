@@ -39,7 +39,8 @@ The Inspector features a behavioral simulation panel that executes "forward pass
 
 ### ⚡ High-Performance GPGPU Parallelism
 Grand Sim Pro is built for extreme scale, utilizing modern GPGPU techniques to bypass CPU bottlenecks:
-- **Spatial Sorting:** Agents are sorted by map position on the CPU before every GPU dispatch, ensuring optimal memory locality.
+- **Split-Vector Architecture:** Decouples dynamic `AgentState` (~200B) from static `Genetics` (28KB) to minimize PCIe bandwidth and sorting overhead.
+- **Parallel Spatial Sorting:** Leverages `rayon` for parallel CPU sorting of agent states, ensuring optimal memory locality for GPU LDS cache hits with minimal overhead.
 - **LDS (Local Device Storage) Caching:** GPU workgroups cooperatively load map "patches" into fast on-chip memory, reducing vision-sampling latency by up to 8x.
 - **Pointer-Style Memory Access:** Minimal register pressure architecture prevents VRAM "spilling," allowing for massive agent populations (10,000+) on consumer hardware.
 - **Atomic Micro-Economics:** Resource gathering and trading utilize hardware-level atomics for thread-safe, high-frequency interaction.
