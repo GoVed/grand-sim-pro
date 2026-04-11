@@ -18,6 +18,7 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 - **Lock-Free Responsiveness:** The UI and Simulation threads communicate via an `Arc<Mutex<SharedData>>` using non-blocking `try_lock` patterns and minimized critical sections, ensuring the interface remains responsive even during extreme computational load.
 - **WGSL Compute Shaders (`wgpu`):** Instead of looping through agents sequentially on the CPU, the simulation math is written in WebGPU Shading Language (`sim.wgsl`). The GPU executes neural network evaluations, physics calculations, and terrain collisions for every single agent simultaneously.
 - **Memory Synchronization:** Structs strictly formatted in memory via `bytemuck` are safely shuttled across the PCIe bus, guaranteeing precise alignment between the Rust CPU state and the WGSL GPU state.
+- **Logic-View Separation Architecture:** The UI is split into a pure-logic backend (`src/ui_logic.rs`) and a rendering frontend (`src/ui.rs`). This allows for robust, headless verification of UI behavior and configuration math without requiring an active OpenGL context, achieving over 90% test coverage.
 
 ---
 
@@ -25,11 +26,12 @@ This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 
 The project includes a comprehensive suite of unit and integration tests to ensure both behavioral correctness and high-speed execution.
 
-### Unit Tests
-To run the standard unit tests (Agent NN logic, Simulation Manager, Environment generation):
+### Unit & UI Verification Tests
+To run the standard unit tests and the headless UI logic verification suite:
 ```bash
 cargo test
 ```
+The UI verification suite (`tests/ui_verification.rs`) ensures that situational probing math, configuration filtering, and panel layouts are structurally sound and regression-free.
 
 ### Performance Benchmarking
 To run the performance suite and log results into `PERFORMANCE_LOG.md`:
@@ -55,6 +57,7 @@ Performance metrics are tracked in `PERFORMANCE_LOG.md` to ensure no code change
 Every agent contains a massive **Deep Neural Network** with two hidden layers (up to 64 nodes each) evaluating **160 distinct sensory inputs** (including Phenotypic Identity, Recurrent Memory, a 3x3 Flattened LiDAR Vision Grid with localized infrastructure detection, Local Market Prices, Encumbrance, Crowding, Health, Food, Age, Gender, and Seasons). The brain evaluates over 6,000 synaptic weights and drives **30 complex output intents** (Turn, Speed, Drop Resource, Reproduce, Attack, Rest, 4 Communication Channels, an active Hebbian Learning intent, 8 Recurrent Memory states, 4 Economic Trading intents, 2 Water Logistics intents, and 4 Infrastructure Construction intents). 
 
 - **Interactive Bipartite Graph:** Hover over any sensory input or behavioral output in the Inspector to instantly isolate and visualize the exact neural pathways driving an agent's current reaction, dynamically dimming all other synaptic noise.
+- **Situational Behavioral Probing:** The Inspector features a dedicated simulation panel that executes "forward passes" of an agent's neural network against three hypothetical archetypes: *Crowded*, *Starving*, and *Prosperous*. This provides deep behavioral insights into an agent's innate propensities (Combat, Altruism, Industry, etc.) before the situation actually arises.
 - **Full Influence Heatmap:** A dense 2D matrix visually maps the agent's top 16 most critical sensory inputs against all 31 possible outputs simultaneously, complete with exact synaptic weight tooltips on hover.
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory

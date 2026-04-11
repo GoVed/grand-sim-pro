@@ -49,8 +49,8 @@ fn window_conf() -> Conf {
     let cfg = load_config();
     Conf {
         window_title: "World Sim (Native)".to_owned(),
-        window_width: cfg.display_width as i32,
-        window_height: cfg.display_height as i32,
+        window_width: cfg.world.display_width as i32,
+        window_height: cfg.world.display_height as i32,
         ..Default::default()
     }
 }
@@ -68,9 +68,9 @@ async fn main() {
     }
 
     let loaded_config = load_config();
-    let map_width = loaded_config.map_width;
-    let map_height = loaded_config.map_height;
-    let agent_count = loaded_config.agent_count;
+    let map_width = loaded_config.world.map_width;
+    let map_height = loaded_config.world.map_height;
+    let agent_count = loaded_config.sim.agent_count;
 
     let random_seed = ::rand::thread_rng().r#gen::<u32>();
 
@@ -105,6 +105,7 @@ async fn main() {
     let shared_data = Arc::new(Mutex::new(SharedData {
         sim: sim_manager,
         config: loaded_config,
+        last_saved_config: loaded_config,
         is_paused: false,
         restart_message_active: false,
         ticks_per_loop: 5,
@@ -166,6 +167,8 @@ async fn main() {
     
     let mut show_config_panel = false;
     let mut config_scroll = 0.0;
+    let mut config_search_query = String::new();
+    let mut last_saved_config = loaded_config;
     let mut pending_save_config = false;
     let mut local_config = loaded_config;
     let mut config_changed_by_ui = false;
@@ -267,12 +270,12 @@ async fn main() {
         // --- Sync & Read State ---
         // Use try_lock to ensure the 60FPS UI loop never blocks on a heavy simulation step
         if let Ok(mut data) = shared_data.try_lock() {
-            data.config.visual_mode = mode_u32;
+            data.config.sim.visual_mode = mode_u32;
             if config_changed_by_ui {
-                let current_tick = data.config.current_tick;
+                let current_tick = data.config.sim.current_tick;
                 data.config = local_config;
-                data.config.current_tick = current_tick;
-                data.config.visual_mode = mode_u32;
+                data.config.sim.current_tick = current_tick;
+                data.config.sim.visual_mode = mode_u32;
                 config_changed_by_ui = false;
             } else {
                 local_config = data.config;
@@ -300,7 +303,7 @@ async fn main() {
                         let score_b = b.wealth + b.food;
                         score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
                     });
-                    let save_count = living.len().min(data.config.founder_count as usize);
+                    let save_count = living.len().min(data.config.sim.founder_count as usize);
                     for i in 0..save_count {
                         let weights = living[i].extract_weights();
                         if let Ok(json) = serde_json::to_string_pretty(&weights) {
@@ -315,7 +318,9 @@ async fn main() {
                 #[cfg(not(target_os = "android"))]
                 {
                     if let Ok(json) = serde_json::to_string_pretty(&data.config) {
-                        let _ = std::fs::write("sim_config.json", json);
+                        if let Ok(_) = std::fs::write("sim_config.json", json) {
+                            data.last_saved_config = data.config;
+                        }
                     }
                 }
                 pending_save_config = false;
@@ -327,6 +332,7 @@ async fn main() {
             compute_time = data.last_compute_time_ms;
             pop_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
             restart_msg = data.restart_message_active;
+            last_saved_config = data.last_saved_config;
             
             if show_generation_graph {
                 generation_times = data.generation_survival_times.clone();
@@ -367,7 +373,7 @@ async fn main() {
         clear_background(BLACK);
 
         // --- Day/Night Cycle Visuals ---
-        let ticks_per_day = 24.0 * 60.0 / loaded_config.tick_to_mins;
+        let ticks_per_day = 24.0 * 60.0 / loaded_config.world.tick_to_mins;
         let day_cycle_progress = (ticks as f32 % ticks_per_day) / ticks_per_day;
 
         let cam = Camera2D {
@@ -385,7 +391,7 @@ async fn main() {
         draw_texture(&texture, 0.0, 0.0, WHITE);
 
         // 2. High-performance Agent Rendering
-        let max_inv_ln = (loaded_config.boat_cost * 0.25 + 1.0).ln();
+        let max_inv_ln = (loaded_config.eco.boat_cost * 0.25 + 1.0).ln();
         for a in &local_agent_coords {
             if a.health <= 0.0 {
                 if current_visual_mode == VisualMode::Default {
@@ -395,7 +401,7 @@ async fn main() {
             }
             
             // Render size based on maturity
-            let radius = 1.0 + (a.age / loaded_config.puberty_age).min(1.0) * 1.0;
+            let radius = 1.0 + (a.age / loaded_config.bio.puberty_age).min(1.0) * 1.0;
             
             let color = match current_visual_mode {
                 VisualMode::Resources | VisualMode::MarketWealth | VisualMode::MarketFood | VisualMode::AskPrice | VisualMode::BidPrice => {
@@ -404,7 +410,7 @@ async fn main() {
                     Color::new(1.0 - ratio, ratio, 0.0, 1.0)
                 },
                 VisualMode::Age => {
-                    let ratio = (a.age / loaded_config.max_age).clamp(0.0, 1.0);
+                    let ratio = (a.age / loaded_config.bio.max_age).clamp(0.0, 1.0);
                     Color::new(ratio, 1.0 - ratio, 1.0, 1.0)
                 },
                 VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) },
@@ -567,118 +573,25 @@ async fn main() {
             low_1_fps = count_1_percent as f32 / low_1_sum;
         }
         
-        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, paused, restart_msg);
+        ui::draw_metrics(pop_count, compute_time, speed, ticks, loaded_config.world.tick_to_mins, get_fps(), avg_fps, low_1_fps, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, paused, restart_msg);
         if show_visuals_panel { ui::draw_visuals_panel(mx, my, left_clicked, &mut current_visual_mode); }
         if show_generation_graph {
-            ui::draw_generation_graph(&generation_times, loaded_config.tick_to_mins);
+            ui::draw_generation_graph(&generation_times);
         }
         if show_inspector {
-            ui::draw_inspector(mx, my, left_clicked, mouse_wheel_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.tick_to_mins, loaded_config.base_speed);
+            ui::draw_inspector(mx, my, left_clicked, mouse_wheel_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins);
         } else if let Some(a) = &followed_agent {
-            ui::draw_tracker(mx, my, left_clicked, a, &mut followed_agent_id, &mut show_inspector, loaded_config.tick_to_mins);
+            ui::draw_tracker(mx, my, left_clicked, a, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins);
         }
         
         // --- Draw Live Configuration Panel ---
         if show_config_panel {
-            let panel_w = 360.0;
-            let panel_h = (screen_height() - 40.0).min(800.0);
-            let panel_x = screen_width() - panel_w - 20.0;
-            let panel_y = screen_height() / 2.0 - panel_h / 2.0;
-            draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.0, 0.0, 0.0, 0.9));
-            draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 1.0, Color::new(0.0, 1.0, 0.8, 1.0));
-            draw_text("Configuration (Press C to close)", panel_x + 10.0, panel_y + 30.0, 20.0, WHITE);
-            
-            let save_btn_rect = Rect::new(panel_x + 10.0, panel_y + 50.0, 130.0, 30.0);
-            draw_rectangle(save_btn_rect.x, save_btn_rect.y, save_btn_rect.w, save_btn_rect.h, DARKGRAY);
-            draw_text("Save to JSON", save_btn_rect.x + 15.0, save_btn_rect.y + 20.0, 16.0, WHITE);
-            
-            if left_clicked && save_btn_rect.contains(vec2(mx, my)) {
-                pending_save_config = true;
-            }
-
-            let mut y = panel_y + 100.0 + config_scroll;
-            let row_h = 35.0;
-
-            let mut draw_param = |label: &str, val: &mut f32, min_val: f32, max_val: f32, step: f32| {
-                if y > panel_y + 80.0 && y < panel_y + panel_h - 10.0 {
-                    draw_text(&format!("{}: {:.4}", label, val), panel_x + 10.0, y + 20.0, 16.0, WHITE);
-                    let dec_rect = Rect::new(panel_x + 250.0, y + 5.0, 35.0, 25.0);
-                    let inc_rect = Rect::new(panel_x + 295.0, y + 5.0, 35.0, 25.0);
-                    draw_rectangle(dec_rect.x, dec_rect.y, dec_rect.w, dec_rect.h, RED);
-                    draw_rectangle(inc_rect.x, inc_rect.y, inc_rect.w, inc_rect.h, GREEN);
-                    draw_text("-", dec_rect.x + 12.0, dec_rect.y + 18.0, 20.0, WHITE);
-                    draw_text("+", inc_rect.x + 12.0, inc_rect.y + 18.0, 20.0, WHITE);
-                    
-                    let dec_id = format!("{}_dec", label);
-                    let inc_id = format!("{}_inc", label);
-                    let dec_hover = dec_rect.contains(vec2(mx, my));
-                    let inc_hover = inc_rect.contains(vec2(mx, my));
-                    
-                    let mut do_dec = false;
-                    let mut do_inc = false;
-                    let mut mult = 1.0;
-
-                    if left_clicked && dec_hover {
-                        active_config_button = Some(dec_id.clone());
-                        config_button_hold_time = 0.0;
-                        do_dec = true;
-                    } else if is_mouse_down && active_config_button.as_ref() == Some(&dec_id) {
-                        config_button_hold_time += frame_time;
-                        if config_button_hold_time > 0.4 && dec_hover {
-                            do_dec = true;
-                            mult = (1.0 + (config_button_hold_time - 0.4) * 2.0).powi(2) * frame_time * 15.0;
-                        }
-                    }
-
-                    if left_clicked && inc_hover {
-                        active_config_button = Some(inc_id.clone());
-                        config_button_hold_time = 0.0;
-                        do_inc = true;
-                    } else if is_mouse_down && active_config_button.as_ref() == Some(&inc_id) {
-                        config_button_hold_time += frame_time;
-                        if config_button_hold_time > 0.4 && inc_hover {
-                            do_inc = true;
-                            mult = (1.0 + (config_button_hold_time - 0.4) * 2.0).powi(2) * frame_time * 15.0;
-                        }
-                    }
-                    
-                    if do_dec { *val = (*val - step * mult).max(min_val); config_changed_by_ui = true; }
-                    if do_inc { *val = (*val + step * mult).min(max_val); config_changed_by_ui = true; }
-                }
-                y += row_h;
-            };
-
-            draw_param("Base Speed", &mut local_config.base_speed, 0.0, 20.0, 0.5);
-            draw_param("Baseline Cost", &mut local_config.baseline_cost, 0.0, 1.0, 0.005);
-            draw_param("Move Cost", &mut local_config.move_cost_per_unit, 0.0, 0.1, 0.001);
-            draw_param("Climb Penalty", &mut local_config.climb_penalty, 0.0, 20.0, 0.5);
-            draw_param("Base Gather Rate", &mut local_config.base_gather_rate, 0.0, 5.0, 0.05);
-            draw_param("Max Gather Rate", &mut local_config.max_gather_rate, 0.0, 10.0, 0.1);
-            draw_param("Boat Cost", &mut local_config.boat_cost, 0.0, 50000.0, 500.0);
-            draw_param("Water Transfer", &mut local_config.water_transfer_amount, 0.0, 50.0, 0.5);
-            draw_param("Regeneration Rate", &mut local_config.regen_rate, 0.0, 1.0, 0.005);
-            draw_param("Starvation Rate", &mut local_config.starvation_rate, 0.0, 5.0, 0.05);
-            draw_param("Reproduction Cost", &mut local_config.reproduction_cost, 0.0, 5000.0, 50.0);
-            draw_param("Mutation Rate", &mut local_config.mutation_rate, 0.0, 1.0, 0.01);
-            draw_param("Mutation Strength", &mut local_config.mutation_strength, 0.0, 1.0, 0.01);
-            draw_param("Infra Cost", &mut local_config.infra_cost, 0.0, 1000.0, 10.0);
-            draw_param("Road Decay", &mut local_config.decay_rate_roads, 0.0, 1.0, 0.001);
-            draw_param("Housing Decay", &mut local_config.decay_rate_housing, 0.0, 1.0, 0.001);
-            draw_param("Farm Decay", &mut local_config.decay_rate_farms, 0.0, 1.0, 0.005);
-            draw_param("Storage Decay", &mut local_config.decay_rate_storage, 0.0, 1.0, 0.001);
-            draw_param("Base Spoilage", &mut local_config.base_spoilage_rate, 0.0, 1.0, 0.0001);
-            draw_param("Attacker Damage", &mut local_config.combat_attacker_damage, 0.0, 10.0, 0.5);
-            draw_param("Bystander Damage", &mut local_config.combat_bystander_damage, 0.0, 10.0, 0.5);
-            draw_param("Steal Amount", &mut local_config.combat_steal_amount, 0.0, 50.0, 1.0);
-            
-            let total_content_h = y - (panel_y + 100.0 + config_scroll);
-            let visible_h = panel_h - 110.0;
-            let min_scroll = (visible_h - total_content_h).min(0.0);
-            
-            if mouse_wheel_y != 0.0 && mx > panel_x && mx < panel_x + panel_w && my > panel_y && my < panel_y + panel_h {
-                config_scroll += mouse_wheel_y * 20.0;
-            }
-            config_scroll = config_scroll.clamp(min_scroll, 0.0);
+            ui::draw_config_panel(
+                mx, my, left_clicked, is_mouse_down, frame_time,
+                &mut local_config, &last_saved_config, &mut config_scroll, &mut config_search_query,
+                &mut config_changed_by_ui, &mut pending_save_config,
+                &mut active_config_button, &mut config_button_hold_time,
+            );
         }
 
         next_frame().await;

@@ -196,10 +196,10 @@ impl Person {
             w2,
             w3,
             food: 50000.0, 
-            water: config.max_water,
+            water: config.bio.max_water,
             stamina: 100.0,
             health: 100.0,
-            age: rng.r#gen::<f32>() * config.max_age * 0.5, // Start between 0 and 50% of max life expectancy
+            age: rng.r#gen::<f32>() * config.bio.max_age * 0.5, // Start between 0 and 50% of max life expectancy
             id: rng.r#gen::<u32>(),
             gestation_timer: 0.0,
             is_pregnant: 0.0,
@@ -220,7 +220,7 @@ impl Person {
         child.health = 100.0;
         child.food = 50000.0;
         child.wealth = cost / 2.0; // Inherit seed money
-        child.water = parent1.water; // Child inherits water from parent, or could be config.max_water
+        child.water = parent1.water; // Child inherits water from parent, or could be config.bio.max_water
         child.stamina = 100.0;
         
         child.gender = if rng.r#gen::<f32>() > 0.5 { 1.0 } else { 0.0 };
@@ -312,7 +312,7 @@ impl Person {
         child.age = 0.0;
         child.health = 100.0;
         child.food = 50000.0; 
-        child.water = config.max_water;
+        child.water = config.bio.max_water;
         child.stamina = 100.0;
         child.wealth = 500.0;
         child.x = x;
@@ -443,6 +443,48 @@ impl Person {
             self.w3[..w3_len].copy_from_slice(&weights.w3[..w3_len]);
         }
     }
+
+    /// Performs a CPU-side forward pass of the agent's neural network.
+    /// Used for behavioral prediction and UI probing.
+    pub fn mental_simulation(&self, inputs: &[f32; NUM_INPUTS]) -> [f32; NUM_OUTPUTS] {
+        let mut hidden = [0.0f32; NUM_HIDDEN_MAX];
+        
+        // Layer 1: Sparse Input -> Hidden
+        for h in 0..self.hidden_count as usize {
+            let mut sum = 0.0;
+            for k in 0..8 {
+                let idx = self.w1_indices[h * 8 + k] as usize;
+                if idx < NUM_INPUTS {
+                    sum += inputs[idx] * self.w1_weights[h * 8 + k];
+                }
+            }
+            hidden[h] = sum.max(0.0); // ReLU
+        }
+
+        // Layer 2: Hidden -> Hidden (Dense)
+        let mut hidden2 = [0.0f32; NUM_HIDDEN_MAX];
+        for h in 0..self.hidden_count as usize {
+            let mut sum = 0.0;
+            for prev_h in 0..self.hidden_count as usize {
+                sum += hidden[prev_h] * self.w2[prev_h * NUM_HIDDEN_MAX + h];
+            }
+            hidden2[h] = sum.max(0.0); // ReLU
+        }
+
+        // Layer 3: Hidden -> Output (Dense)
+        let mut outputs = [0.0f32; NUM_OUTPUTS];
+        for o in 0..NUM_OUTPUTS {
+            let mut sum = 0.0;
+            for h in 0..self.hidden_count as usize {
+                sum += hidden2[h] * self.w3[h * NUM_OUTPUTS + o];
+            }
+            // Use tanh for directional/bipolar outputs, sigmoid for intents
+            // For simplicity in UI probing, we just return the raw sum or clamped value
+            outputs[o] = sum.clamp(-1.0, 1.0);
+        }
+        
+        outputs
+    }
 }
 
 #[cfg(test)]
@@ -506,5 +548,19 @@ mod tests {
         assert_eq!(p2.w3, p.w3);
         assert_eq!(p2.w1_weights, p.w1_weights);
         assert_eq!(p2.w1_indices, p.w1_indices);
+    }
+
+    #[test]
+    fn test_mental_simulation_sanity() {
+        let config = SimConfig::default();
+        let p = Person::new(0.0, 0.0, &config);
+        let mut inputs = [0.0f32; NUM_INPUTS];
+        inputs[0] = 1.0; // Bias input
+        
+        let outputs = p.mental_simulation(&inputs);
+        // Ensure outputs are within expected range [-1, 1]
+        for &o in outputs.iter() {
+            assert!(o >= -1.0 && o <= 1.0);
+        }
     }
 }

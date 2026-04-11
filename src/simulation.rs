@@ -31,7 +31,7 @@ impl SimulationManager {
         let env = Environment::new(width, height, seed, config);
         
         let mut founders = Vec::new();
-        if config.load_saved_agents_on_start > 0 {
+        if config.sim.load_saved_agents_on_start > 0 {
             if let Ok(entries) = std::fs::read_dir("saved_agents_weights") {
                 for entry in entries.flatten() {
                     if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
@@ -48,7 +48,7 @@ impl SimulationManager {
         }
 
         let mut rng = ::rand::thread_rng();
-        let spawn_group_size = config.spawn_group_size as usize;
+        let spawn_group_size = config.sim.spawn_group_size as usize;
         
         let get_land_spawn_point = |rng: &mut rand::rngs::ThreadRng| -> (f32, f32) {
             loop {
@@ -67,7 +67,7 @@ impl SimulationManager {
         let mut current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
         let mut spawn_count = 0;
 
-        let random_agents_count = if founders.is_empty() { count as usize } else { (count as f32 * config.random_spawn_percentage) as usize };
+        let random_agents_count = if founders.is_empty() { count as usize } else { (count as f32 * config.genetics.random_spawn_percentage) as usize };
         let descendant_agents_count = count as usize - random_agents_count;
         let children_per_founder = if founders.is_empty() { 0 } else { descendant_agents_count / founders.len().max(1) };
 
@@ -88,8 +88,8 @@ impl SimulationManager {
         }
 
         if !founders.is_empty() {
-            let mutation_rate = config.mutation_rate;
-            let mutation_strength = config.mutation_strength;
+            let mutation_rate = config.genetics.mutation_rate;
+            let mutation_strength = config.genetics.mutation_strength;
 
             for founder in &founders {
                 for _ in 0..children_per_founder {
@@ -101,7 +101,7 @@ impl SimulationManager {
                     let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                     let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
                     let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
-                    child.age = rng.gen_range(0.0f32..config.max_age * 0.8);
+                    child.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
                     child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                     child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                     child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
@@ -120,7 +120,7 @@ impl SimulationManager {
                 let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                 let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
                 let mut child = founders[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
-                child.age = rng.gen_range(0.0f32..config.max_age * 0.8);
+                child.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
                 child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                 child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                 child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
@@ -148,8 +148,8 @@ impl SimulationManager {
         self.dead_indices.clear();
         self.births_to_process.clear();
         
-        let puberty = config.puberty_age;
-        let menopause = config.menopause_age;
+        let puberty = config.bio.puberty_age;
+        let menopause = config.bio.menopause_age;
 
         for i in 0..self.agents.len() {
             let a = &self.agents[i];
@@ -157,8 +157,8 @@ impl SimulationManager {
                 self.dead_indices.push(i);
             } else {
                 self.living_ids.insert(a.id);
-                let map_w = config.map_width as usize;
-                let map_h = config.map_height as usize;
+                let map_w = config.world.map_width as usize;
+                let map_h = config.world.map_height as usize;
                 let idx = (a.y as usize).clamp(0, map_h.saturating_sub(1)) * map_w + (a.x as usize).clamp(0, map_w.saturating_sub(1));
                 self.cell_occupants.entry(idx).or_default().push(i);
             }
@@ -194,7 +194,7 @@ impl SimulationManager {
             }
         }
 
-        let reproduction_cost = config.reproduction_cost;
+        let reproduction_cost = config.eco.reproduction_cost;
         let mut rng = rand::thread_rng();
 
         // Use a temporary vector of cell indices to avoid borrowing self.cell_occupants while modifying self.agents
@@ -211,7 +211,7 @@ impl SimulationManager {
             for &idx in occupants {
                 let a = &self.agents[idx];
                 let is_mature = a.age >= puberty && a.age <= menopause;
-                if is_mature && a.reproduce_desire > 0.5 && a.wealth >= reproduction_cost / 2.0 && a.health > config.max_health * 0.5 {
+                if is_mature && a.reproduce_desire > 0.5 && a.wealth >= reproduction_cost / 2.0 && a.health > config.bio.max_health * 0.5 {
                     if a.gender > 0.5 { self.males.push(idx); } else if a.gestation_timer <= 0.0 && !self.pending_births.contains_key(&a.id) { self.females.push(idx); }
                 }
             }
@@ -235,7 +235,7 @@ impl SimulationManager {
                 
                 let p2 = &mut self.agents[f_idx];
                 p2.is_pregnant = 1.0;
-                p2.gestation_timer = config.gestation_period;
+                p2.gestation_timer = config.bio.gestation_period;
                 
                 self.pending_births.insert(p2_id, child); 
                 modifications = true;
@@ -263,12 +263,12 @@ mod tests {
     #[test]
     fn test_process_genetics_and_births() {
         let mut config = SimConfig::default();
-        config.map_width = 800;
-        config.map_height = 600;
-        config.puberty_age = 0.0;
-        config.menopause_age = 100.0;
-        config.reproduction_cost = 10.0;
-        config.max_health = 100.0;
+        config.world.map_width = 800;
+        config.world.map_height = 600;
+        config.bio.puberty_age = 0.0;
+        config.bio.menopause_age = 100.0;
+        config.eco.reproduction_cost = 10.0;
+        config.bio.max_health = 100.0;
 
         let mut sim = SimulationManager::new(800, 600, 12345, 10, &config);
         

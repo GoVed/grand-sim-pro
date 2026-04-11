@@ -1,41 +1,30 @@
-# Project Mandates (GEMINI.md)
+# Grand Sim Pro - Project Status & Roadmap
 
-As a senior engineer agent working on this project, you MUST follow these instructions for every change you make.
+## 1. Architectural Overview
+- **Core Engine:** GPGPU-accelerated evolutionary simulation using `wgpu` (WGSL).
+- **UI Framework:** Macroquad-based immediate mode GUI, following a **Logic-View Separation** pattern.
+- **Testing Strategy:** 
+    - **Performance:** Release-mode benchmarks in `tests/performance.rs`.
+    - **UI Logic:** Headless verification of situational probing, layout, and configuration in `tests/ui_verification.rs`.
+    - **No-Panic Policy:** `macroquad` is strictly isolated from logic to prevent thread-local context panics during `cargo test`.
+    - **Coverage Mandate:** UI Logic must maintain >90% code coverage. All new UI features MUST include corresponding tests in `tests/ui_verification.rs`.
 
-## 1. Development Lifecycle
-- **Implementation:** Apply surgical, idiomatic changes.
-- **Verification:** 
-    - Run `cargo build` and ensure there are NO warnings or errors.
-    - Run `cargo test` to ensure all unit tests pass.
-- **Performance:**
-    - Run `bash scripts/test_perf.sh` after every significant change to log performance into `PERFORMANCE_LOG.md`.
-    - `PERFORMANCE_LOG.md` must hold a maximum of the 5 most recent performance runs.
-    - **Performance Regressions are NOT allowed.** Compare the latest run against the previous one in `PERFORMANCE_LOG.md`. If performance has degraded (e.g., times increased significantly without justification), you MUST identify the bottleneck and fix the degradation.
+## 2. Key Modules
+- `src/ui_logic.rs`: Pure-logic backend for UI. Handles situational behavior math, configuration filtering, and panel layout calculations.
+- `src/ui.rs`: Rendering layer. Maps `ui_logic` types and layout calculations to `macroquad` drawing calls.
+- `src/agent.rs`: Contains `Person` struct and `mental_simulation` for neural probing.
+- `src/simulation.rs`: Manages the simulation lifecycle and CPU-side buffers.
+- `src/sim_thread.rs`: Background simulation thread. Handles high-speed tick computation and state syncing.
+- `src/sim.wgsl`: GPU kernel for population dynamics and resource flows.
 
-## 2. Codebase Architecture & File Map
-You MUST update this section if you add, move, or significantly change the responsibility of any file.
+## 3. Latest Achievements
+- **Deep Behavioral Profiling:** Implemented "Situational Probing" bars in the Agent Detail view. Bars are correctly sized and spaced to prevent panel overflow.
+- **Advanced Config Panel:** Searchable settings with real-time change highlighting. Supports sub-string matching and instant visual feedback.
+- **Improved Data Visualization:** `Generation Survival Time` graph now includes proper axes, labels, and titles.
+- **Day/Night Cycle Fixed:** Resolved issue where time was stuck; `current_tick` now increments correctly across all simulation modes.
+- **Testable UI Logic:** Expanded verification suite to cover layout and filtering, ensuring structural integrity without an active window.
 
-| File | Purpose | Key Responsibilities |
-|------|---------|----------------------|
-| `src/lib.rs` | Library Root | Exports all simulation modules for binary and test access. |
-| `src/main.rs` | Entry Point | Handles window initialization, UI loop, and thread spawning. |
-| `src/agent.rs` | Agent Logic | NN architecture (Sparse W1), sexual reproduction, and mutation. |
-| `src/simulation.rs` | Sim Manager | High-level simulation loop, birth processing, and grid occupancy. |
-| `src/environment.rs` | World Engine | Procedural 3D spherical noise generation and tile state management. |
-| `src/gpu_engine.rs` | WGPU Backend | Handles GPGPU compute shaders and agent/map rendering. |
-| `src/sim.wgsl` | Compute Shader | The "Hot Loop" - GPU code for agent movement, perception, and NN inference. |
-| `src/config.rs` | Global Config | Simulation constants, economic parameters, and GPU-safe struct. |
-| `src/shared.rs` | Shared Types | Data structures shared between the UI thread and Simulation thread. |
-| `src/ui.rs` | UI Components | Macroquad-based dashboard, graphs, and agent inspectors. |
-| `tests/performance.rs` | Benchmarking | Integration tests for tracking sim and reproduction throughput. |
-| `scripts/test_perf.sh` | Perf Logger | Automated tool for updating `PERFORMANCE_LOG.md`. |
-
-## 3. Code Standards
-- **Sync Documentation:** If you modify a file's responsibility, you MUST update the "Codebase Architecture" table above. You MUST also update `readme.md` if your changes affect the core engine, add features, or change the user-facing controls/benchmarks.
-- **Library First:** Always move core logic to the library (`src/lib.rs`) rather than the binary (`src/main.rs`) to ensure testability.
-- Maintain high-performance GPGPU standards; avoid expensive operations in hot loops.
-- Use `bytemuck` for data passed to the GPU; ensure strict memory alignment.
-
-## 3. Communication
-- Fulfill user directives thoroughly, including adding tests for new features.
-- If a change affects the simulation logic, update the corresponding unit tests in `src/simulation.rs` or `src/agent.rs`.
+## 4. Immediate Roadmap
+- [ ] Extend behavioral simulation with more probes (e.g., "In Combat", "Aging").
+- [ ] Add "Tribe" visual mode to show emergent social clusters.
+- [ ] Update `readme.md` with new high-resolution screenshots of the Neural Profile UI and Graph.

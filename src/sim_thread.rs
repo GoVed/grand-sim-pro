@@ -46,6 +46,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     let mut data = sim_thread_data.lock().unwrap();
                     data.sim.agents = agents;
                     let modifications = data.sim.process_genetics_and_births(&config);
+                    data.config.sim.current_tick += ticks_per_loop as u32;
 
                     // Update local agents after genetics
                     agents = data.sim.agents.clone();
@@ -58,7 +59,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                     // Check for auto-restart while we have the lock
                     let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
-                    if living_count < data.config.founder_count as usize {
+                    if living_count < data.config.sim.founder_count as usize {
                         // ... (keep the restart logic inside the lock as it modifies everything)
                         data.restart_message_active = true;
                         drop(data);
@@ -73,22 +74,22 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                         data.sim.agents.sort_by(|a, b| (b.health > 0.0).cmp(&(a.health > 0.0)));
 
-                        let target_pop = data.config.agent_count as usize;
-                        let map_w = data.config.map_width as f32;
-                        let map_h = data.config.map_height as f32;
-                        let mutation_rate = data.config.mutation_rate;
-                        let mutation_strength = data.config.mutation_strength;
-                        let spawn_group_size = data.config.spawn_group_size as usize;
+                        let target_pop = data.config.sim.agent_count as usize;
+                        let map_w = data.config.world.map_width as f32;
+                        let map_h = data.config.world.map_height as f32;
+                        let mutation_rate = data.config.genetics.mutation_rate;
+                        let mutation_strength = data.config.genetics.mutation_strength;
+                        let spawn_group_size = data.config.sim.spawn_group_size as usize;
 
                         let mut rng = ::rand::thread_rng();
                         let new_seed = rng.r#gen::<u32>();
-                        data.sim.env = crate::environment::Environment::new(data.config.map_width, data.config.map_height, new_seed, &data.config);
+                        data.sim.env = crate::environment::Environment::new(data.config.world.map_width, data.config.world.map_height, new_seed, &data.config);
 
                         let mut new_population = Vec::with_capacity(target_pop);
                         let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
-                        let founders_count = living_count.max(1).min(data.config.founder_count as usize);
+                        let founders_count = living_count.max(1).min(data.config.sim.founder_count as usize);
 
-                        let random_agents_count = (target_pop as f32 * data.config.random_spawn_percentage) as usize;
+                        let random_agents_count = (target_pop as f32 * data.config.genetics.random_spawn_percentage) as usize;
                         let descendant_agents_count = target_pop - random_agents_count;
                         let children_per_founder = descendant_agents_count / founders_count.max(1);
 
@@ -97,7 +98,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             let u = rng.gen_range(0.0f32..1.0f32);
                             let phi = (1.0 - 2.0 * u).acos();
                             let py = (phi / std::f32::consts::PI) * map_h;
-                            let idx = (py as usize).clamp(0, (data.config.map_height - 1) as usize) * (data.config.map_width as usize) + (px as usize).clamp(0, (data.config.map_width - 1) as usize);
+                            let idx = (py as usize).clamp(0, (data.config.world.map_height - 1) as usize) * (data.config.world.map_width as usize) + (px as usize).clamp(0, (data.config.world.map_width - 1) as usize);
                             if data.sim.env.height_map[idx] >= 0.0 { break (px, py); }
                         };
                         let mut current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
@@ -110,7 +111,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                                     let u = rng.gen_range(0.0f32..1.0f32);
                                     let phi = (1.0 - 2.0 * u).acos();
                                     let py = (phi / std::f32::consts::PI) * map_h;
-                                    let idx = (py as usize).clamp(0, (data.config.map_height - 1) as usize) * (data.config.map_width as usize) + (px as usize).clamp(0, (data.config.map_width - 1) as usize);
+                                    let idx = (py as usize).clamp(0, (data.config.world.map_height - 1) as usize) * (data.config.world.map_width as usize) + (px as usize).clamp(0, (data.config.world.map_width - 1) as usize);
                                     if data.sim.env.height_map[idx] >= 0.0 { current_spawn_pt = (px, py); break; }
                                 }
                                 current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
@@ -123,7 +124,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             px = px.rem_euclid(map_w);
 
                             let mut random_agent = Person::new(px, py, &data.config);
-                            random_agent.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
+                            random_agent.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
                             random_agent.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                             random_agent.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                             random_agent.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
@@ -140,7 +141,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                                         let u = rng.gen_range(0.0f32..1.0f32);
                                         let phi = (1.0 - 2.0 * u).acos();
                                         let py = (phi / std::f32::consts::PI) * map_h;
-                                        let idx = (py as usize).clamp(0, (data.config.map_height - 1) as usize) * (data.config.map_width as usize) + (px as usize).clamp(0, (data.config.map_width - 1) as usize);
+                                        let idx = (py as usize).clamp(0, (data.config.world.map_height - 1) as usize) * (data.config.world.map_width as usize) + (px as usize).clamp(0, (data.config.world.map_width - 1) as usize);
                                         if data.sim.env.height_map[idx] >= 0.0 { current_spawn_pt = (px, py); break; }
                                     }
                                     current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
@@ -153,7 +154,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                                 px = px.rem_euclid(map_w);
 
                                 let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
-                                child.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
+                                child.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
                                 child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                                 child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                                 child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
@@ -168,7 +169,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                                     let u = rng.gen_range(0.0f32..1.0f32);
                                     let phi = (1.0 - 2.0 * u).acos();
                                     let py = (phi / std::f32::consts::PI) * map_h;
-                                    let idx = (py as usize).clamp(0, (data.config.map_height - 1) as usize) * (data.config.map_width as usize) + (px as usize).clamp(0, (data.config.map_width - 1) as usize);
+                                    let idx = (py as usize).clamp(0, (data.config.world.map_height - 1) as usize) * (data.config.world.map_width as usize) + (px as usize).clamp(0, (data.config.world.map_width - 1) as usize);
                                     if data.sim.env.height_map[idx] >= 0.0 { current_spawn_pt = (px, py); break; }
                                 }
                                 current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
@@ -181,7 +182,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                             px = px.rem_euclid(map_w);
 
                             let mut child = data.sim.agents[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, &data.config);
-                            child.age = rng.gen_range(0.0f32..data.config.max_age * 0.8);
+                            child.age = rng.gen_range(0.0f32..data.config.bio.max_age * 0.8);
                             child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                             child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                             child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
@@ -201,6 +202,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     // Even if we don't fetch agents, we should update ticks
                     let mut data = sim_thread_data.lock().unwrap();
                     data.total_ticks += ticks_per_loop as u64;
+                    data.config.sim.current_tick += ticks_per_loop as u32;
                     data.last_compute_time_ms = start.elapsed().as_millis();
                 }
             }

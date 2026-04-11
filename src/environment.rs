@@ -91,7 +91,7 @@ impl Environment {
                 else if moisture < 0.0 { biome_mult = 0.4; } // Savanna
                 else if moisture > 0.3 { biome_mult = 1.5; } // Jungle
                 
-                let base_res = if val >= 0.0 { config.max_tile_resource * elevation_mult * biome_mult } else { 0.0 };
+                let base_res = if val >= 0.0 { config.world.max_tile_resource * elevation_mult * biome_mult } else { 0.0 };
                 
                 map_cells.push(CellState {
                     res_value: (base_res * 1000.0) as i32,
@@ -111,7 +111,7 @@ impl Environment {
                     avg_bid: 1.0,
                     market_food: 50_000_000,
                     market_wealth: (base_res * 1000.0) as i32, // Cells start with money to buy initial farmed crops
-                    market_water: if val <= 0.05 { (config.max_tile_water * 1000.0) as i32 } else { 0 }, // Shorelines & Oceans start with water
+                    market_water: if val <= 0.05 { (config.world.max_tile_water * 1000.0) as i32 } else { 0 }, // Shorelines & Oceans start with water
                     infra_roads: 0,
                     infra_housing: 0,
                     infra_farms: 0,
@@ -191,7 +191,7 @@ impl Environment {
 
             // Carve the river into the map arrays
             for &idx in &river_path {
-                map_cells[idx].market_water = (config.max_tile_water * 1000.0) as i32;
+                map_cells[idx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                 
                 // Erode terrain to -0.01 (Shallow Water) so it naturally replenishes water forever
                 // Requires a boat to cross, making rivers and lakes actual water obstacles
@@ -207,7 +207,7 @@ impl Environment {
                     let (tx, ty) = wrap_coords(cx as i32, cy as i32, dx, dy, width as i32, height as i32);
                     let tidx = (ty * width + tx) as usize;
                     
-                    map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
+                    map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                     if height_map[tidx] > 0.01 {
                         height_map[tidx] = 0.01;
                     }
@@ -228,13 +228,13 @@ impl Environment {
                                 let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
                                 let tidx = (ty * width + tx) as usize;
                                 
-                                map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
+                                map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                                 if height_map[tidx] > -0.01 { height_map[tidx] = -0.01; }
                             } else if dist_sq <= (lake_radius + 1) * (lake_radius + 1) {
                                 let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
                                 let tidx = (ty * width + tx) as usize;
                                 
-                                map_cells[tidx].market_water = (config.max_tile_water * 1000.0) as i32;
+                                map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                                 if height_map[tidx] > 0.01 { height_map[tidx] = 0.01; }
                             }
                         }
