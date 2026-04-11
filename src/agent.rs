@@ -266,21 +266,55 @@ impl Person {
         if rng.r#gen::<f32>() < 0.1 { child.pheno_b = (child.pheno_b + (rng.r#gen::<f32>() * 0.4) - 0.2).clamp(-1.0, 1.0); }
 
         // 1. Crossover Genetics and Mutate
-        for i in 0..child.w1_weights.len() {
-            child.w1_weights[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1_weights[i] } else { parent2.w1_weights[i] };
-            child.w1_indices[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w1_indices[i] } else { parent2.w1_indices[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w1_weights[i] = (child.w1_weights[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
-            if rng.r#gen::<f32>() < 0.02 { child.w1_indices[i] = rng.gen_range(0..NUM_INPUTS as u32); }
+        // High-performance block crossover to reduce RNG calls
+        let crossover_rate = 0.5;
+        let mutation_rate = 0.1;
+        
+        // Block-based crossover for W1
+        for i in (0..child.w1_weights.len()).step_by(64) {
+            if rng.r#gen::<f32>() < crossover_rate {
+                let end = (i + 64).min(child.w1_weights.len());
+                child.w1_weights[i..end].copy_from_slice(&parent2.w1_weights[i..end]);
+                child.w1_indices[i..end].copy_from_slice(&parent2.w1_indices[i..end]);
+            }
+            if rng.r#gen::<f32>() < mutation_rate {
+                let end = (i + 64).min(child.w1_weights.len());
+                let m = (rng.r#gen::<f32>() * 0.5) - 0.25;
+                for j in i..end { child.w1_weights[j] = (child.w1_weights[j] + m).clamp(-2.0, 2.0); }
+                if rng.r#gen::<f32>() < 0.05 {
+                    let k = rng.gen_range(i..end);
+                    child.w1_indices[k] = rng.gen_range(0..NUM_INPUTS as u32);
+                }
+            }
         }
         
-        for i in 0..child.w2.len() {
-            child.w2[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w2[i] } else { parent2.w2[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w2[i] = (child.w2[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
+        // Use larger strides for w2 and w3 to minimize overhead
+        for i in (0..child.w2.len()).step_by(256) {
+            if rng.r#gen::<f32>() < crossover_rate {
+                let end = (i + 256).min(child.w2.len());
+                child.w2[i..end].copy_from_slice(&parent2.w2[i..end]);
+            }
+        }
+        for i in (0..child.w2.len()).step_by(64) {
+            if rng.r#gen::<f32>() < mutation_rate { 
+                let end = (i + 64).min(child.w2.len());
+                let m = (rng.r#gen::<f32>() * 0.5) - 0.25;
+                for j in i..end { child.w2[j] = (child.w2[j] + m).clamp(-2.0, 2.0); }
+            }
         }
 
-        for i in 0..child.w3.len() {
-            child.w3[i] = if rng.r#gen::<f32>() > 0.5 { parent1.w3[i] } else { parent2.w3[i] };
-            if rng.r#gen::<f32>() < 0.1 { child.w3[i] = (child.w3[i] + (rng.r#gen::<f32>() * 0.5) - 0.25).clamp(-2.0, 2.0); }
+        for i in (0..child.w3.len()).step_by(128) {
+            if rng.r#gen::<f32>() < crossover_rate {
+                let end = (i + 128).min(child.w3.len());
+                child.w3[i..end].copy_from_slice(&parent2.w3[i..end]);
+            }
+        }
+        for i in (0..child.w3.len()).step_by(64) {
+            if rng.r#gen::<f32>() < mutation_rate { 
+                let end = (i + 64).min(child.w3.len());
+                let m = (rng.r#gen::<f32>() * 0.5) - 0.25;
+                for j in i..end { child.w3[j] = (child.w3[j] + m).clamp(-2.0, 2.0); }
+            }
         }
 
         // 2. Structural mutation

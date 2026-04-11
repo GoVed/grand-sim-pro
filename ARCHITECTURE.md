@@ -8,6 +8,7 @@ The simulation utilizes a "Think on GPU, Synchronize on CPU" pattern to achieve 
 ### Memory Alignment & Synchronization
 - **Strict Alignment:** All data structures shared with the GPU (`src/config.rs`, `src/agent.rs`) are marked with `#[repr(C)]` and use `bytemuck` for zero-copy casting. Memory is strictly 16-byte aligned to match WGSL requirements.
 - **Buffer Reuse:** To avoid per-frame allocation overhead, `SimulationManager` maintains reusable `Vec` and `HashMap` buffers for genetics and birth processing.
+- **Spatial Locality:** Before each GPU dispatch, the CPU performs a spatial sort of the agent population. This ensures that agents processed in the same GPU workgroup are spatially clustered, maximizing the hit rate of the LDS cache.
 - **Throttled Fetching:** While the GPU computes at high frequency, agent state is fetched back to the CPU at ~60Hz to conserve PCIe bandwidth.
 
 ## 2. Logic-View Separation (UI)
@@ -27,8 +28,9 @@ The application runs on two primary threads:
 
 ## 4. GPGPU Simulation Pipeline
 The WGSL kernel (`src/sim.wgsl`) is the "hot loop" of the project.
+- **Cooperative LDS Caching:** GPU workgroups utilize Local Device Storage (LDS) to cache a 16x16 tile patch of the environment. All 64 agents in a workgroup sample their vision from this high-speed local cache rather than global VRAM.
+- **Register Pressure Optimization:** To prevent register spilling, the kernel avoids loading the massive `Agent` struct into local memory, instead operating directly on the storage buffer via pointer-style indexing.
 - **Spatial Awareness:** LiDAR vision is simulated by sampling the pheromone and elevation maps in a 3x3 grid around each agent.
-- **Neural Inference:** Hidden layer activations use `tanh` or `ReLU` variants implemented directly in the shader.
 - **Physical Development Scaling:** Agent mobility (speed) and physical endurance (stamina consumption) are dynamically scaled based on the agent's maturity ratio ($\text{age} / \text{puberty\_age}$), ensuring newborns are appropriately vulnerable.
 - **Physics:** Longitude convergence and spherical wrapping are handled mathematically at the physics step to simulate a 3D globe on a 2D array.
 
