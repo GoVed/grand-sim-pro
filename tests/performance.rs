@@ -6,9 +6,9 @@ use std::time::Instant;
 #[test]
 fn bench_simulation_step() {
     let mut config = SimConfig::default();
-    config.map_width = 800;
-    config.map_height = 600;
-    config.agent_count = 10000;
+    config.world.map_width = 800;
+    config.world.map_height = 600;
+    config.sim.agent_count = 10000;
     
     let mut sim = SimulationManager::new(800, 600, 12345, 10000, &config);
     

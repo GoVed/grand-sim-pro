@@ -39,6 +39,7 @@ pub struct AgentRenderData {
 pub struct SharedData {
     pub sim: SimulationManager,
     pub config: SimConfig,
+    pub last_saved_config: SimConfig,
     pub is_paused: bool,
     pub restart_message_active: bool,
     pub ticks_per_loop: usize,

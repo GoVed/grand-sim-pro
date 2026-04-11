@@ -63,63 +63,99 @@ struct Agent {
     is_pregnant: f32,
 }
 
-struct SimConfig {
-    base_speed: f32,
-    baseline_cost: f32,
-    move_cost_per_unit: f32,
-    climb_penalty: f32,
-    base_gather_rate: f32,
-    max_gather_rate: f32,
-    max_tile_resource: f32,
-    max_tile_water: f32,
-    boat_cost: f32,
-    water_transfer_amount: f32,
-    drop_amount: f32,
-    regen_rate: f32,
-    max_age: f32,
-    max_health: f32,
-    starvation_rate: f32,
-    reproduction_cost: f32,
+struct WorldConfig {
     map_width: u32,
     map_height: u32,
     display_width: u32,
     display_height: u32,
+    regen_rate: f32,
+    max_tile_resource: f32,
+    max_tile_water: f32,
+    tick_to_mins: f32,
+}
+
+struct SimulationConfig {
     agent_count: u32,
+    spawn_group_size: u32,
+    founder_count: u32,
+    load_saved_agents_on_start: u32,
     current_tick: u32,
+    visual_mode: u32,
+    pad1: u32,
+    pad2: u32,
+}
+
+struct BiologyConfig {
+    base_speed: f32,
+    max_age: f32,
+    max_health: f32,
     max_stamina: f32,
     max_water: f32,
     puberty_age: f32,
     menopause_age: f32,
     gestation_period: f32,
-    tick_to_mins: f32,
-    founder_count: u32,
-    random_spawn_percentage: f32,
+    starvation_rate: f32,
+    max_carry_weight: f32,
+    pad1: f32,
+    pad2: f32,
+}
+
+struct EconomyConfig {
+    baseline_cost: f32,
+    move_cost_per_unit: f32,
+    climb_penalty: f32,
+    reproduction_cost: f32,
+    boat_cost: f32,
+    water_transfer_amount: f32,
+    drop_amount: f32,
+    base_gather_rate: f32,
+    max_gather_rate: f32,
+    base_spoilage_rate: f32,
+    pad1: f32,
+    pad2: f32,
+}
+
+struct GeneticsConfig {
     mutation_rate: f32,
     mutation_strength: f32,
-    spawn_group_size: u32,
+    random_spawn_percentage: f32,
     crossover_rate: f32,
+}
+
+struct InfrastructureConfig {
     infra_cost: f32,
     max_infra: f32,
     decay_rate_roads: f32,
     decay_rate_housing: f32,
     decay_rate_farms: f32,
     decay_rate_storage: f32,
-    load_saved_agents_on_start: u32,
-    visual_mode: u32,
-    max_carry_weight: f32,
+    road_speed_bonus: f32,
+    housing_rest_bonus: f32,
+    storage_rot_reduction: f32,
+    build_ticks: f32,
+    pad1: f32,
+    pad2: f32,
+}
+
+struct CombatConfig {
     crowding_threshold: f32,
     pregnancy_speed_mult: f32,
     pregnancy_cost_mult: f32,
     defend_cost_mult: f32,
-    base_spoilage_rate: f32,
-    infra_road_speed_bonus: f32,
-    infra_housing_rest_bonus: f32,
-    infra_storage_rot_reduction: f32,
-    combat_bystander_damage: f32,
-    combat_attacker_damage: f32,
-    combat_steal_amount: f32,
-    infra_build_ticks: f32,
-    pad1: u32,
+    bystander_damage: f32,
+    attacker_damage: f32,
+    steal_amount: f32,
+    pad1: f32,
+}
+
+struct SimConfig {
+    world: WorldConfig,
+    sim: SimulationConfig,
+    bio: BiologyConfig,
+    eco: EconomyConfig,
+    genetics: GeneticsConfig,
+    infra: InfrastructureConfig,
+    combat: CombatConfig,
 }
 
 struct CellState {
@@ -180,10 +216,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     agent.age = agent.age + 1.0;
     
-    let map_width = cfg.map_width;
-    let map_w_f32 = f32(cfg.map_width);
-    let map_h_f32 = f32(cfg.map_height);
-    let max_idx = cfg.map_width * cfg.map_height - 1u;
+    let map_width = cfg.world.map_width;
+    let map_w_f32 = f32(cfg.world.map_width);
+    let map_h_f32 = f32(cfg.world.map_height);
+    let max_idx = cfg.world.map_width * cfg.world.map_height - 1u;
     
     let current_idx = u32(agent.y) * map_width + u32(agent.x);
     let safe_current_idx = clamp(current_idx, 0u, max_idx);
@@ -218,19 +254,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let pseudo_rand = fract(sin(dot(vec2<f32>(agent.x, agent.y), vec2<f32>(12.9898, 78.233))) * 43758.5453);
 
     // --- Day/Night Cycle ---
-    let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
-    let day_cycle_progress = (f32(cfg.current_tick) % ticks_per_day) / ticks_per_day; // 0.0 to 1.0
+    let ticks_per_day = 24.0 * 60.0 / cfg.world.tick_to_mins;
+    let day_cycle_progress = (f32(cfg.sim.current_tick) % ticks_per_day) / ticks_per_day; // 0.0 to 1.0
     let day_intensity = sin(day_cycle_progress * 6.28318 - 1.5708) * 0.5 + 0.5; // Sine wave, 0.0 at midnight, 1.0 at noon
 
     // Environment & Vision Pre-Calculation
     let current_height = map_heights[safe_current_idx];
     
-    let season_time = f32(cfg.current_tick) / 100000.0 * 6.28318;
+    let season_time = f32(cfg.sim.current_tick) / 100000.0 * 6.28318;
     let season_sine = sin(season_time);
     let dist_from_equator = abs(agent.y - map_h_f32 / 2.0) / (map_h_f32 / 2.0);
     let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, current_height * 2.0);
     let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; 
-    let effective_temp = local_temp + (local_infra_housing / cfg.max_infra) * 2.0; // Houses provide massive insulation
+    let effective_temp = local_temp + (local_infra_housing / cfg.infra.max_infra) * 2.0; // Houses provide massive insulation
 
     // Longitude Convergence: Simulates the narrowing of the sphere at the poles
     let agent_lat = (abs(agent.y - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 1.570796; // 0 to PI/2
@@ -257,17 +293,17 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     inputs[11] = local_comm2;
     inputs[12] = local_comm3;
     inputs[13] = local_comm4;
-    inputs[14] = agent.health / cfg.max_health;
-    inputs[15] = (agent.food / 1000.0) / cfg.boat_cost; 
-    inputs[16] = agent.water / cfg.max_water;
-    inputs[17] = agent.stamina / cfg.max_stamina;
-    inputs[18] = agent.age / cfg.max_age;
+    inputs[14] = agent.health / cfg.bio.max_health;
+    inputs[15] = (agent.food / 1000.0) / cfg.eco.boat_cost; 
+    inputs[16] = agent.water / cfg.bio.max_water;
+    inputs[17] = agent.stamina / cfg.bio.max_stamina;
+    inputs[18] = agent.age / cfg.bio.max_age;
     inputs[19] = agent.gender;
     inputs[20] = local_temp;
     inputs[21] = season_sine;
     inputs[22] = agent.is_pregnant; 
-    inputs[23] = ((agent.food / 1000.0) + agent.water) / cfg.max_carry_weight; // Food limit weight
-    inputs[24] = local_population / cfg.crowding_threshold;
+    inputs[23] = ((agent.food / 1000.0) + agent.water) / cfg.bio.max_carry_weight; // Food limit weight
+    inputs[24] = local_population / cfg.combat.crowding_threshold;
     inputs[25] = agent.mem1;
     inputs[26] = agent.mem2;
     inputs[27] = agent.mem3;
@@ -276,7 +312,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     inputs[30] = agent.mem6;
     inputs[31] = agent.mem7;
     inputs[32] = agent.mem8;
-    inputs[33] = agent.wealth / cfg.boat_cost;
+    inputs[33] = agent.wealth / cfg.eco.boat_cost;
     inputs[34] = local_avg_ask / 10.0;
     inputs[35] = local_avg_bid / 10.0;
     inputs[36] = day_intensity;
@@ -286,10 +322,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     inputs[40] = local_pheno_r;
     inputs[41] = local_pheno_g;
     inputs[42] = local_pheno_b;
-    inputs[155] = local_infra_roads / cfg.max_infra;
-    inputs[156] = local_infra_housing / cfg.max_infra;
-    inputs[157] = local_infra_farms / cfg.max_infra;
-    inputs[158] = local_infra_storage / cfg.max_infra;
+    inputs[155] = local_infra_roads / cfg.infra.max_infra;
+    inputs[156] = local_infra_housing / cfg.infra.max_infra;
+    inputs[157] = local_infra_farms / cfg.infra.max_infra;
+    inputs[158] = local_infra_storage / cfg.infra.max_infra;
 
     var input_idx = 43u;
     let cos_h = cos(agent.heading);
@@ -339,10 +375,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             inputs[input_idx + 7u] = map_cells[sample_idx].pheno_r;
             inputs[input_idx + 8u] = map_cells[sample_idx].pheno_g;
             inputs[input_idx + 9u] = map_cells[sample_idx].pheno_b;
-            inputs[input_idx + 10u] = (f32(atomicLoad(&map_cells[sample_idx].infra_roads)) / 1000.0) / cfg.max_infra * vision_multiplier;
-            inputs[input_idx + 11u] = (f32(atomicLoad(&map_cells[sample_idx].infra_housing)) / 1000.0) / cfg.max_infra * vision_multiplier;
-            inputs[input_idx + 12u] = (f32(atomicLoad(&map_cells[sample_idx].infra_farms)) / 1000.0) / cfg.max_infra * vision_multiplier;
-            inputs[input_idx + 13u] = (f32(atomicLoad(&map_cells[sample_idx].infra_storage)) / 1000.0) / cfg.max_infra * vision_multiplier;
+            inputs[input_idx + 10u] = (f32(atomicLoad(&map_cells[sample_idx].infra_roads)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
+            inputs[input_idx + 11u] = (f32(atomicLoad(&map_cells[sample_idx].infra_housing)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
+            inputs[input_idx + 12u] = (f32(atomicLoad(&map_cells[sample_idx].infra_farms)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
+            inputs[input_idx + 13u] = (f32(atomicLoad(&map_cells[sample_idx].infra_storage)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
             
             input_idx += 14u;
         }
@@ -455,10 +491,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     agent.destroy_infra_intent = clamp(outputs[30] * 0.5 + 0.5, 0.0, 1.0);
     if (resting) { agent.destroy_infra_intent = 0.0; }
 
-    var base_speed = speed_intent * cfg.base_speed;
+    var base_speed = speed_intent * cfg.bio.base_speed;
     if (resting) {
         base_speed = 0.0;
-        agent.stamina = min(agent.stamina + 2.0, cfg.max_stamina);
+        agent.stamina = min(agent.stamina + 2.0, cfg.bio.max_stamina);
     }
 
     // Evaluate intended destination to gauge the slope
@@ -479,13 +515,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Height Factor: Uphill slows down, downhill speeds up
     let slope = next_height - current_height;
-    let height_multiplier = 1.0 - clamp(slope * cfg.climb_penalty, -0.5, 0.9);
+    let height_multiplier = 1.0 - clamp(slope * cfg.eco.climb_penalty, -0.5, 0.9);
     
     let total_weight = (agent.food / 1000.0) + agent.water;
     // Realistically, carrying more than max weight restricts movement to a heavy crawl
-    let encumbrance_mult = clamp(1.0 - (total_weight / cfg.max_carry_weight), 0.05, 1.0);
-    let crowding_mult = clamp(1.0 - (local_population / cfg.crowding_threshold), 0.1, 1.0);
-    let road_mult = 1.0 + (local_infra_roads / cfg.max_infra) * cfg.infra_road_speed_bonus; // Up to speed bonus on roads
+    let encumbrance_mult = clamp(1.0 - (total_weight / cfg.bio.max_carry_weight), 0.05, 1.0);
+    let crowding_mult = clamp(1.0 - (local_population / cfg.combat.crowding_threshold), 0.1, 1.0);
+    let road_mult = 1.0 + (local_infra_roads / cfg.infra.max_infra) * cfg.infra.road_speed_bonus; // Up to speed bonus on roads
     
     var actual_speed = base_speed * height_multiplier * encumbrance_mult * crowding_mult * road_mult;
 
@@ -498,8 +534,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     var preg_mult = 1.0;
     if (agent.is_pregnant > 0.5) {
-        actual_speed = actual_speed * cfg.pregnancy_speed_mult; // slower when carrying child
-        preg_mult = cfg.pregnancy_cost_mult; // Eat/drink more
+        actual_speed = actual_speed * cfg.combat.pregnancy_speed_mult; // slower when carrying child
+        preg_mult = cfg.combat.pregnancy_cost_mult; // Eat/drink more
     }
     
     if (!resting) {
@@ -533,12 +569,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Removed old passive water filling at coastlines
     
     // Newborns are smaller and burn fewer calories. Scales from 0.2 to 1.0 at puberty.
-    let maturity = clamp(agent.age / cfg.puberty_age, 0.2, 1.0);
+    let maturity = clamp(agent.age / cfg.bio.puberty_age, 0.2, 1.0);
     var rest_mult = 1.0; 
     // High housing levels allow agents to sleep incredibly efficiently (up to 0.2x caloric burn)
-    if (resting) { rest_mult = 0.5 - ((local_infra_housing / cfg.max_infra) * cfg.infra_housing_rest_bonus); } 
+    if (resting) { rest_mult = 0.5 - ((local_infra_housing / cfg.infra.max_infra) * cfg.infra.housing_rest_bonus); } 
     
-    var defend_mult = 1.0; if (agent.defend_intent > 0.5 && !resting) { defend_mult = cfg.defend_cost_mult; } // more calories burned!
+    var defend_mult = 1.0; if (agent.defend_intent > 0.5 && !resting) { defend_mult = cfg.combat.defend_cost_mult; } // more calories burned!
     
     // Simply managing and holding massive weight increases baseline metabolism
     let carrying_effort = 1.0 + (total_weight / 50.0);
@@ -554,7 +590,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if (agent.destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; } // Destroying is heavy, exhausting labor
     }
     
-    let metabolic_rate = cfg.baseline_cost * maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
+    let metabolic_rate = cfg.eco.baseline_cost * maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
 
     agent.water = agent.water - metabolic_rate;
     let cold_penalty = max(0.0, -effective_temp) * 0.1;
@@ -562,15 +598,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     
     // Food Spoilage & Granary Preservation.
     // High temperatures accelerate rot, while freezing temperatures preserve it.
-    let storage_mult = 1.0 - clamp((local_infra_storage / cfg.max_infra) * cfg.infra_storage_rot_reduction, 0.0, cfg.infra_storage_rot_reduction); // Granaries block rot
+    let storage_mult = 1.0 - clamp((local_infra_storage / cfg.infra.max_infra) * cfg.infra.storage_rot_reduction, 0.0, cfg.infra.storage_rot_reduction); // Granaries block rot
     let spoilage_multiplier = max(0.1, 1.0 + local_temp);
-    let spoilage_rate = cfg.base_spoilage_rate * spoilage_multiplier * storage_mult;
+    let spoilage_rate = cfg.eco.base_spoilage_rate * spoilage_multiplier * storage_mult;
     agent.food = agent.food - (agent.food * spoilage_rate);
     
-    if (agent.food < 0.0) { agent.food = 0.0; agent.health = agent.health - cfg.starvation_rate; }
-    if (agent.water < 0.0) { agent.water = 0.0; agent.health = agent.health - cfg.starvation_rate; }
-    if (agent.food > (metabolic_rate * 1000.0) && agent.water > metabolic_rate && agent.health < cfg.max_health) {
-        agent.health = min(agent.health + (cfg.starvation_rate * 2.0), cfg.max_health);
+    if (agent.food < 0.0) { agent.food = 0.0; agent.health = agent.health - cfg.bio.starvation_rate; }
+    if (agent.water < 0.0) { agent.water = 0.0; agent.health = agent.health - cfg.bio.starvation_rate; }
+    if (agent.food > (metabolic_rate * 1000.0) && agent.water > metabolic_rate && agent.health < cfg.bio.max_health) {
+        agent.health = min(agent.health + (cfg.bio.starvation_rate * 2.0), cfg.bio.max_health);
         agent.food = agent.food - (metabolic_rate * 1000.0); 
         agent.water = agent.water - metabolic_rate; 
     }
@@ -581,47 +617,47 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         
         // Bystanders take damage on highly aggressive tiles, UNLESS they are actively defending
         if (local_avg_aggression > 0.5 && agent.defend_intent < 0.5) {
-            agent.health = agent.health - cfg.combat_bystander_damage;
+            agent.health = agent.health - cfg.combat.bystander_damage;
         }
         
-        if (agent.attack_intent > 0.5 && local_population > 1.0 && !resting && agent.age > cfg.puberty_age) {
+        if (agent.attack_intent > 0.5 && local_population > 1.0 && !resting && agent.age > cfg.bio.puberty_age) {
             // Steal directly from abstract population
-            let steal_amount = min((local_population - 1.0) * 0.5, cfg.combat_steal_amount);
+            let steal_amount = min((local_population - 1.0) * 0.5, cfg.combat.steal_amount);
             if (agent.defend_intent < 0.5) { // An agent can't aggressively pillage while holding a defensive formation
-                agent.wealth = min(agent.wealth + steal_amount * 5.0, cfg.boat_cost); // Mugging gives cash
-                if (local_avg_aggression > 0.5) { agent.health = agent.health - cfg.combat_attacker_damage; } // Attackers take damage from other attackers
+                agent.wealth = min(agent.wealth + steal_amount * 5.0, cfg.eco.boat_cost); // Mugging gives cash
+                if (local_avg_aggression > 0.5) { agent.health = agent.health - cfg.combat.attacker_damage; } // Attackers take damage from other attackers
             }
-        } else if (agent.drop_water_intent > 0.5 && agent.water > cfg.water_transfer_amount) {
-            let transfer_amount = min(agent.water, cfg.water_transfer_amount);
+        } else if (agent.drop_water_intent > 0.5 && agent.water > cfg.eco.water_transfer_amount) {
+            let transfer_amount = min(agent.water, cfg.eco.water_transfer_amount);
             agent.water = agent.water - transfer_amount;
             atomicAdd(&map_cells[safe_current_idx].market_water, i32(transfer_amount * 1000.0));
-            atomicMin(&map_cells[safe_current_idx].market_water, i32(cfg.max_tile_water * 1000.0));
-        } else if (agent.pickup_water_intent > 0.5 && local_market_water > 0.0 && agent.water < cfg.max_water) {
-            let transfer_amount = min(cfg.water_transfer_amount, local_market_water);
-            let space_available = cfg.max_water - agent.water;
+            atomicMin(&map_cells[safe_current_idx].market_water, i32(cfg.world.max_tile_water * 1000.0));
+        } else if (agent.pickup_water_intent > 0.5 && local_market_water > 0.0 && agent.water < cfg.bio.max_water) {
+            let transfer_amount = min(cfg.eco.water_transfer_amount, local_market_water);
+            let space_available = cfg.bio.max_water - agent.water;
             let actual_transfer = min(transfer_amount, space_available);
             
             agent.water = agent.water + actual_transfer;
             atomicSub(&map_cells[safe_current_idx].market_water, i32(actual_transfer * 1000.0));
             atomicMax(&map_cells[safe_current_idx].market_water, 0);
-        } else if (current_height > 0.0 && current_height <= 0.05 && agent.water < cfg.max_water) {
+        } else if (current_height > 0.0 && current_height <= 0.05 && agent.water < cfg.bio.max_water) {
             // ONLY Freshwater Rivers/Shorelines provide free drinking water. 
             // (Oceans < 0.0 are saltwater. Dehydration breaks the beach-bum strategy).
-            let transfer_amount = cfg.water_transfer_amount;
-            let space_available = cfg.max_water - agent.water;
+            let transfer_amount = cfg.eco.water_transfer_amount;
+            let space_available = cfg.bio.max_water - agent.water;
             let actual_transfer = min(transfer_amount, space_available);
             
             agent.water = agent.water + actual_transfer;
-        } else if (drop_desire > 0.5 && agent.food > (cfg.drop_amount * 1000.0 + 100000.0)) {
-            agent.food = agent.food - (cfg.drop_amount * 1000.0);
-            atomicAdd(&map_cells[safe_current_idx].res_value, i32(cfg.drop_amount * 1000.0));
-            atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.max_tile_resource * 1000.0));
+        } else if (drop_desire > 0.5 && agent.food > (cfg.eco.drop_amount * 1000.0 + 100000.0)) {
+            agent.food = agent.food - (cfg.eco.drop_amount * 1000.0);
+            atomicAdd(&map_cells[safe_current_idx].res_value, i32(cfg.eco.drop_amount * 1000.0));
+            atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.world.max_tile_resource * 1000.0));
         } else if (!resting) {
             if (local_res_value > 0.1) {
-                let max_mult = (cfg.max_gather_rate / cfg.base_gather_rate) - 1.0;
+                let max_mult = (cfg.eco.max_gather_rate / cfg.eco.base_gather_rate) - 1.0;
                 let tool_multiplier = 1.0 + min(sqrt(agent.food / 1000.0) * 0.1, max_mult);
                 
-                let gathered = min(cfg.base_gather_rate * tool_multiplier * maturity, local_res_value);
+                let gathered = min(cfg.eco.base_gather_rate * tool_multiplier * maturity, local_res_value);
                 agent.food = agent.food + (gathered * 1000.0);
                 atomicSub(&map_cells[safe_current_idx].res_value, i32(gathered * 1000.0));
                 atomicMax(&map_cells[safe_current_idx].res_value, 0);
@@ -629,9 +665,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         
         // Execute Infrastructure Construction
-        let build_ticks = max(1.0, cfg.infra_build_ticks);
+        let build_ticks = max(1.0, cfg.infra.build_ticks);
         let build_amount = i32(1000.0 / build_ticks);
-        let cost_amount = cfg.infra_cost / build_ticks;
+        let cost_amount = cfg.infra.infra_cost / build_ticks;
 
         if (!resting && agent.wealth >= cost_amount) {
             let has_other_than_road = local_infra_housing > 0.0 || local_infra_farms > 0.0 || local_infra_storage > 0.0;
@@ -639,27 +675,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let has_other_than_farm = local_infra_roads > 0.0 || local_infra_housing > 0.0 || local_infra_storage > 0.0;
             let has_other_than_storage = local_infra_roads > 0.0 || local_infra_housing > 0.0 || local_infra_farms > 0.0;
 
-            if (agent.build_road_intent > 0.5 && local_infra_roads < cfg.max_infra && !has_other_than_road) {
+            if (agent.build_road_intent > 0.5 && local_infra_roads < cfg.infra.max_infra && !has_other_than_road) {
                 agent.wealth = agent.wealth - cost_amount; 
                 atomicAdd(&map_cells[safe_current_idx].infra_roads, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_roads, i32(cfg.max_infra * 1000.0));
-            } else if (agent.build_house_intent > 0.5 && local_infra_housing < cfg.max_infra && !has_other_than_house) {
+                atomicMin(&map_cells[safe_current_idx].infra_roads, i32(cfg.infra.max_infra * 1000.0));
+            } else if (agent.build_house_intent > 0.5 && local_infra_housing < cfg.infra.max_infra && !has_other_than_house) {
                 agent.wealth = agent.wealth - cost_amount; 
                 atomicAdd(&map_cells[safe_current_idx].infra_housing, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_housing, i32(cfg.max_infra * 1000.0));
-            } else if (agent.build_farm_intent > 0.5 && local_infra_farms < cfg.max_infra && !has_other_than_farm) {
+                atomicMin(&map_cells[safe_current_idx].infra_housing, i32(cfg.infra.max_infra * 1000.0));
+            } else if (agent.build_farm_intent > 0.5 && local_infra_farms < cfg.infra.max_infra && !has_other_than_farm) {
                 agent.wealth = agent.wealth - cost_amount; 
                 atomicAdd(&map_cells[safe_current_idx].infra_farms, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_farms, i32(cfg.max_infra * 1000.0));
-            } else if (agent.build_storage_intent > 0.5 && local_infra_storage < cfg.max_infra && !has_other_than_storage) {
+                atomicMin(&map_cells[safe_current_idx].infra_farms, i32(cfg.infra.max_infra * 1000.0));
+            } else if (agent.build_storage_intent > 0.5 && local_infra_storage < cfg.infra.max_infra && !has_other_than_storage) {
                 agent.wealth = agent.wealth - cost_amount; 
                 atomicAdd(&map_cells[safe_current_idx].infra_storage, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_storage, i32(cfg.max_infra * 1000.0));
+                atomicMin(&map_cells[safe_current_idx].infra_storage, i32(cfg.infra.max_infra * 1000.0));
             }
         }
         
         if (!resting && agent.destroy_infra_intent > 0.5) {
-            let destroy_cost = (cfg.infra_cost * 0.5) / build_ticks; // Demolition costs 50% of the build cost
+            let destroy_cost = (cfg.infra.infra_cost * 0.5) / build_ticks; // Demolition costs 50% of the build cost
             if (agent.wealth >= destroy_cost) {
                 var destroyed = false;
                 if (local_infra_roads > 0.0) { 
@@ -719,21 +755,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         else if (m < 0.0) { biome_mult = 0.4; } // Savanna
         else if (m > 0.3) { biome_mult = 1.5; } // Jungle
         
-        let farm_mult = 1.0 + (local_infra_farms / cfg.max_infra) * 5.0; // Up to 6x regen
-        let biome_regen_rate = cfg.regen_rate * elevation_mult * moisture_mult * farm_mult * biome_mult;
+        let farm_mult = 1.0 + (local_infra_farms / cfg.infra.max_infra) * 5.0; // Up to 6x regen
+        let biome_regen_rate = cfg.world.regen_rate * elevation_mult * moisture_mult * farm_mult * biome_mult;
         
         atomicAdd(&map_cells[safe_current_idx].res_value, i32(biome_regen_rate * 1000.0));
-        atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.max_tile_resource * 1000.0));
+        atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.world.max_tile_resource * 1000.0));
         
         // Weathering & Market Rot
         let rand_r = fract(pseudo_rand * 1.234);
-        if (local_infra_roads > 0.0 && rand_r < cfg.decay_rate_roads) { atomicSub(&map_cells[safe_current_idx].infra_roads, 1000); }
+        if (local_infra_roads > 0.0 && rand_r < cfg.infra.decay_rate_roads) { atomicSub(&map_cells[safe_current_idx].infra_roads, 1000); }
         let rand_h = fract(pseudo_rand * 2.345);
-        if (local_infra_housing > 0.0 && rand_h < cfg.decay_rate_housing) { atomicSub(&map_cells[safe_current_idx].infra_housing, 1000); }
+        if (local_infra_housing > 0.0 && rand_h < cfg.infra.decay_rate_housing) { atomicSub(&map_cells[safe_current_idx].infra_housing, 1000); }
         let rand_f = fract(pseudo_rand * 3.456);
-        if (local_infra_farms > 0.0 && rand_f < cfg.decay_rate_farms) { atomicSub(&map_cells[safe_current_idx].infra_farms, 1000); }
+        if (local_infra_farms > 0.0 && rand_f < cfg.infra.decay_rate_farms) { atomicSub(&map_cells[safe_current_idx].infra_farms, 1000); }
         let rand_s = fract(pseudo_rand * 4.567);
-        if (local_infra_storage > 0.0 && rand_s < cfg.decay_rate_storage) { atomicSub(&map_cells[safe_current_idx].infra_storage, 1000); }
+        if (local_infra_storage > 0.0 && rand_s < cfg.infra.decay_rate_storage) { atomicSub(&map_cells[safe_current_idx].infra_storage, 1000); }
 
         if (pseudo_rand < 0.05) {
             let current_market_food = f32(atomicLoad(&map_cells[safe_current_idx].market_food));
@@ -746,7 +782,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         
         // Shorelines and oceans naturally replenish their water
         if (current_height <= 0.05) {
-            atomicMax(&map_cells[safe_current_idx].market_water, i32(cfg.max_tile_water * 1000.0));
+            atomicMax(&map_cells[safe_current_idx].market_water, i32(cfg.world.max_tile_water * 1000.0));
         }
         
         // Mix our intent into the cell's pheromone trace
@@ -768,14 +804,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Calculate climbing exertion: positive slopes drastically increase the movement cost
-    let climb_penalty_mult = max(0.0, slope) * cfg.climb_penalty; 
+    let climb_penalty_mult = max(0.0, slope) * cfg.eco.climb_penalty; 
     // Moving physical mass burns exponential calories. Every 20kg adds +1x multiplier.
     let weight_move_penalty = total_weight / 20.0;
-    let move_cost = ((act_spd * cfg.move_cost_per_unit) * (1.0 + climb_penalty_mult + weight_move_penalty) * 1000.0) / road_mult;
+    let move_cost = ((act_spd * cfg.eco.move_cost_per_unit) * (1.0 + climb_penalty_mult + weight_move_penalty) * 1000.0) / road_mult;
     let is_water = final_height < 0.0;
 
     // Water travel requires passing the boat threshold (or already being in the ocean with savings)
-    let can_enter_water = agent.wealth >= cfg.boat_cost || (current_height < 0.0 && agent.wealth > 0.0);
+    let can_enter_water = agent.wealth >= cfg.eco.boat_cost || (current_height < 0.0 && agent.wealth > 0.0);
 
     if (is_water && !can_enter_water) {
         agent.heading = agent.heading + 3.14159; // Turn around, can't afford a boat
@@ -793,13 +829,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     
     // Old Age & Mortality
-    if (agent.age >= cfg.max_age) {
+    if (agent.age >= cfg.bio.max_age) {
         // Calculate ticks per year dynamically (365 days * 24 hours * 60 mins = 525,600 mins)
-        let ticks_per_year = 525600.0 / cfg.tick_to_mins;
-        let years_past_max = (agent.age - cfg.max_age) / ticks_per_year;
+        let ticks_per_year = 525600.0 / cfg.world.tick_to_mins;
+        let years_past_max = (agent.age - cfg.bio.max_age) / ticks_per_year;
         
         // Progressive biological failure: mortality penalty scales exponentially the longer they live
-        let biological_decay = cfg.starvation_rate * (2.0 + pow(years_past_max, 1.5));
+        let biological_decay = cfg.bio.starvation_rate * (2.0 + pow(years_past_max, 1.5));
         var applied_decay = biological_decay;
         
         // Healthcare simulation: wealthy agents spend savings to temporarily halve the aging penalty.
@@ -854,16 +890,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let x = global_id.x;
     let y = global_id.y;
-    if (x >= cfg.map_width || y >= cfg.map_height) { return; }
+    if (x >= cfg.world.map_width || y >= cfg.world.map_height) { return; }
     
-    let idx = y * cfg.map_width + x;
+    let idx = y * cfg.world.map_width + x;
     let height = map_heights[idx];
     var r = 0u; var g = 0u; var b = 0u;
-    let mode = cfg.visual_mode;
+    let mode = cfg.sim.visual_mode;
     
     if (mode == 1u) { // Resources
         let val = f32(atomicLoad(&map_cells[idx].res_value)) / 1000.0;
-        let max_ln = log(cfg.max_tile_resource + 1.0);
+        let max_ln = log(cfg.world.max_tile_resource + 1.0);
         if (val > 0.0) {
             let ratio = clamp(log(val + 1.0) / max_ln, 0.0, 1.0);
             r = u32((1.0 - ratio) * 255.0); g = u32(ratio * 255.0);
@@ -878,7 +914,7 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let i_s = f32(atomicLoad(&map_cells[idx].infra_storage)) / 1000.0;
             let max_val = max(max(ir, ih), max(i_f, i_s));
             if (max_val > 0.0) {
-                let max_ln = log(cfg.max_infra + 1.0);
+                let max_ln = log(cfg.infra.max_infra + 1.0);
                 let ratio = clamp(log(max_val + 1.0) / max_ln, 0.0, 1.0);
                 if (ir == max_val) { r = u32(ratio * 200.0); g = u32(ratio * 200.0); b = u32(ratio * 200.0); } // Gray Road
                 else if (ih == max_val) { r = u32(ratio * 255.0); g = u32(ratio * 140.0); b = 0u; } // Orange House
@@ -890,8 +926,8 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         } else {
             var val = 0.0;
             var max_ln = 1.0;
-            if (mode == 5u) { val = f32(atomicLoad(&map_cells[idx].market_wealth)) / 1000.0; max_ln = log(cfg.max_tile_resource + 1.0); }
-            else if (mode == 6u) { val = f32(atomicLoad(&map_cells[idx].market_food)) / 1000000.0; max_ln = log(cfg.max_tile_resource + 1.0); }
+            if (mode == 5u) { val = f32(atomicLoad(&map_cells[idx].market_wealth)) / 1000.0; max_ln = log(cfg.world.max_tile_resource + 1.0); }
+            else if (mode == 6u) { val = f32(atomicLoad(&map_cells[idx].market_food)) / 1000000.0; max_ln = log(cfg.world.max_tile_resource + 1.0); }
             else if (mode == 7u) { val = map_cells[idx].avg_ask; max_ln = log(11.0); }
             else if (mode == 8u) { val = map_cells[idx].avg_bid; max_ln = log(11.0); }
             
@@ -903,12 +939,12 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             }
         }
     } else if (mode == 10u) { // Temperature
-        let dist_from_equator = abs(f32(y) - f32(cfg.map_height) / 2.0) / (f32(cfg.map_height) / 2.0);
+        let dist_from_equator = abs(f32(y) - f32(cfg.world.map_height) / 2.0) / (f32(cfg.world.map_height) / 2.0);
         let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, height * 2.0);
-        let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
-        let day_cycle = (f32(cfg.current_tick) % ticks_per_day) / ticks_per_day;
+        let ticks_per_day = 24.0 * 60.0 / cfg.world.tick_to_mins;
+        let day_cycle = (f32(cfg.sim.current_tick) % ticks_per_day) / ticks_per_day;
         let day_intensity = sin(day_cycle * 6.28318 - 1.5708) * 0.5 + 0.5;
-        let season_time = f32(cfg.current_tick) / 100000.0 * 6.28318;
+        let season_time = f32(cfg.sim.current_tick) / 100000.0 * 6.28318;
         let local_temp = base_temp + sin(season_time) * 0.5 - (1.0 - day_intensity) * 0.3;
         let norm = clamp((local_temp + 1.0) / 2.0, 0.0, 1.0);
         r = u32(norm * 255.0); g = 50u; b = u32((1.0 - norm) * 255.0);
@@ -927,7 +963,7 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         } else {
             let val = f32(atomicLoad(&map_cells[idx].market_water)) / 1000.0;
             if (val > 0.0) {
-                let max_ln = log(cfg.max_tile_water + 1.0);
+                let max_ln = log(cfg.world.max_tile_water + 1.0);
                 let ratio = clamp(log(val + 1.0) / max_ln, 0.0, 1.0);
                 r = 0u; g = u32(ratio * 200.0); b = u32(55.0 + ratio * 200.0);
             } else { r = 40u; g = 40u; b = 40u; } // Dry Land
@@ -939,7 +975,7 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if (height < -0.2) { base_r = 10u; base_g = 40u; base_b = 120u; } // Deep Ocean
         else if (height < 0.0) { base_r = 30u; base_g = 80u; base_b = 180u; } // Shallow Ocean
         else {
-            let dist_from_equator = abs(f32(y) - f32(cfg.map_height) / 2.0) / (f32(cfg.map_height) / 2.0);
+            let dist_from_equator = abs(f32(y) - f32(cfg.world.map_height) / 2.0) / (f32(cfg.world.map_height) / 2.0);
             let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, height * 2.0);
             let m = map_cells[idx].base_moisture;
             
@@ -952,10 +988,10 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         
         // 2.5D Directional Topography Shading
-        var lx = x - 1u; if (x == 0u) { lx = cfg.map_width - 1u; }
+        var lx = x - 1u; if (x == 0u) { lx = cfg.world.map_width - 1u; }
         var ty = y; if (y > 0u) { ty = y - 1u; } // Don't shadow off the edge of the pole
-        let hx = map_heights[y * cfg.map_width + lx];
-        let hy = map_heights[ty * cfg.map_width + x];
+        let hx = map_heights[y * cfg.world.map_width + lx];
+        let hy = map_heights[ty * cfg.world.map_width + x];
         
         let dx = height - hx;
         let dy = height - hy;
@@ -972,8 +1008,8 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if (height >= 0.0 && abs(height % 0.1) < 0.01) { r = u32(f32(r) * 0.6); g = u32(f32(g) * 0.6); b = u32(f32(b) * 0.6); }
         
         if (mode == 11u) {
-            let ticks_per_day = 24.0 * 60.0 / cfg.tick_to_mins;
-            let day_intensity = sin(((f32(cfg.current_tick) % ticks_per_day) / ticks_per_day) * 6.28318 - 1.5708) * 0.5 + 0.5;
+            let ticks_per_day = 24.0 * 60.0 / cfg.world.tick_to_mins;
+            let day_intensity = sin(((f32(cfg.sim.current_tick) % ticks_per_day) / ticks_per_day) * 6.28318 - 1.5708) * 0.5 + 0.5;
             let intensity = max(0.15, pow(day_intensity, 0.7));
             r = u32(f32(r) * intensity); g = u32(f32(g) * intensity); b = u32(f32(b) * intensity);
         }

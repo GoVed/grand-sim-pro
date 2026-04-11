@@ -7,3 +7,4 @@ pub mod config;
 pub mod shared;
 pub mod sim_thread;
 pub mod ui;
+pub mod ui_logic;

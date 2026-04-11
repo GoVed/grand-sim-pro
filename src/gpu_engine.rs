@@ -61,7 +61,7 @@ impl GpuEngine {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
             });
 
-            let render_buffer_size = (config.map_width * config.map_height * 4) as wgpu::BufferAddress;
+            let render_buffer_size = (config.world.map_width * config.world.map_height * 4) as wgpu::BufferAddress;
             let render_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Render Buffer"),
                 size: render_buffer_size,
