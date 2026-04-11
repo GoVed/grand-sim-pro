@@ -105,6 +105,8 @@ pub fn get_filtered_config_items(
     push_item(&mut results, "B: Puberty Age", "bio.puberty_age", config.bio.puberty_age, last_saved.bio.puberty_age, &q);
     push_item(&mut results, "B: Gestation", "bio.gestation_period", config.bio.gestation_period, last_saved.bio.gestation_period, &q);
     push_item(&mut results, "B: Starvation Rate", "bio.starvation_rate", config.bio.starvation_rate, last_saved.bio.starvation_rate, &q);
+    push_item(&mut results, "B: Infant Spd", "bio.infant_speed_mult", config.bio.infant_speed_mult, last_saved.bio.infant_speed_mult, &q);
+    push_item(&mut results, "B: Infant Stam", "bio.infant_stamina_mult", config.bio.infant_stamina_mult, last_saved.bio.infant_stamina_mult, &q);
 
     // Eco
     push_item(&mut results, "E: Baseline Cost", "eco.baseline_cost", config.eco.baseline_cost, last_saved.eco.baseline_cost, &q);

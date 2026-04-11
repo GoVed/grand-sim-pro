@@ -53,6 +53,7 @@ Agents can expend wealth to construct mutually exclusive infrastructure: **Roads
 - **Decay & Maintenance:** Infrastructure is subjected to weathering and wear-and-tear, requiring continuous economic maintenance.
 
 ### 🧬 Biological Lifecycle & Reproduction
+- **Age-Based Physical Development:** Newborn agents start with significantly reduced physical capabilities (10% speed, 20% stamina). Their mobility and endurance scale linearly as they mature toward puberty, accurately modeling the vulnerability of youth.
 - **Combat & Parasitism:** Agents can evolve to "Attack," actively stealing resources from others.
 - **Sexual Reproduction:** Agents possess male/female genders and must reach puberty to mate. Females enter a Gestation period with specific encumbrance and metabolic costs before birthing genetically crossed offspring.
 - **Extinction Founder System:** If a generation goes extinct, the simulation extracts the longest-surviving "Founders," generates a new world map, and repopulates it with their mutated descendants.

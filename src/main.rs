@@ -132,7 +132,7 @@ async fn main() {
         restart_message_active: false,
         ticks_per_loop: 5,
         total_ticks: 0,
-        last_compute_time_ms: 0,
+        last_compute_time_micros: 0,
         generation_survival_times: Vec::new(),
     }));
 
@@ -166,7 +166,7 @@ async fn main() {
     let mut paused = false;
     let mut speed = 20;
     let mut ticks = 0;
-    let mut compute_time = 0;
+    let mut compute_time: f32 = 0.0;
     let mut pop_count = 0;
     let mut restart_msg = false;
 
@@ -312,7 +312,7 @@ async fn main() {
             paused = data.is_paused;
             speed = data.ticks_per_loop;
             ticks = data.total_ticks;
-            compute_time = data.last_compute_time_ms;
+            compute_time = data.last_compute_time_micros as f32 / 1000.0;
             pop_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
             restart_msg = data.restart_message_active;
             last_saved_config = data.last_saved_config;

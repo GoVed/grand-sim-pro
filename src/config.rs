@@ -49,8 +49,8 @@ pub struct BiologyConfig {
     pub gestation_period: f32,
     pub starvation_rate: f32,
     pub max_carry_weight: f32,
-    pub pad1: f32,
-    pub pad2: f32,
+    pub infant_speed_mult: f32,
+    pub infant_stamina_mult: f32,
 }
 
 #[repr(C)]
@@ -155,8 +155,8 @@ impl Default for SimConfig {
                 gestation_period: 38880.0,
                 starvation_rate: 0.1,
                 max_carry_weight: 100.0,
-                pad1: 0.0,
-                pad2: 0.0,
+                infant_speed_mult: 0.1,
+                infant_stamina_mult: 0.2,
             },
             eco: EconomyConfig {
                 baseline_cost: 0.015,

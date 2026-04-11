@@ -29,4 +29,5 @@ The application runs on two primary threads:
 The WGSL kernel (`src/sim.wgsl`) is the "hot loop" of the project.
 - **Spatial Awareness:** LiDAR vision is simulated by sampling the pheromone and elevation maps in a 3x3 grid around each agent.
 - **Neural Inference:** Hidden layer activations use `tanh` or `ReLU` variants implemented directly in the shader.
+- **Physical Development Scaling:** Agent mobility (speed) and physical endurance (stamina consumption) are dynamically scaled based on the agent's maturity ratio ($\text{age} / \text{puberty\_age}$), ensuring newborns are appropriately vulnerable.
 - **Physics:** Longitude convergence and spherical wrapping are handled mathematically at the physics step to simulate a 3D globe on a 2D array.

@@ -40,7 +40,7 @@ pub struct CellState {
     pub pheno_g: f32,
     pub pheno_b: f32,
     pub base_moisture: f32,  // Replaces pad: Defines the local biome humidity
-    pub _pad_infra2: f32,
+    pub adult_count: i32,    // Atomic counter for mature agents on this tile
     pub _pad_infra3: f32,
 }
 
@@ -120,7 +120,7 @@ impl Environment {
                     pheno_g: 0.0,
                     pheno_b: 0.0,
                     base_moisture: moisture,
-                    _pad_infra2: 0.0,
+                    adult_count: 0,
                     _pad_infra3: 0.0,
                 });
             }

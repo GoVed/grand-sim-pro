@@ -30,8 +30,8 @@
     "gestation_period": 38880.0,
     "starvation_rate": 0.1,
     "max_carry_weight": 100.0,
-    "pad1": 0.0,
-    "pad2": 0.0
+    "infant_speed_mult": 0.1,
+    "infant_stamina_mult": 0.2
   },
   "eco": {
     "baseline_cost": 0.015,
