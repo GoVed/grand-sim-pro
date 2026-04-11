@@ -20,6 +20,7 @@
 | `src/agent.rs` | Agent Logic | NN architecture, sexual reproduction, mutation, and situational probing. |
 | `src/ui_logic.rs` | UI Logic | (NEW) Pure-logic backend for UI. Handles behavior math, config filtering, and layouts. |
 | `src/ui.rs` | UI Components | Macroquad-based rendering for dashboards, graphs, and inspectors. |
+| `src/telemetry.rs` | Data Exporter | (NEW) High-fidelity CSV export of population and environmental metrics. |
 | `src/simulation.rs` | Sim Manager | High-level simulation loop, birth processing, and grid occupancy. |
 | `src/environment.rs` | World Engine | Procedural 3D spherical noise generation and tile state management. |
 | `src/gpu_engine.rs` | WGPU Backend | Handles GPGPU compute shaders and agent/map rendering. |

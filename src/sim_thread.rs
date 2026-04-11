@@ -20,6 +20,9 @@ use ::rand::Rng;
 pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
     thread::spawn(move || {
         let mut last_fetch_time = Instant::now();
+        let mut telemetry = crate::telemetry::TelemetryExporter::new("telemetry.csv");
+        let mut last_telemetry_tick = 0;
+
         loop {
             let (is_paused, ticks_per_loop, config) = {
                 let data = sim_thread_data.lock().unwrap();
@@ -38,11 +41,6 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 if last_fetch_time.elapsed().as_millis() >= 16 {
                     agents = gpu.fetch_agents();
 
-                    // We need a temporary SimulationManager or just call the logic on the agents
-                    // Since process_genetics_and_births is on SimulationManager, we need to be careful.
-                    // Let's acquire the lock again to run the genetics logic since it needs the full SimManager state.
-                    // But we'll do it quickly.
-
                     let mut data = sim_thread_data.lock().unwrap();
                     data.sim.agents = agents;
                     let modifications = data.sim.process_genetics_and_births(&config);
@@ -56,6 +54,13 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                     data.total_ticks += ticks_per_loop as u64;
                     data.last_compute_time_micros = start.elapsed().as_micros();
+
+                    // Telemetry Export
+                    if data.config.telemetry.enabled != 0 && data.total_ticks >= last_telemetry_tick + data.config.telemetry.export_interval_ticks as u64 {
+                        let generation = data.generation_survival_times.len() as u32;
+                        let _ = telemetry.export(&data.sim, &data.config, data.total_ticks, generation);
+                        last_telemetry_tick = data.total_ticks;
+                    }
 
                     // Check for auto-restart while we have the lock
                     let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
@@ -192,6 +197,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         data.sim.agents = new_population;
 
                         data.total_ticks = 0;
+                        last_telemetry_tick = 0;
                         data.restart_message_active = false;
                         gpu.update_agents(&data.sim.agents);
                         gpu.update_heights(&data.sim.env.height_map);

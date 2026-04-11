@@ -31,3 +31,9 @@ The WGSL kernel (`src/sim.wgsl`) is the "hot loop" of the project.
 - **Neural Inference:** Hidden layer activations use `tanh` or `ReLU` variants implemented directly in the shader.
 - **Physical Development Scaling:** Agent mobility (speed) and physical endurance (stamina consumption) are dynamically scaled based on the agent's maturity ratio ($\text{age} / \text{puberty\_age}$), ensuring newborns are appropriately vulnerable.
 - **Physics:** Longitude convergence and spherical wrapping are handled mathematically at the physics step to simulate a 3D globe on a 2D array.
+
+## 5. Telemetry & Data Export
+A dedicated `TelemetryExporter` in `src/telemetry.rs` provides a high-fidelity time-series export for research.
+- **Sampling:** Telemetry is captured on the simulation thread during the 60Hz agent fetch cycle, ensuring zero impact on GPU compute performance.
+- **Metrics:** Aggregates population-wide biometrics (Age, Health, Wealth) and global environmental state (Infrastructure distribution).
+- **Format:** Outputs to standard CSV for downstream research and statistical analysis.

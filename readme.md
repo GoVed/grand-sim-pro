@@ -37,6 +37,12 @@ Instead of viewing opaque hidden layers, the Inspector provides a **Linearized S
 ### 🧪 Situational Behavioral Probing
 The Inspector features a behavioral simulation panel that executes "forward passes" of an agent's neural network against hypothetical archetypes: *Crowded*, *Starving*, and *Prosperous*. This provides deep behavioral insights into an agent's innate propensities before the situation actually arises.
 
+### 📊 Research Data Export Pipeline (Telemetry)
+Grand Sim Pro now includes a high-fidelity **CSV Telemetry Pipeline** designed for longitudinal research.
+- **Automated Logging:** Periodically exports 14+ population and economic metrics (Population, Avg Age, Health, Wealth, Infrastructure count, etc.).
+- **Research Ready:** Data is formatted for direct import into R, Python (Pandas), or Excel for statistical analysis of evolutionary drift and economic emergence.
+- **Configurable:** Adjust the `export_interval_ticks` and toggle the system via the Live Configuration panel.
+
 ### 🌍 Procedural Continents & Spherical Projection
 - **3D Spherical Mapping:** 2D map coordinates are mapped to a mathematically perfect 3D spherical projection. landmasses generate North and South poles where longitude shifts 180 degrees seamlessly.
 - **Dynamic Biomes:** Moisture noise layers interact with global latitude temperatures to paint diverse biomes: Snow, Tundra, Deserts, Savannas, Jungles, and Forests.
