@@ -1,7 +1,7 @@
 {
   "world": {
-    "map_width": 800,
-    "map_height": 600,
+    "map_width": 2500,
+    "map_height": 1500,
     "display_width": 1280,
     "display_height": 720,
     "regen_rate": 0.01,
@@ -10,9 +10,9 @@
     "tick_to_mins": 10.0
   },
   "sim": {
-    "agent_count": 1000,
+    "agent_count": 10000,
     "spawn_group_size": 100,
-    "founder_count": 64,
+    "founder_count": 512,
     "load_saved_agents_on_start": 2,
     "current_tick": 0,
     "visual_mode": 0,
@@ -76,5 +76,11 @@
     "attacker_damage": 2.0,
     "steal_amount": 5.0,
     "pad1": 0.0
+  },
+  "telemetry": {
+    "enabled": 1,
+    "export_interval_ticks": 144,
+    "pad1": 0,
+    "pad2": 0
   }
 }

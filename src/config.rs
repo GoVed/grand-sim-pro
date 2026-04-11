@@ -111,6 +111,15 @@ pub struct CombatConfig {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug)]
+pub struct TelemetryConfig {
+    pub enabled: u32,
+    pub export_interval_ticks: u32,
+    pub pad1: u32,
+    pub pad2: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug)]
 pub struct SimConfig {
     pub world: WorldConfig,
     pub sim: SimulationConfig,
@@ -119,6 +128,7 @@ pub struct SimConfig {
     pub genetics: GeneticsConfig,
     pub infra: InfrastructureConfig,
     pub combat: CombatConfig,
+    pub telemetry: TelemetryConfig,
 }
 
 impl Default for SimConfig {
@@ -202,6 +212,13 @@ impl Default for SimConfig {
                 steal_amount: 5.0,
                 pad1: 0.0,
             },
+            telemetry: TelemetryConfig {
+                enabled: 1,
+                export_interval_ticks: 144, // roughly every day (144 * 10 mins = 24 hours)
+                pad1: 0,
+                pad2: 0,
+            },
         }
     }
 }
+
