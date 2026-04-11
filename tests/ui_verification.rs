@@ -61,8 +61,8 @@ fn test_layout_logic() {
 
 #[test]
 fn test_graph_logic() {
-    let (max, zero, r#gen) = ui_logic::get_graph_axes_labels(12345);
-    assert_eq!(max, "12345");
+    let (max, zero, r#gen) = ui_logic::get_graph_axes_labels(12345, 10.0);
+    assert!(max.contains("y") || max.contains("m"));
     assert_eq!(zero, "0");
     assert_eq!(r#gen, "Gen");
 }
@@ -73,4 +73,23 @@ fn test_ui_colors() {
     assert_eq!(c.r, 1.0);
     assert_eq!(c.g, 0.0);
     assert_eq!(c.b, 0.0);
+}
+
+#[test]
+fn test_neural_connections_logic() {
+    let mut weights = vec![0.0f32; 100];
+    weights[5] = 1.0;
+    weights[50] = -2.0;
+    weights[99] = 0.5;
+    
+    // Test top connections overall
+    let top = ui_logic::get_top_connections(&weights, 10, 10, None, false, 2);
+    assert_eq!(top.len(), 2);
+    assert_eq!(top[0].weight, -2.0); // Magnitude based
+    assert_eq!(top[1].weight, 1.0);
+    
+    // Test focused on an output (to_idx)
+    let focused = ui_logic::get_top_connections(&weights, 10, 10, Some(0), true, 10);
+    // Should find weights at index [0, 10, 20, ... 90]
+    assert_eq!(focused.len(), 10);
 }

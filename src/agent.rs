@@ -446,6 +446,41 @@ impl Person {
 
     /// Performs a CPU-side forward pass of the agent's neural network.
     /// Used for behavioral prediction and UI probing.
+    pub fn calculate_input_output_influence(&self) -> Vec<f32> {
+        let h_count = self.hidden_count as usize;
+        let mut influence = vec![0.0f32; NUM_INPUTS * NUM_OUTPUTS];
+        
+        // 1. Calculate Input -> Hidden2 influence (W2 * sparse W1)
+        // Hidden1 = activation(W1 * Input)
+        // Hidden2 = activation(W2 * Hidden1)
+        // Output  = activation(W3 * Hidden2)
+        
+        let mut w2_w1 = vec![0.0f32; NUM_INPUTS * h_count];
+        for h2 in 0..h_count {
+            for h1 in 0..h_count {
+                let w2_val = self.w2[h2 * h_count + h1];
+                for k in 0..8 {
+                    let w1_val = self.w1_weights[h1 * 8 + k];
+                    let input_idx = self.w1_indices[h1 * 8 + k] as usize;
+                    w2_w1[h2 * NUM_INPUTS + input_idx] += w2_val * w1_val;
+                }
+            }
+        }
+        
+        // 2. Calculate Input -> Output influence (W3 * w2_w1)
+        for o in 0..NUM_OUTPUTS {
+            for h2 in 0..h_count {
+                let w3_val = self.w3[h2 * NUM_OUTPUTS + o];
+                for i in 0..NUM_INPUTS {
+                    let prev_inf = w2_w1[h2 * NUM_INPUTS + i];
+                    influence[i * NUM_OUTPUTS + o] += w3_val * prev_inf;
+                }
+            }
+        }
+        
+        influence
+    }
+
     pub fn mental_simulation(&self, inputs: &[f32; NUM_INPUTS]) -> [f32; NUM_OUTPUTS] {
         let mut hidden = [0.0f32; NUM_HIDDEN_MAX];
         

@@ -138,7 +138,7 @@ impl Default for SimConfig {
                 agent_count: 1000,
                 spawn_group_size: 100,
                 founder_count: 64,
-                load_saved_agents_on_start: 0,
+                load_saved_agents_on_start: 2,
                 current_tick: 0,
                 visual_mode: 0,
                 pad1: 0,

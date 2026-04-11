@@ -26,27 +26,28 @@ pub struct SimulationManager {
     females: Vec<usize>,
 }
 
-impl SimulationManager {
-    pub fn new(width: u32, height: u32, seed: u32, count: u32, config: &crate::config::SimConfig) -> Self {
-        let env = Environment::new(width, height, seed, config);
-        
-        let mut founders = Vec::new();
-        if config.sim.load_saved_agents_on_start > 0 {
-            if let Ok(entries) = std::fs::read_dir("saved_agents_weights") {
-                for entry in entries.flatten() {
-                    if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
-                        if let Ok(contents) = std::fs::read_to_string(entry.path()) {
-                            if let Ok(weights) = serde_json::from_str::<crate::agent::AgentWeights>(&contents) {
-                                let mut dummy = Person::new(0.0, 0.0, config);
-                                dummy.apply_weights(&weights);
-                                founders.push(dummy);
-                            }
-                        }
+pub fn load_founders(config: &crate::config::SimConfig) -> Vec<Person> {
+    let mut founders = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("saved_agents_weights") {
+        for entry in entries.flatten() {
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(contents) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(weights) = serde_json::from_str::<crate::agent::AgentWeights>(&contents) {
+                        let mut dummy = Person::new(0.0, 0.0, config);
+                        dummy.apply_weights(&weights);
+                        founders.push(dummy);
                     }
                 }
             }
         }
+    }
+    founders
+}
 
+impl SimulationManager {
+    pub fn new(width: u32, height: u32, seed: u32, count: u32, config: &crate::config::SimConfig, founders: Vec<Person>) -> Self {
+        let env = Environment::new(width, height, seed, config);
+        
         let mut rng = ::rand::thread_rng();
         let spawn_group_size = config.sim.spawn_group_size as usize;
         
@@ -253,7 +254,7 @@ mod tests {
     #[test]
     fn test_simulation_manager_new() {
         let config = SimConfig::default();
-        let sim = SimulationManager::new(800, 600, 12345, 100, &config);
+        let sim = SimulationManager::new(800, 600, 12345, 100, &config, Vec::new());
         
         assert_eq!(sim.agents.len(), 100);
         assert_eq!(sim.env.height_map.len(), 800 * 600);
@@ -270,7 +271,7 @@ mod tests {
         config.eco.reproduction_cost = 10.0;
         config.bio.max_health = 100.0;
 
-        let mut sim = SimulationManager::new(800, 600, 12345, 10, &config);
+        let mut sim = SimulationManager::new(800, 600, 12345, 10, &config, Vec::new());
         
         // Setup two agents in the same cell ready to reproduce
         sim.agents[0].x = 100.0;
