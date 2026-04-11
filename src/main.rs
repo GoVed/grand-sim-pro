@@ -8,14 +8,13 @@
  * See the LICENSE file in the project root for full license details.
  */
 
-mod agent;
-mod environment;
-mod simulation;
-mod gpu_engine;
-mod config;
-mod shared;
-mod sim_thread;
-mod ui;
+use world_sim::agent;
+use world_sim::simulation;
+use world_sim::gpu_engine;
+use world_sim::config;
+use world_sim::shared;
+use world_sim::sim_thread;
+use world_sim::ui;
 
 use macroquad::prelude::*;
 use simulation::SimulationManager;
@@ -26,14 +25,24 @@ use shared::{SharedData, VisualMode, SortCol, AgentRenderData};
 
 // Standalone config loader so we can establish window dimensions before the async engine boots
 fn load_config() -> config::SimConfig {
-    if let Ok(data) = std::fs::read_to_string("sim_config.json") {
-        if let Ok(cfg) = serde_json::from_str(&data) {
-            return cfg;
+    #[cfg(not(target_os = "android"))]
+    {
+        if let Ok(data) = std::fs::read_to_string("sim_config.json") {
+            if let Ok(cfg) = serde_json::from_str(&data) {
+                return cfg;
+            }
         }
+        let default_cfg = config::SimConfig::default();
+        std::fs::write("sim_config.json", serde_json::to_string_pretty(&default_cfg).unwrap()).ok();
+        return default_cfg;
     }
-    let default_cfg = config::SimConfig::default();
-    std::fs::write("sim_config.json", serde_json::to_string_pretty(&default_cfg).unwrap()).ok();
-    default_cfg
+    
+    #[cfg(target_os = "android")]
+    {
+        // Android does not support direct working directory access. 
+        // Fallback to defaults until native storage paths are configured.
+        return config::SimConfig::default();
+    }
 }
 
 fn window_conf() -> Conf {
@@ -48,6 +57,16 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    #[cfg(target_os = "android")]
+    {
+        android_logger::init_once(
+            android_logger::Config::default().with_max_level(log::LevelFilter::Trace),
+        );
+        std::panic::set_hook(Box::new(|info| {
+            log::error!("RUST PANIC: {:?}", info);
+        }));
+    }
+
     let loaded_config = load_config();
     let map_width = loaded_config.map_width;
     let map_height = loaded_config.map_height;
@@ -55,8 +74,36 @@ async fn main() {
 
     let random_seed = ::rand::thread_rng().r#gen::<u32>();
 
+    let (tx, rx) = std::sync::mpsc::channel();
+    let loaded_config_clone = loaded_config;
+    std::thread::spawn(move || {
+        let sim = SimulationManager::new(map_width, map_height, random_seed, agent_count, &loaded_config_clone);
+        let _ = tx.send(sim);
+    });
+
+    let mut dots = 0;
+    let mut last_dot_time = get_time();
+    let sim_manager = loop {
+        clear_background(DARKGRAY);
+        let dot_str = ".".repeat(dots);
+        draw_text(&format!("Generating Procedural World & Spawning Agents{}", dot_str), 40.0, screen_height() / 2.0, 30.0, WHITE);
+        
+        if get_time() - last_dot_time > 0.5 {
+            dots = (dots + 1) % 4;
+            last_dot_time = get_time();
+        }
+        
+        match rx.try_recv() {
+            Ok(sim) => break sim,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => panic!("World generation thread panicked"),
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+        }
+        
+        next_frame().await;
+    };
+
     let shared_data = Arc::new(Mutex::new(SharedData {
-        sim: SimulationManager::new(map_width, map_height, random_seed, agent_count, &loaded_config),
+        sim: sim_manager,
         config: loaded_config,
         is_paused: false,
         restart_message_active: false,
@@ -71,6 +118,15 @@ async fn main() {
     let initial_agents = sim_thread_data.lock().unwrap().sim.agents.clone();
     let height_map = sim_thread_data.lock().unwrap().sim.env.height_map.clone();
     let init_cells = sim_thread_data.lock().unwrap().sim.env.map_cells.clone();
+
+    // Yield a few frames to the Android OS to fully map the surface and flush the UI buffer
+    for dots in 0..4 {
+        clear_background(DARKGRAY);
+        let dot_str = ".".repeat(dots);
+        draw_text(&format!("Initializing GPU Compute Engine{}", dot_str), 40.0, screen_height() / 2.0, 30.0, WHITE);
+        next_frame().await;
+    }
+
     let gpu = Arc::new(GpuEngine::new(&initial_agents, &height_map, &init_cells, &loaded_config));
 
     sim_thread::spawn(sim_thread_data.clone(), gpu.clone());
@@ -119,6 +175,7 @@ async fn main() {
     let mut followed_agent_id: Option<u32> = None;
     let mut followed_agent: Option<crate::agent::Person> = None;
     let mut generation_times: Vec<u64> = Vec::new();
+    let mut last_touch_distance: Option<f32> = None;
 
     loop {
         // Register UI inputs instantly
@@ -150,14 +207,38 @@ async fn main() {
             config_button_hold_time = 0.0;
         }
         
+        let current_touches = touches();
+        let is_multi_touch = current_touches.len() >= 2;
+        
+        if is_multi_touch {
+            let p1 = current_touches[0].position;
+            let p2 = current_touches[1].position;
+            let current_dist = ((p1.x - p2.x).powi(2) + (p1.y - p2.y).powi(2)).sqrt();
+            
+            if let Some(last_dist) = last_touch_distance {
+                zoom *= current_dist / last_dist;
+            }
+            last_touch_distance = Some(current_dist);
+        } else {
+            last_touch_distance = None;
+        }
+
         if !show_inspector && !show_config_panel {
             if mouse_wheel_y > 0.0 { zoom *= 1.1; }
             if mouse_wheel_y < 0.0 { zoom *= 0.9; }
             
-            if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() {
+            if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() && !is_multi_touch {
                 let mut hit_ui = false;
                 if show_visuals_panel && mx > 280.0 && mx < 480.0 && my > 10.0 && my < 370.0 { hit_ui = true; }
                 
+                #[cfg(target_os = "android")]
+                {
+                    // Prevent map panning when touching the top-right Android UI buttons
+                    if my > 60.0 && my < 100.0 && mx > screen_width() - 220.0 && mx < screen_width() - 10.0 {
+                        hit_ui = true;
+                    }
+                }
+
                 if !hit_ui {
                     offset_x += (mx - last_mouse.0) / zoom;
                     offset_y -= (my - last_mouse.1) / zoom;
@@ -210,26 +291,32 @@ async fn main() {
             }
 
             if pending_save_agents {
-                let _ = std::fs::create_dir_all("saved_agents_weights");
-                let mut living: Vec<_> = data.sim.agents.iter().filter(|a| a.health > 0.0).collect();
-                living.sort_by(|a, b| {
-                    let score_a = a.wealth + a.food;
-                    let score_b = b.wealth + b.food;
-                    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
-                });
-                let save_count = living.len().min(data.config.founder_count as usize);
-                for i in 0..save_count {
-                    let weights = living[i].extract_weights();
-                    if let Ok(json) = serde_json::to_string_pretty(&weights) {
-                        let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), json);
+                #[cfg(not(target_os = "android"))]
+                {
+                    let _ = std::fs::create_dir_all("saved_agents_weights");
+                    let mut living: Vec<_> = data.sim.agents.iter().filter(|a| a.health > 0.0).collect();
+                    living.sort_by(|a, b| {
+                        let score_a = a.wealth + a.food;
+                        let score_b = b.wealth + b.food;
+                        score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                    let save_count = living.len().min(data.config.founder_count as usize);
+                    for i in 0..save_count {
+                        let weights = living[i].extract_weights();
+                        if let Ok(json) = serde_json::to_string_pretty(&weights) {
+                            let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), json);
+                        }
                     }
                 }
                 pending_save_agents = false;
             }
             
             if pending_save_config {
-                if let Ok(json) = serde_json::to_string_pretty(&data.config) {
-                    let _ = std::fs::write("sim_config.json", json);
+                #[cfg(not(target_os = "android"))]
+                {
+                    if let Ok(json) = serde_json::to_string_pretty(&data.config) {
+                        let _ = std::fs::write("sim_config.json", json);
+                    }
                 }
                 pending_save_config = false;
             }
@@ -266,6 +353,9 @@ async fn main() {
             } else {
                 followed_agent = None;
             }
+        } else {
+            // If lock failed, we still want to keep the UI smooth
+            // We'll just skip the sync this frame and use previous data
         }
 
         if let Some(ref a) = followed_agent {
@@ -340,6 +430,72 @@ async fn main() {
         let time_str = format!("Time: {:02}:{:02}", hours, minutes);
         draw_rectangle(clock_x, 10.0, 210.0, 40.0, Color::new(0.0, 0.0, 0.0, 0.7));
         draw_text(&time_str, clock_x + 10.0, 38.0, 28.0, WHITE);
+
+        #[cfg(target_os = "android")]
+        {
+            let btn_w = 100.0;
+            let btn_h = 40.0;
+            let spacing = 10.0;
+            let right_edge = screen_width() - spacing;
+            
+            // --- Row 1 (y = 60) ---
+            let vis_x = right_edge - btn_w;
+            let vis_y = 60.0;
+            let vis_hover = mx > vis_x && mx < vis_x + btn_w && my > vis_y && my < vis_y + btn_h;
+            draw_rectangle(vis_x, vis_y, btn_w, btn_h, if vis_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(vis_x, vis_y, btn_w, btn_h, 2.0, WHITE);
+            draw_text("VISUALS", vis_x + 16.0, vis_y + 26.0, 18.0, WHITE);
+            if left_clicked && vis_hover { show_visuals_panel = !show_visuals_panel; }
+
+            let cfg_x = vis_x - btn_w - spacing;
+            let cfg_y = 60.0;
+            let cfg_hover = mx > cfg_x && mx < cfg_x + btn_w && my > cfg_y && my < cfg_y + btn_h;
+            draw_rectangle(cfg_x, cfg_y, btn_w, btn_h, if cfg_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(cfg_x, cfg_y, btn_w, btn_h, 2.0, WHITE);
+            draw_text("CONFIG", cfg_x + 22.0, cfg_y + 26.0, 18.0, WHITE);
+            if left_clicked && cfg_hover { show_config_panel = !show_config_panel; }
+
+            // --- Row 2 (y = 110) ---
+            let r2_y = 110.0;
+            let graph_x = right_edge - btn_w;
+            let agt_x = graph_x - btn_w - spacing;
+
+            let graph_hover = mx > graph_x && mx < graph_x + btn_w && my > r2_y && my < r2_y + btn_h;
+            draw_rectangle(graph_x, r2_y, btn_w, btn_h, if graph_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(graph_x, r2_y, btn_w, btn_h, 2.0, WHITE);
+            draw_text("GRAPH", graph_x + 22.0, r2_y + 26.0, 18.0, WHITE);
+            if left_clicked && graph_hover { show_generation_graph = !show_generation_graph; }
+
+            let agt_hover = mx > agt_x && mx < agt_x + btn_w && my > r2_y && my < r2_y + btn_h;
+            draw_rectangle(agt_x, r2_y, btn_w, btn_h, if agt_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(agt_x, r2_y, btn_w, btn_h, 2.0, WHITE);
+            draw_text("AGENTS", agt_x + 18.0, r2_y + 26.0, 18.0, WHITE);
+            if left_clicked && agt_hover { show_inspector = !show_inspector; selected_agent = None; }
+
+            // --- Row 3 (y = 160) ---
+            let r3_y = 160.0;
+            let spd_p_x = right_edge - 45.0;
+            let spd_m_x = spd_p_x - 45.0 - spacing;
+            let pause_x = spd_m_x - btn_w - spacing;
+
+            let pause_hover = mx > pause_x && mx < pause_x + btn_w && my > r3_y && my < r3_y + btn_h;
+            draw_rectangle(pause_x, r3_y, btn_w, btn_h, if pause_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(pause_x, r3_y, btn_w, btn_h, 2.0, WHITE);
+            draw_text(if paused { "RESUME" } else { "PAUSE" }, pause_x + 18.0, r3_y + 26.0, 18.0, if paused { GREEN } else { YELLOW });
+            if left_clicked && pause_hover { pending_pause_toggle = !pending_pause_toggle; }
+
+            let spd_m_hover = mx > spd_m_x && mx < spd_m_x + 45.0 && my > r3_y && my < r3_y + btn_h;
+            draw_rectangle(spd_m_x, r3_y, 45.0, btn_h, if spd_m_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(spd_m_x, r3_y, 45.0, btn_h, 2.0, WHITE);
+            draw_text("<<", spd_m_x + 12.0, r3_y + 26.0, 18.0, WHITE);
+            if left_clicked && spd_m_hover { pending_speed_change -= 1; }
+
+            let spd_p_hover = mx > spd_p_x && mx < spd_p_x + 45.0 && my > r3_y && my < r3_y + btn_h;
+            draw_rectangle(spd_p_x, r3_y, 45.0, btn_h, if spd_p_hover { Color::new(0.4, 0.4, 0.4, 0.9) } else { Color::new(0.2, 0.2, 0.2, 0.9) });
+            draw_rectangle_lines(spd_p_x, r3_y, 45.0, btn_h, 2.0, WHITE);
+            draw_text(">>", spd_p_x + 12.0, r3_y + 26.0, 18.0, WHITE);
+            if left_clicked && spd_p_hover { pending_speed_change += 1; }
+        }
 
         // --- Draw Legend ---
         let legend_x = screen_width() - 220.0;

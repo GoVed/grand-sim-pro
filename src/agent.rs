@@ -207,6 +207,11 @@ impl Person {
     }
 
     pub fn reproduce_sexual(parent1: &mut Self, parent2: &mut Self, cost: f32) -> Self {
+        let mut rng = rand::thread_rng();
+        Self::reproduce_sexual_with_rng(parent1, parent2, cost, &mut rng)
+    }
+
+    pub fn reproduce_sexual_with_rng<R: Rng>(parent1: &mut Self, parent2: &mut Self, cost: f32, rng: &mut R) -> Self {
         parent1.wealth -= cost / 2.0; 
         parent2.wealth -= cost / 2.0; 
         
@@ -218,7 +223,6 @@ impl Person {
         child.water = parent1.water; // Child inherits water from parent, or could be config.max_water
         child.stamina = 100.0;
         
-        let mut rng = rand::thread_rng();
         child.gender = if rng.r#gen::<f32>() > 0.5 { 1.0 } else { 0.0 };
         child.reproduce_desire = 0.0;
         child.attack_intent = 0.0;
@@ -372,16 +376,13 @@ impl Person {
 
     pub fn extract_weights(&self) -> AgentWeights {
         let mut inputs = std::collections::HashMap::new();
-        // Initialize map with all input labels and zeroed weight vectors.
-        // The vector represents the weights from this input to each hidden neuron.
         for i in 0..NUM_INPUTS {
             inputs.insert(INPUT_LABELS[i].to_string(), vec![0.0; NUM_HIDDEN_MAX]);
         }
 
-        // Populate the map by de-sparsifying the w1 connections.
         for h in 0..NUM_HIDDEN_MAX {
             if (h as u32) < self.hidden_count {
-                for k in 0..8 { // 8 sparse connections per hidden node
+                for k in 0..8 {
                     let conn_idx = h * 8 + k;
                     let input_idx = self.w1_indices[conn_idx] as usize;
                     let weight = self.w1_weights[conn_idx];
@@ -441,5 +442,69 @@ impl Person {
             let w3_len = self.w3.len().min(weights.w3.len());
             self.w3[..w3_len].copy_from_slice(&weights.w3[..w3_len]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SimConfig;
+
+    #[test]
+    fn test_person_new() {
+        let config = SimConfig::default();
+        let p = Person::new(10.0, 20.0, &config);
+        assert_eq!(p.x, 10.0);
+        assert_eq!(p.y, 20.0);
+        assert!(p.health > 0.0);
+        assert!(p.food > 0.0);
+        assert!(p.water > 0.0);
+        assert!(p.wealth > 0.0);
+    }
+
+    #[test]
+    fn test_reproduce_sexual() {
+        let config = SimConfig::default();
+        let mut p1 = Person::new(10.0, 20.0, &config);
+        let mut p2 = Person::new(15.0, 25.0, &config);
+        p1.wealth = 1000.0;
+        p2.wealth = 1000.0;
+        let cost = 500.0;
+        
+        let child = Person::reproduce_sexual(&mut p1, &mut p2, cost);
+        
+        assert_eq!(p1.wealth, 750.0);
+        assert_eq!(p2.wealth, 750.0);
+        assert_eq!(child.wealth, 250.0);
+        assert_eq!(child.age, 0.0);
+        assert_eq!(child.health, 100.0);
+    }
+
+    #[test]
+    fn test_clone_as_descendant() {
+        let config = SimConfig::default();
+        let p = Person::new(10.0, 20.0, &config);
+        let child = p.clone_as_descendant(30.0, 40.0, 0.1, 0.1, &config);
+        
+        assert_eq!(child.x, 30.0);
+        assert_eq!(child.y, 40.0);
+        assert_eq!(child.age, 0.0);
+        assert_eq!(child.health, 100.0);
+    }
+
+    #[test]
+    fn test_extract_apply_weights() {
+        let config = SimConfig::default();
+        let p = Person::new(10.0, 20.0, &config);
+        let weights = p.extract_weights();
+        
+        let mut p2 = Person::new(0.0, 0.0, &config);
+        p2.apply_weights(&weights);
+        
+        assert_eq!(p2.hidden_count, p.hidden_count);
+        assert_eq!(p2.w2, p.w2);
+        assert_eq!(p2.w3, p.w3);
+        assert_eq!(p2.w1_weights, p.w1_weights);
+        assert_eq!(p2.w1_indices, p.w1_indices);
     }
 }

@@ -13,9 +13,35 @@ By offloading the heaviest computational workloads directly to the GPU's VRAM, t
 
 This project uses a highly optimized **Hybrid CPU-GPU Compute Engine**:
 
-- **Decoupled Threading:** The application splits into two entirely independent timelines. The UI thread runs a silky smooth 60 FPS viewport using `macroquad`, while a dedicated background thread dispatches heavy simulation workloads as fast as the hardware allows.
+- **Library-First Design:** The core simulation logic is encapsulated in a Rust library (`src/lib.rs`), allowing for both the primary binary (`src/main.rs`) and external integration/performance tests to access the engine safely.
+- **Decoupled Threading:** The application splits into two entirely independent timelines. The UI thread runs a silky smooth 60 FPS viewport using `macroquad`, while a dedicated background thread dispatches heavy simulation workloads.
+- **Lock-Free Responsiveness:** The UI and Simulation threads communicate via an `Arc<Mutex<SharedData>>` using non-blocking `try_lock` patterns and minimized critical sections, ensuring the interface remains responsive even during extreme computational load.
 - **WGSL Compute Shaders (`wgpu`):** Instead of looping through agents sequentially on the CPU, the simulation math is written in WebGPU Shading Language (`sim.wgsl`). The GPU executes neural network evaluations, physics calculations, and terrain collisions for every single agent simultaneously.
 - **Memory Synchronization:** Structs strictly formatted in memory via `bytemuck` are safely shuttled across the PCIe bus, guaranteeing precise alignment between the Rust CPU state and the WGSL GPU state.
+
+---
+
+## 🧪 Testing & Performance
+
+The project includes a comprehensive suite of unit and integration tests to ensure both behavioral correctness and high-speed execution.
+
+### Unit Tests
+To run the standard unit tests (Agent NN logic, Simulation Manager, Environment generation):
+```bash
+cargo test
+```
+
+### Performance Benchmarking
+To run the performance suite and log results into `PERFORMANCE_LOG.md`:
+```bash
+bash scripts/test_perf.sh
+```
+This script runs benchmarks in **Release mode** to measure:
+- **10k Agent Reproduction:** Throughput of genetic crossover and mutation.
+- **500 Simulation Steps:** Real-world throughput of the combined CPU/GPU engine with 10,000 active agents.
+- **World Generation:** Speed of procedural noise and spherical mapping.
+
+Performance metrics are tracked in `PERFORMANCE_LOG.md` to ensure no code changes introduce regressions.
 
 ---
 
