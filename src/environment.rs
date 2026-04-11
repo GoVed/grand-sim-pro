@@ -244,5 +244,22 @@ impl Environment {
         }
 
         Self { height_map, map_cells }
-    }
-}
+        }
+        }
+
+        #[cfg(test)]
+        mod tests {
+        use super::*;
+        use crate::config::SimConfig;
+
+        #[test]
+        fn test_environment_new() {
+        let config = SimConfig::default();
+        let width = 100;
+        let height = 100;
+        let env = Environment::new(width, height, 12345, &config);
+
+        assert_eq!(env.height_map.len(), (width * height) as usize);
+        assert_eq!(env.map_cells.len(), (width * height) as usize);
+        }
+        }
