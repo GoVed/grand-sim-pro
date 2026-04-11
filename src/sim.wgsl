@@ -96,8 +96,8 @@ struct BiologyConfig {
     gestation_period: f32,
     starvation_rate: f32,
     max_carry_weight: f32,
-    pad1: f32,
-    pad2: f32,
+    infant_speed_mult: f32,
+    infant_stamina_mult: f32,
 }
 
 struct EconomyConfig {
@@ -185,7 +185,7 @@ struct CellState {
     pheno_g: f32,
     pheno_b: f32,
     base_moisture: f32,
-    _pad_infra2: f32,
+    adult_count: atomic<i32>,
     _pad_infra3: f32,
 }
 
@@ -424,6 +424,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         outputs[o] = tanh(sum);
     }
 
+    // --- Maturity Scaling (Newborns to Puberty) ---
+    // Calculate maturity from 0.0 (birth) to 1.0 (puberty)
+    let maturity = clamp(agent.age / cfg.bio.puberty_age, 0.0, 1.0);
+    // Linearly interpolate between infant multipliers and adult values (1.0)
+    let age_speed_mult = mix(cfg.bio.infant_speed_mult, 1.0, maturity);
+    let age_stamina_mult = mix(cfg.bio.infant_stamina_mult, 1.0, maturity);
+
     let rest_intent = clamp(outputs[5] * 0.5 + 0.5, 0.0, 1.0);
     var resting = rest_intent > 0.5 || agent.stamina <= 0.0;
 
@@ -431,7 +438,35 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (resting) { turn_intent = 0.0; }
     agent.heading = agent.heading + turn_intent * 0.5;
 
-    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0); // Normalize 0 to 1
+    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; // Apply age speed penalty
+    
+    // --- Accompanied Mobility (Social Constraint) ---
+    // Immature agents (infants/children) cannot move effectively without an adult nearby.
+    if (maturity < 1.0) {
+        var adult_nearby = false;
+        let map_w = cfg.world.map_width;
+        let map_h = cfg.world.map_height;
+        let cx = u32(agent.x);
+        let cy = u32(agent.y);
+        
+        for (var dy = -1i; dy <= 1; dy = dy + 1) {
+            for (var dx = -1i; dx <= 1; dx = dx + 1) {
+                let sx = u32(i32(cx) + dx) % map_w;
+                let sy = u32(i32(cy) + dy) % map_h;
+                let s_idx = sy * map_w + sx;
+                if (atomicLoad(&map_cells[s_idx].adult_count) > 0) {
+                    adult_nearby = true;
+                    break;
+                }
+            }
+            if (adult_nearby) { break; }
+        }
+        
+        if (!adult_nearby) {
+            speed_intent = 0.0; // Stay put until an adult arrives
+        }
+    }
+
     if (resting) { speed_intent = 0.0; }
     
     agent.reproduce_desire = clamp(outputs[3] * 0.5 + 0.5, 0.0, 1.0);
@@ -539,7 +574,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
     
     if (!resting) {
-        agent.stamina = agent.stamina - (actual_speed * 0.05);
+        agent.stamina = agent.stamina - (actual_speed * 0.05 * (2.0 - age_stamina_mult));
         if (agent.stamina <= 0.0) {
             agent.stamina = 0.0;
             resting = true;
@@ -569,7 +604,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Removed old passive water filling at coastlines
     
     // Newborns are smaller and burn fewer calories. Scales from 0.2 to 1.0 at puberty.
-    let maturity = clamp(agent.age / cfg.bio.puberty_age, 0.2, 1.0);
+    let caloric_maturity = clamp(agent.age / cfg.bio.puberty_age, 0.2, 1.0);
     var rest_mult = 1.0; 
     // High housing levels allow agents to sleep incredibly efficiently (up to 0.2x caloric burn)
     if (resting) { rest_mult = 0.5 - ((local_infra_housing / cfg.infra.max_infra) * cfg.infra.housing_rest_bonus); } 
@@ -590,7 +625,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if (agent.destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; } // Destroying is heavy, exhausting labor
     }
     
-    let metabolic_rate = cfg.eco.baseline_cost * maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
+    let metabolic_rate = cfg.eco.baseline_cost * caloric_maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
 
     agent.water = agent.water - metabolic_rate;
     let cold_penalty = max(0.0, -effective_temp) * 0.1;
@@ -785,8 +820,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             atomicMax(&map_cells[safe_current_idx].market_water, i32(cfg.world.max_tile_water * 1000.0));
         }
         
+        if (agent.age >= cfg.bio.puberty_age) {
+            atomicAdd(&map_cells[safe_current_idx].adult_count, 1);
+        }
+
         // Mix our intent into the cell's pheromone trace
-        map_cells[safe_current_idx].population = local_population * 0.99 + 1.0; 
+        map_cells[safe_current_idx].population = local_population * 0.99 + 1.0;
+ 
         map_cells[safe_current_idx].avg_speed = mix(local_avg_speed, speed_intent, 0.1);
         map_cells[safe_current_idx].avg_share = mix(local_avg_share, drop_desire, 0.1);
         map_cells[safe_current_idx].avg_reproduce = mix(local_avg_reproduce, agent.reproduce_desire, 0.1);
@@ -893,6 +933,10 @@ fn render_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (x >= cfg.world.map_width || y >= cfg.world.map_height) { return; }
     
     let idx = y * cfg.world.map_width + x;
+    
+    // Clear adult count every frame before tracing
+    atomicStore(&map_cells[idx].adult_count, 0);
+
     let height = map_heights[idx];
     var r = 0u; var g = 0u; var b = 0u;
     let mode = cfg.sim.visual_mode;

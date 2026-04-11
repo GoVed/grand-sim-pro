@@ -55,7 +55,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     last_fetch_time = Instant::now();
 
                     data.total_ticks += ticks_per_loop as u64;
-                    data.last_compute_time_ms = start.elapsed().as_millis();
+                    data.last_compute_time_micros = start.elapsed().as_micros();
 
                     // Check for auto-restart while we have the lock
                     let living_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
@@ -203,7 +203,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     let mut data = sim_thread_data.lock().unwrap();
                     data.total_ticks += ticks_per_loop as u64;
                     data.config.sim.current_tick += ticks_per_loop as u32;
-                    data.last_compute_time_ms = start.elapsed().as_millis();
+                    data.last_compute_time_micros = start.elapsed().as_micros();
                 }
             }
 

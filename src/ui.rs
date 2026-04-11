@@ -36,7 +36,7 @@ pub fn apply_sort(agents: &mut Vec<(usize, Person)>, col: SortCol, desc: bool) {
 }
 
 pub fn draw_metrics(
-    pop_count: usize, compute_time: u128, speed: usize, ticks: u64, tick_to_mins: f32,
+    pop_count: usize, compute_time: f32, speed: usize, ticks: u64, tick_to_mins: f32,
     fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool, show_generation_graph: bool,
     show_config_panel: bool, paused: bool, restart_msg: bool
 ) {
@@ -50,7 +50,7 @@ pub fn draw_metrics(
     y += dy;
     draw_text(&format!("Population: {}", pop_count), 20.0, y, 16.0, WHITE);
     y += dy;
-    draw_text(&format!("Compute: {}ms/loop", compute_time), 20.0, y, 16.0, WHITE);
+    draw_text(&format!("Compute: {:.2}ms/loop", compute_time), 20.0, y, 16.0, WHITE);
     y += dy;
     draw_text(&format!("Speed: {}x (Up/Down)", speed), 20.0, y, 16.0, WHITE);
     y += dy;
@@ -442,6 +442,8 @@ fn update_val(c: &mut crate::config::SimConfig, key: &str, dir: f32) {
         "bio.puberty_age" => c.bio.puberty_age = (c.bio.puberty_age + 1000.0 * dir).max(0.0),
         "bio.gestation_period" => c.bio.gestation_period = (c.bio.gestation_period + 100.0 * dir).max(0.0),
         "bio.starvation_rate" => c.bio.starvation_rate = (c.bio.starvation_rate + 0.01 * dir).max(0.0),
+        "bio.infant_speed_mult" => c.bio.infant_speed_mult = (c.bio.infant_speed_mult + 0.05 * dir).clamp(0.0, 1.0),
+        "bio.infant_stamina_mult" => c.bio.infant_stamina_mult = (c.bio.infant_stamina_mult + 0.05 * dir).clamp(0.0, 1.0),
 
         "eco.baseline_cost" => c.eco.baseline_cost = (c.eco.baseline_cost + 0.01 * dir).max(0.0),
         "eco.reproduction_cost" => c.eco.reproduction_cost = (c.eco.reproduction_cost + 1.0 * dir).max(0.0),
