@@ -45,5 +45,6 @@ pub struct SharedData {
     pub ticks_per_loop: usize,
     pub total_ticks: u64,
     pub last_compute_time_micros: u128,
+    pub ticks_per_second: f32,
     pub generation_survival_times: Vec<u64>,
     }

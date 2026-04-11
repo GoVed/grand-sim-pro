@@ -46,4 +46,4 @@
 
 - Fulfill user directives thoroughly, including adding tests for new features.
 - If a change affects simulation logic, update unit tests in `src/simulation.rs` or `src/agent.rs`.
-- Aim for >90% coverage on `src/ui_logic.rs`.
+- Aim for >90% coverage on `src/ui_logic.rs`, different methods for the simulation and potential performance scenarios.

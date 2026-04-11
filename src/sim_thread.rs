@@ -22,6 +22,9 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
         let mut last_fetch_time = Instant::now();
         let mut telemetry = crate::telemetry::TelemetryExporter::new("telemetry.csv");
         let mut last_telemetry_tick = 0;
+        
+        let mut last_perf_calc_time = Instant::now();
+        let mut ticks_this_second = 0u64;
 
         loop {
             let (is_paused, ticks_per_loop, config) = {
@@ -36,6 +39,14 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 gpu.update_config(&config);
                 // Dispatch heavy work entirely to the GPU
                 gpu.compute_ticks(ticks_per_loop);
+                
+                ticks_this_second += ticks_per_loop as u64;
+                if last_perf_calc_time.elapsed().as_secs() >= 1 {
+                    let mut data = sim_thread_data.lock().unwrap();
+                    data.ticks_per_second = ticks_this_second as f32 / last_perf_calc_time.elapsed().as_secs_f32();
+                    ticks_this_second = 0;
+                    last_perf_calc_time = Instant::now();
+                }
 
                 // Throttle PCIe bandwidth: Fetch the massive Agent state roughly at 60Hz instead of every compute loop.
                 if last_fetch_time.elapsed().as_millis() >= 16 {
