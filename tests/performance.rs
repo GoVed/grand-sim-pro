@@ -1,3 +1,12 @@
+/*
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
+ */
 
 use world_sim::simulation::SimulationManager;
 use world_sim::config::SimConfig;
@@ -36,13 +45,13 @@ fn bench_world_generation() {
 #[test]
 fn bench_agent_reproduction() {
     let config = SimConfig::default();
-    let mut p1 = world_sim::agent::Person::new(0.0, 0.0, &config);
-    let mut p2 = world_sim::agent::Person::new(0.0, 0.0, &config);
+    let mut p1 = world_sim::agent::Person::new(0.0, 0.0, 0, &config);
+    let mut p2 = world_sim::agent::Person::new(0.0, 0.0, 0, &config);
     let mut rng = rand::thread_rng();
     
     let start = Instant::now();
     for _ in 0..10000 {
-        world_sim::agent::Person::reproduce_sexual_with_rng(&mut p1, &mut p2, 500.0, &mut rng);
+        world_sim::agent::Person::reproduce_sexual_with_rng(&mut p1, &mut p2, 0, 500.0, &mut rng);
     }
     let duration = start.elapsed();
     println!("10000 reproductions in {:?}", duration);
@@ -80,17 +89,28 @@ fn bench_high_density_sorting() {
     
     let start = Instant::now();
     for _ in 0..100 {
-        // Mock spatial sorting as done in sim_thread
+        // Mock optimized spatial sorting as done in sim_thread
+        use rayon::prelude::*;
         let map_w = config.world.map_width as usize;
-        sim.agents.sort_by_key(|a| {
+        let map_h = config.world.map_height as usize;
+        
+        let mut indices: Vec<usize> = (0..sim.states.len()).collect();
+        indices.par_sort_by_key(|&i| {
+            let a = &sim.states[i];
             if a.health <= 0.0 { return usize::MAX; }
-            let ty = (a.y as usize).clamp(0, config.world.map_height as usize - 1);
-            let tx = (a.x as usize).clamp(0, config.world.map_width as usize - 1);
+            let ty = (a.y as usize).clamp(0, map_h - 1);
+            let tx = (a.x as usize).clamp(0, map_w - 1);
             ty * map_w + tx
         });
+
+        let mut sorted_states = Vec::with_capacity(sim.states.len());
+        for &i in &indices {
+            sorted_states.push(sim.states[i]);
+        }
+        sim.states = sorted_states;
     }
     let duration = start.elapsed();
     
-    println!("High Density: 100 Spatial Sorts of 20000 agents in {:?}", duration);
+    println!("High Density: 100 Optimized Spatial Sorts of 20000 agents in {:?}", duration);
     assert!(duration.as_secs() < 2, "High density sorting is too slow: {:?}", duration);
 }

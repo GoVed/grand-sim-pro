@@ -9,6 +9,7 @@
  */
 
 use world_sim::agent;
+use world_sim::agent::Person;
 use world_sim::simulation;
 use world_sim::gpu_engine;
 use world_sim::config;
@@ -139,7 +140,10 @@ async fn main() {
 
     let sim_thread_data = shared_data.clone();
     
-    let initial_agents = sim_thread_data.lock().unwrap().sim.agents.clone();
+    let (initial_states, initial_genetics) = {
+        let lock = sim_thread_data.lock().unwrap();
+        (lock.sim.states.clone(), lock.sim.genetics.clone())
+    };
     let height_map = sim_thread_data.lock().unwrap().sim.env.height_map.clone();
     let init_cells = sim_thread_data.lock().unwrap().sim.env.map_cells.clone();
 
@@ -150,7 +154,7 @@ async fn main() {
         next_frame().await;
     }
 
-    let gpu = Arc::new(GpuEngine::new(&initial_agents, &height_map, &init_cells, &loaded_config));
+    let gpu = Arc::new(GpuEngine::new(&initial_states, &initial_genetics, &height_map, &init_cells, &loaded_config));
 
     sim_thread::spawn(sim_thread_data.clone(), gpu.clone());
 
@@ -286,15 +290,25 @@ async fn main() {
 
             if pending_save_agents {
                 let _ = std::fs::create_dir_all("saved_agents_weights");
-                let mut living: Vec<_> = data.sim.agents.iter().filter(|a| a.health > 0.0).collect();
-                living.sort_by(|a, b| {
-                    let score_a = a.wealth + a.food;
-                    let score_b = b.wealth + b.food;
+                let mut living_indices: Vec<_> = data.sim.states.iter().enumerate()
+                    .filter(|(_, s)| s.health > 0.0)
+                    .map(|(i, _)| i)
+                    .collect();
+                
+                living_indices.sort_by(|&a_idx, &b_idx| {
+                    let s_a = &data.sim.states[a_idx];
+                    let s_b = &data.sim.states[b_idx];
+                    let score_a = s_a.wealth + s_a.food;
+                    let score_b = s_b.wealth + s_b.food;
                     score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
                 });
-                let save_count = living.len().min(data.config.sim.founder_count as usize);
+
+                let save_count = living_indices.len().min(data.config.sim.founder_count as usize);
                 for i in 0..save_count {
-                    let weights = living[i].extract_weights();
+                    let idx = living_indices[i];
+                    let s = &data.sim.states[idx];
+                    let p = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
+                    let weights = p.extract_weights();
                     if let Ok(json) = serde_json::to_string_pretty(&weights) {
                         let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), json);
                     }
@@ -316,43 +330,47 @@ async fn main() {
             ticks = data.total_ticks;
             compute_time = data.last_compute_time_micros as f32 / 1000.0;
             ticks_per_sec = data.ticks_per_second;
-            pop_count = data.sim.agents.iter().filter(|a| a.health > 0.0).count();
+            pop_count = data.sim.states.iter().filter(|s| s.health > 0.0).count();
             restart_msg = data.restart_message_active;
             last_saved_config = data.last_saved_config;
             
             if show_generation_graph { generation_times = data.generation_survival_times.clone(); }
 
             local_agent_coords.clear();
-            local_agent_coords.extend(data.sim.agents.iter().map(|a| AgentRenderData {
-                x: a.x, y: a.y, health: a.health, food: a.food, age: a.age, wealth: a.wealth, gender: a.gender, is_pregnant: a.is_pregnant,
-                pheno_r: a.pheno_r, pheno_g: a.pheno_g, pheno_b: a.pheno_b
+            local_agent_coords.extend(data.sim.states.iter().map(|s| AgentRenderData {
+                x: s.x, y: s.y, health: s.health, food: s.food, age: s.age, wealth: s.wealth, gender: s.gender, is_pregnant: s.is_pregnant,
+                pheno_r: s.pheno_r, pheno_g: s.pheno_g, pheno_b: s.pheno_b
             }));
             
             if show_inspector {
-                if inspector_agents.len() != data.sim.agents.iter().filter(|a| a.health > 0.0).count() {
+                if inspector_agents.len() != data.sim.states.iter().filter(|s| s.health > 0.0).count() {
                     inspector_agents.clear();
-                    for (i, a) in data.sim.agents.iter().enumerate() {
-                        if a.health > 0.0 { inspector_agents.push((i, *a)); }
+                    for (i, s) in data.sim.states.iter().enumerate() {
+                        if s.health > 0.0 { 
+                            let p = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
+                            inspector_agents.push((i, p)); 
+                        }
                     }
                     ui::apply_sort(&mut inspector_agents, sort_col, sort_desc);
                 } else {
                     for i in 0..inspector_agents.len() {
                         let original_idx = inspector_agents[i].0;
-                        inspector_agents[i].1 = data.sim.agents[original_idx];
+                        let s = &data.sim.states[original_idx];
+                        inspector_agents[i].1 = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
                     }
                 }
             }
             
             if let Some(fid) = followed_agent_id {
-                followed_agent = data.sim.agents.iter().find(|a| a.id == fid).cloned();
+                followed_agent = data.sim.states.iter().find(|s| s.id == fid).map(|s| Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] });
             } else {
                 followed_agent = None;
             }
         }
 
         if let Some(ref a) = followed_agent {
-            offset_x = map_width as f32 / 2.0 - a.x;
-            offset_y = map_height as f32 / 2.0 - a.y;
+            offset_x = map_width as f32 / 2.0 - a.state.x;
+            offset_y = map_height as f32 / 2.0 - a.state.y;
         }
 
         clear_background(BLACK);
@@ -398,7 +416,7 @@ async fn main() {
             draw_circle(a.x, a.y, radius, color);
         }
 
-        if let Some(ref a) = followed_agent { draw_circle_lines(a.x, a.y, 8.0, 2.0, YELLOW); }
+        if let Some(ref a) = followed_agent { draw_circle_lines(a.state.x, a.state.y, 8.0, 2.0, YELLOW); }
 
         set_default_camera();
         let clock_x = screen_width() - 220.0;

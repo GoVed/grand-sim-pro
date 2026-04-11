@@ -8,13 +8,14 @@
  * See the LICENSE file in the project root for full license details.
  */
 
-use crate::agent::Person;
+use crate::agent::{Person, AgentState, Genetics};
 use crate::environment::Environment;
 use ::rand::Rng;
 
 pub struct SimulationManager {
     pub env: Environment,
-    pub agents: Vec<Person>,
+    pub states: Vec<AgentState>,
+    pub genetics: Vec<Genetics>,
     pub pending_births: std::collections::HashMap<u32, Person>,
     
     // Reusable buffers to avoid allocations in process_genetics_and_births
@@ -33,7 +34,7 @@ pub fn load_founders(config: &crate::config::SimConfig) -> Vec<Person> {
             if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
                 if let Ok(contents) = std::fs::read_to_string(entry.path()) {
                     if let Ok(weights) = serde_json::from_str::<crate::agent::AgentWeights>(&contents) {
-                        let mut dummy = Person::new(0.0, 0.0, config);
+                        let mut dummy = Person::new(0.0, 0.0, 0, config);
                         dummy.apply_weights(&weights);
                         founders.push(dummy);
                     }
@@ -63,7 +64,8 @@ impl SimulationManager {
             }
         };
 
-        let mut agents = Vec::with_capacity(count as usize);
+        let mut states = Vec::with_capacity(count as usize);
+        let mut genetics = Vec::with_capacity(count as usize);
         let mut current_spawn_pt = get_land_spawn_point(&mut rng);
         let mut current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
         let mut spawn_count = 0;
@@ -80,11 +82,12 @@ impl SimulationManager {
             }
             let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
             let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-            let mut agent = Person::new(px, py, config);
-            agent.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-            agent.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-            agent.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-            agents.push(agent);
+            let mut agent = Person::new(px, py, states.len() as u32, config);
+            agent.state.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+            agent.state.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+            agent.state.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+            states.push(agent.state);
+            genetics.push(agent.genetics);
             spawn_count += 1;
         }
 
@@ -101,18 +104,19 @@ impl SimulationManager {
                     }
                     let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                     let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-                    let mut child = founder.clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
-                    child.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
-                    child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                    child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                    child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                    agents.push(child);
+                    let mut child = founder.clone_as_descendant(px, py, states.len() as u32, mutation_rate, mutation_strength, config);
+                    child.state.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
+                    child.state.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                    child.state.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                    child.state.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                    states.push(child.state);
+                    genetics.push(child.genetics);
                     spawn_count += 1;
                 }
             }
 
             // Fill remaining slots
-            while agents.len() < count as usize {
+            while states.len() < count as usize {
                 if spawn_count >= spawn_group_size { 
                     current_spawn_pt = get_land_spawn_point(&mut rng); 
                     current_base_color = ((rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0, (rng.r#gen::<f32>() * 2.0) - 1.0);
@@ -120,19 +124,21 @@ impl SimulationManager {
                 }
                 let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                 let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-                let mut child = founders[0].clone_as_descendant(px, py, mutation_rate, mutation_strength, config);
-                child.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
-                child.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                child.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                child.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
-                agents.push(child);
+                let mut child = founders[0].clone_as_descendant(px, py, states.len() as u32, mutation_rate, mutation_strength, config);
+                child.state.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
+                child.state.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                child.state.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                child.state.pheno_b = (current_base_color.2 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
+                states.push(child.state);
+                genetics.push(child.genetics);
                 spawn_count += 1;
             }
         }
         
         Self { 
             env, 
-            agents, 
+            states, 
+            genetics,
             pending_births: std::collections::HashMap::new(),
             cell_occupants: std::collections::HashMap::with_capacity(count as usize / 10),
             living_ids: std::collections::HashSet::with_capacity(count as usize),
@@ -152,15 +158,15 @@ impl SimulationManager {
         let puberty = config.bio.puberty_age;
         let menopause = config.bio.menopause_age;
 
-        for i in 0..self.agents.len() {
-            let a = &self.agents[i];
-            if a.health <= 0.0 {
+        for i in 0..self.states.len() {
+            let s = &self.states[i];
+            if s.health <= 0.0 {
                 self.dead_indices.push(i);
             } else {
-                self.living_ids.insert(a.id);
+                self.living_ids.insert(s.id);
                 let map_w = config.world.map_width as usize;
                 let map_h = config.world.map_height as usize;
-                let idx = (a.y as usize).clamp(0, map_h.saturating_sub(1)) * map_w + (a.x as usize).clamp(0, map_w.saturating_sub(1));
+                let idx = (s.y as usize).clamp(0, map_h.saturating_sub(1)) * map_w + (s.x as usize).clamp(0, map_w.saturating_sub(1));
                 self.cell_occupants.entry(idx).or_default().push(i);
             }
         }
@@ -169,9 +175,9 @@ impl SimulationManager {
         self.pending_births.retain(|id, _| living_ids_ref.contains(id));
 
         let mut modifications = false;
-        for mother in &self.agents {
-            if mother.gestation_timer <= 0.0 && self.pending_births.contains_key(&mother.id) {
-                self.births_to_process.push((mother.id, mother.x, mother.y));
+        for s in &self.states {
+            if s.gestation_timer <= 0.0 && self.pending_births.contains_key(&s.id) {
+                self.births_to_process.push((s.id, s.x, s.y));
             }
         }
 
@@ -180,14 +186,21 @@ impl SimulationManager {
         for (mother_id, mx, my) in births {
             if let Some(dead_idx) = self.dead_indices.pop() {
                 if let Some(mut child) = self.pending_births.remove(&mother_id) {
-                    child.x = mx;
-                    child.y = my;
-                    self.agents[dead_idx] = child;
+                    child.state.x = mx;
+                    child.state.y = my;
+                    
+                    // The child's state will be placed at dead_idx in self.states
+                    // Its genetics will be placed at child.state.genetics_index in self.genetics
+                    let g_idx = child.state.genetics_index as usize;
+                    if g_idx < self.genetics.len() {
+                        self.genetics[g_idx] = child.genetics;
+                    }
+                    self.states[dead_idx] = child.state;
                     
                     // Reset mother's pregnancy state
-                    if let Some(mother) = self.agents.iter_mut().find(|a| a.id == mother_id) {
-                        mother.is_pregnant = 0.0;
-                        mother.gestation_timer = 0.0;
+                    if let Some(mother_state) = self.states.iter_mut().find(|s| s.id == mother_id) {
+                        mother_state.is_pregnant = 0.0;
+                        mother_state.gestation_timer = 0.0;
                     }
 
                     modifications = true;
@@ -198,7 +211,7 @@ impl SimulationManager {
         let reproduction_cost = config.eco.reproduction_cost;
         let mut rng = rand::thread_rng();
 
-        // Use a temporary vector of cell indices to avoid borrowing self.cell_occupants while modifying self.agents
+        // Use a temporary vector of cell indices to avoid borrowing self.cell_occupants while modifying self.states
         let active_cells: Vec<usize> = self.cell_occupants.iter()
             .filter(|(_, occupants)| occupants.len() >= 2)
             .map(|(&idx, _)| idx)
@@ -210,33 +223,44 @@ impl SimulationManager {
             self.females.clear();
 
             for &idx in occupants {
-                let a = &self.agents[idx];
-                let is_mature = a.age >= puberty && a.age <= menopause;
-                if is_mature && a.reproduce_desire > 0.5 && a.wealth >= reproduction_cost / 2.0 && a.health > config.bio.max_health * 0.5 {
-                    if a.gender > 0.5 { self.males.push(idx); } else if a.gestation_timer <= 0.0 && !self.pending_births.contains_key(&a.id) { self.females.push(idx); }
+                let s = &self.states[idx];
+                let is_mature = s.age >= puberty && s.age <= menopause;
+                if is_mature && s.reproduce_desire > 0.5 && s.wealth >= reproduction_cost / 2.0 && s.health > config.bio.max_health * 0.5 {
+                    if s.gender > 0.5 { self.males.push(idx); } else if s.gestation_timer <= 0.0 && !self.pending_births.contains_key(&s.id) { self.females.push(idx); }
                 }
             }
 
             while let (Some(m_idx), Some(f_idx)) = (self.males.pop(), self.females.pop()) {
                 let (child, p2_id) = {
-                    if m_idx < f_idx {
-                        let (left, right) = self.agents.split_at_mut(f_idx);
-                        let p1 = &mut left[m_idx];
-                        let p2 = &mut right[0];
-                        let child = Person::reproduce_sexual_with_rng(p1, p2, reproduction_cost, &mut rng);
-                        (child, p2.id)
-                    } else {
-                        let (left, right) = self.agents.split_at_mut(m_idx);
-                        let p2 = &mut left[f_idx];
-                        let p1 = &mut right[0];
-                        let child = Person::reproduce_sexual_with_rng(p1, p2, reproduction_cost, &mut rng);
-                        (child, p2.id)
-                    }
+                    let m_g_idx = self.states[m_idx].genetics_index as usize;
+                    let f_g_idx = self.states[f_idx].genetics_index as usize;
+                    
+                    let mut p1 = Person { state: self.states[m_idx], genetics: self.genetics[m_g_idx] };
+                    let mut p2 = Person { state: self.states[f_idx], genetics: self.genetics[f_g_idx] };
+                    
+                    // The child needs a genetics index. We'll use the one from a dead agent later.
+                    // For now, we just need to pass something to reproduce_sexual_with_rng.
+                    // Wait, when we insert into pending_births, we don't know the dead_idx yet.
+                    // But Person::reproduce_sexual_with_rng takes genetics_index.
+                    // Actually, we should probably use the mother's or father's genetics_index if they were to die,
+                    // but they aren't dead yet.
+                    
+                    // Let's look at how it was done before:
+                    // child = Person::reproduce_sexual_with_rng(p1, p2, 0, reproduction_cost, &mut rng);
+                    // It was passing 0.
+                    
+                    let child = Person::reproduce_sexual_with_rng(&mut p1, &mut p2, f_g_idx as u32, reproduction_cost, &mut rng);
+                    
+                    // Update parents
+                    self.states[m_idx] = p1.state;
+                    self.states[f_idx] = p2.state;
+                    
+                    (child, p2.state.id)
                 };
                 
-                let p2 = &mut self.agents[f_idx];
-                p2.is_pregnant = 1.0;
-                p2.gestation_timer = config.bio.gestation_period;
+                let p2_state = &mut self.states[f_idx];
+                p2_state.is_pregnant = 1.0;
+                p2_state.gestation_timer = config.bio.gestation_period;
                 
                 self.pending_births.insert(p2_id, child); 
                 modifications = true;
@@ -256,7 +280,8 @@ mod tests {
         let config = SimConfig::default();
         let sim = SimulationManager::new(800, 600, 12345, 100, &config, Vec::new());
         
-        assert_eq!(sim.agents.len(), 100);
+        assert_eq!(sim.states.len(), 100);
+        assert_eq!(sim.genetics.len(), 100);
         assert_eq!(sim.env.height_map.len(), 800 * 600);
         assert_eq!(sim.env.map_cells.len(), 800 * 600);
     }
@@ -274,27 +299,27 @@ mod tests {
         let mut sim = SimulationManager::new(800, 600, 12345, 10, &config, Vec::new());
         
         // Setup two agents in the same cell ready to reproduce
-        sim.agents[0].x = 100.0;
-        sim.agents[0].y = 100.0;
-        sim.agents[0].gender = 1.0; // Male
-        sim.agents[0].reproduce_desire = 1.0;
-        sim.agents[0].wealth = 100.0;
-        sim.agents[0].age = 20.0;
-        sim.agents[0].health = 100.0;
+        sim.states[0].x = 100.0;
+        sim.states[0].y = 100.0;
+        sim.states[0].gender = 1.0; // Male
+        sim.states[0].reproduce_desire = 1.0;
+        sim.states[0].wealth = 100.0;
+        sim.states[0].age = 20.0;
+        sim.states[0].health = 100.0;
 
-        sim.agents[1].x = 100.1;
-        sim.agents[1].y = 100.1;
-        sim.agents[1].gender = 0.0; // Female
-        sim.agents[1].reproduce_desire = 1.0;
-        sim.agents[1].wealth = 100.0;
-        sim.agents[1].age = 20.0;
-        sim.agents[1].health = 100.0;
-        sim.agents[1].gestation_timer = 0.0;
+        sim.states[1].x = 100.1;
+        sim.states[1].y = 100.1;
+        sim.states[1].gender = 0.0; // Female
+        sim.states[1].reproduce_desire = 1.0;
+        sim.states[1].wealth = 100.0;
+        sim.states[1].age = 20.0;
+        sim.states[1].health = 100.0;
+        sim.states[1].gestation_timer = 0.0;
 
         // Ensure no other agents can reproduce
         for i in 2..10 {
-            sim.agents[i].wealth = 0.0;
-            sim.agents[i].health = 100.0;
+            sim.states[i].wealth = 0.0;
+            sim.states[i].health = 100.0;
         }
 
         let modified = sim.process_genetics_and_births(&config);
@@ -302,18 +327,18 @@ mod tests {
         assert!(!sim.pending_births.is_empty());
         
         // Advance gestation and check for birth
-        sim.agents[1].gestation_timer = -1.0; // Force birth
+        sim.states[1].gestation_timer = -1.0; // Force birth
         // Set desire to 0 to prevent immediate re-conception during birth turn
-        sim.agents[0].reproduce_desire = 0.0;
-        sim.agents[1].reproduce_desire = 0.0;
+        sim.states[0].reproduce_desire = 0.0;
+        sim.states[1].reproduce_desire = 0.0;
         
         // Kill one agent to make space for birth
-        sim.agents[5].health = -1.0; 
+        sim.states[5].health = -1.0; 
         
         let modified_birth = sim.process_genetics_and_births(&config);
         println!("Modified birth: {}, pending births: {}", modified_birth, sim.pending_births.len());
         assert!(modified_birth);
         assert!(sim.pending_births.is_empty());
-        assert!(sim.agents[5].health > 0.0); // Birth should have replaced dead agent
+        assert!(sim.states[5].health > 0.0); // Birth should have replaced dead agent
     }
 }

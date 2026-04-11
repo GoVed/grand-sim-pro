@@ -52,24 +52,24 @@ impl TelemetryExporter {
         let file = OpenOptions::new().append(true).open(&self.file_path)?;
         let mut writer = BufWriter::new(file);
 
-        let living_agents: Vec<_> = sim.agents.iter().filter(|a| a.health > 0.0).collect();
-        let population = living_agents.len();
-        
-        let (avg_age, avg_health, avg_wealth, avg_food, avg_stamina, avg_water) = if population > 0 {
-            let sum_age: f32 = living_agents.iter().map(|a| a.age).sum();
-            let sum_health: f32 = living_agents.iter().map(|a| a.health).sum();
-            let sum_wealth: f32 = living_agents.iter().map(|a| a.wealth).sum();
-            let sum_food: f32 = living_agents.iter().map(|a| a.food).sum();
-            let sum_stamina: f32 = living_agents.iter().map(|a| a.stamina).sum();
-            let sum_water: f32 = living_agents.iter().map(|a| a.water).sum();
+        let living_states: Vec<_> = sim.states.iter().filter(|s| s.health > 0.0).collect();
+        let pop_count = living_states.len();
+
+        let (avg_age, avg_health, avg_wealth, avg_food, avg_stamina, avg_water) = if pop_count > 0 {
+            let sum_age: f32 = living_states.iter().map(|s| s.age).sum();
+            let sum_health: f32 = living_states.iter().map(|s| s.health).sum();
+            let sum_wealth: f32 = living_states.iter().map(|s| s.wealth).sum();
+            let sum_food: f32 = living_states.iter().map(|s| s.food).sum();
+            let sum_stamina: f32 = living_states.iter().map(|s| s.stamina).sum();
+            let sum_water: f32 = living_states.iter().map(|s| s.water).sum();
             
             (
-                sum_age / population as f32,
-                sum_health / population as f32,
-                sum_wealth / population as f32,
-                sum_food / population as f32,
-                sum_stamina / population as f32,
-                sum_water / population as f32,
+                sum_age / pop_count as f32,
+                sum_health / pop_count as f32,
+                sum_wealth / pop_count as f32,
+                sum_food / pop_count as f32,
+                sum_stamina / pop_count as f32,
+                sum_water / pop_count as f32,
             )
         } else {
             (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -97,7 +97,7 @@ impl TelemetryExporter {
             "{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{}",
             generation,
             total_ticks,
-            population,
+            pop_count,
             avg_age,
             avg_health,
             avg_wealth,

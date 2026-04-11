@@ -1,7 +1,11 @@
 /*
- * Grand Sim Pro: UI Logic Module
- * Pure logic for situational probing, configuration filtering, and layout.
- * This file MUST NOT import macroquad to remain testable in headless environments.
+ * Grand Sim Pro: A high-performance GPGPU evolutionary agent simulation.
+ * Part of an independent research project into emergent biological complexity.
+ *
+ * Copyright (C) 2026 Ved Hirenkumar Suthar
+ * Licensed under the GNU General Public License v3.0 or later.
+ * * This software is provided "as is", without warranty of any kind.
+ * See the LICENSE file in the project root for full license details.
  */
 
 use crate::agent::Person;
