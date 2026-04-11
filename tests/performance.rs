@@ -10,7 +10,7 @@ fn bench_simulation_step() {
     config.world.map_height = 600;
     config.sim.agent_count = 10000;
     
-    let mut sim = SimulationManager::new(800, 600, 12345, 10000, &config);
+    let mut sim = SimulationManager::new(800, 600, 12345, 10000, &config, Vec::new());
     
     let start = Instant::now();
     for _ in 0..500 {
@@ -27,7 +27,7 @@ fn bench_simulation_step() {
 fn bench_world_generation() {
     let config = SimConfig::default();
     let start = Instant::now();
-    let _sim = SimulationManager::new(800, 600, 12345, 1000, &config);
+    let _sim = SimulationManager::new(800, 600, 12345, 1000, &config, Vec::new());
     let duration = start.elapsed();
     println!("World generation (800x600) took {:?}", duration);
     assert!(duration.as_secs() < 10, "World generation is too slow: {:?}", duration);

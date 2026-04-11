@@ -19,6 +19,22 @@ impl From<UIColor> for Color {
     }
 }
 
+pub fn apply_sort(agents: &mut Vec<(usize, Person)>, col: SortCol, desc: bool) {
+    agents.sort_by(|a, b| {
+        let (p1, p2) = (&a.1, &b.1);
+        let res = match col {
+            SortCol::Index => a.0.cmp(&b.0),
+            SortCol::Age => p1.age.partial_cmp(&p2.age).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Health => p1.health.partial_cmp(&p2.health).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Food => p1.food.partial_cmp(&p2.food).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Wealth => p1.wealth.partial_cmp(&p2.wealth).unwrap_or(std::cmp::Ordering::Equal),
+            SortCol::Gender => p1.gender.partial_cmp(&p2.gender).unwrap_or(std::cmp::Ordering::Equal),
+            _ => std::cmp::Ordering::Equal,
+        };
+        if desc { res.reverse() } else { res }
+    });
+}
+
 pub fn draw_metrics(
     pop_count: usize, compute_time: u128, speed: usize, ticks: u64, tick_to_mins: f32,
     fps: i32, avg_fps: f32, low_1_fps: f32, current_visual_mode: VisualMode, show_inspector: bool, show_generation_graph: bool,
@@ -129,26 +145,18 @@ pub fn draw_inspector(
 
     let mut cur_x = panel_x + 20.0;
     for (col, label, width) in cols.iter() {
-        let header_rect = Rect::new(cur_x, y - 15.0, *width, 20.0);
+        let header_rect = Rect::new(cur_x, y - 25.0, *width, 40.0);
         let is_hover = header_rect.contains(vec2(mx, my));
         let color = if *sort_col == *col { Color::new(0.0, 1.0, 0.8, 1.0) } else if is_hover { WHITE } else { GRAY };
         
         draw_text(label, cur_x, y, 16.0, color);
         if left_clicked && is_hover {
             if *sort_col == *col { *sort_desc = !*sort_desc; }
-            else { *sort_col = *col; *sort_desc = true; }
-            agents.sort_by(|a, b| {
-                let (p1, p2) = if *sort_desc { (&b.1, &a.1) } else { (&a.1, &b.1) };
-                match sort_col {
-                    SortCol::Index => a.0.cmp(&b.0),
-                    SortCol::Age => p1.age.partial_cmp(&p2.age).unwrap(),
-                    SortCol::Health => p1.health.partial_cmp(&p2.health).unwrap(),
-                    SortCol::Food => p1.food.partial_cmp(&p2.food).unwrap(),
-                    SortCol::Wealth => p1.wealth.partial_cmp(&p2.wealth).unwrap(),
-                    SortCol::Gender => p1.gender.partial_cmp(&p2.gender).unwrap(),
-                    _ => std::cmp::Ordering::Equal,
-                }
-            });
+            else { 
+                *sort_col = *col; 
+                *sort_desc = true; 
+            }
+            apply_sort(agents, *sort_col, *sort_desc);
         }
         cur_x += width;
     }
@@ -201,7 +209,6 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
     draw_text(&format!("NEURAL PROFILE: AGENT #{}", a.id), panel_x + 20.0, py, 24.0, YELLOW);
     py += 40.0;
 
-    // --- Situational Behavioral Probing ---
     draw_text("BEHAVIORAL SIMULATION (Situational Probing)", panel_x + 20.0, py, 18.0, GRAY); py += 30.0;
 
     let profile = ui_logic::calculate_behavioral_profile(a);
@@ -241,6 +248,64 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
             draw_rectangle(matrix_x + o as f32 * cell_size, py + h as f32 * cell_size, cell_size - 1.0, cell_size - 1.0, color);
         }
     }
+    py += (a.hidden_count as f32 * cell_size) + 20.0;
+
+    draw_text("INTERACTIVE SENSORY-BEHAVIORAL INFLUENCE (Linear Approximation)", matrix_x, py, 14.0, GRAY); py += 30.0;
+    
+    let mx = mouse_position().0;
+    let my = mouse_position().1;
+    let left_nodes_x = matrix_x + 120.0;
+    let right_nodes_x = matrix_x + 400.0;
+    let node_radius = 4.0;
+    let influence = a.calculate_input_output_influence();
+    
+    let mut hover_node = None;
+    let mut is_hover_output = false;
+
+    let right_spacing = (panel_h - (py - panel_y) - 50.0) / (NUM_OUTPUTS as f32);
+    for o in 0..NUM_OUTPUTS {
+        let ny = py + o as f32 * right_spacing;
+        let dist_sq = (mx - right_nodes_x) * (mx - right_nodes_x) + (my - ny) * (my - ny);
+        let is_hover = dist_sq < (node_radius * 3.0) * (node_radius * 3.0);
+        if is_hover { hover_node = Some(o); is_hover_output = true; }
+        draw_circle(right_nodes_x, ny, node_radius, if is_hover { YELLOW } else { Color::new(0.3, 0.3, 0.3, 1.0) });
+        draw_text(crate::agent::OUTPUT_LABELS[o], right_nodes_x + 15.0, ny + 5.0, 11.0, if is_hover { WHITE } else { GRAY });
+    }
+
+    let mut input_importance = vec![0.0f32; crate::agent::NUM_INPUTS];
+    for i in 0..crate::agent::NUM_INPUTS {
+        for o in 0..NUM_OUTPUTS { input_importance[i] += influence[i * NUM_OUTPUTS + o].abs(); }
+    }
+    let mut top_input_indices: Vec<usize> = (0..crate::agent::NUM_INPUTS).collect();
+    top_input_indices.sort_by(|a, b| input_importance[*b].partial_cmp(&input_importance[*a]).unwrap());
+    top_input_indices.truncate(30);
+    top_input_indices.sort();
+
+    let left_spacing = (panel_h - (py - panel_y) - 50.0) / (top_input_indices.len() as f32);
+    for (idx, &i_idx) in top_input_indices.iter().enumerate() {
+        let ny = py + idx as f32 * left_spacing;
+        let dist_sq = (mx - left_nodes_x) * (mx - left_nodes_x) + (my - ny) * (my - ny);
+        let is_hover = dist_sq < (node_radius * 3.0) * (node_radius * 3.0);
+        if is_hover { hover_node = Some(i_idx); is_hover_output = false; }
+        draw_circle(left_nodes_x, ny, node_radius, if is_hover { YELLOW } else { Color::new(0.3, 0.3, 0.3, 1.0) });
+        draw_text(crate::agent::INPUT_LABELS[i_idx], left_nodes_x - 110.0, ny + 5.0, 11.0, if is_hover { WHITE } else { GRAY });
+    }
+
+    let connections = ui_logic::get_top_connections(&influence, crate::agent::NUM_INPUTS, NUM_OUTPUTS, hover_node, is_hover_output, if hover_node.is_some() { 20 } else { 40 });
+    for conn in connections {
+        if let Some(left_idx) = top_input_indices.iter().position(|&x| x == conn.from_idx) {
+            let ly = py + left_idx as f32 * left_spacing;
+            let ry = py + conn.to_idx as f32 * right_spacing;
+            let alpha = (conn.weight.abs() * 2.0).min(1.0);
+            let color = if conn.weight > 0.0 { Color::new(0.0, 0.8, 1.0, alpha) } else { Color::new(1.0, 0.4, 0.0, alpha) };
+            draw_line(left_nodes_x, ly, right_nodes_x, ry, (conn.weight.abs() * 5.0).max(0.5), color);
+            if hover_node.is_some() {
+                let mid_x = (left_nodes_x + right_nodes_x) / 2.0;
+                let mid_y = (ly + ry) / 2.0;
+                draw_text(&format!("{:.2}", conn.weight), mid_x - 15.0, mid_y, 10.0, WHITE);
+            }
+        }
+    }
 }
 
 pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &Person, followed_id: &mut Option<u32>, show_inspector: &mut bool, tick_to_mins: f32) {
@@ -270,7 +335,7 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &Person, followed_i
     if left_clicked && ins_btn.contains(vec2(mx, my)) { *show_inspector = true; }
 }
 
-pub fn draw_generation_graph(times: &[u64]) {
+pub fn draw_generation_graph(times: &[u64], tick_to_mins: f32) {
     if times.is_empty() { return; }
     let panel_w = 400.0;
     let panel_h = 300.0;
@@ -280,21 +345,21 @@ pub fn draw_generation_graph(times: &[u64]) {
     draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
     draw_text("Generation Survival Time", panel_x + 100.0, panel_y + 25.0, 20.0, WHITE);
     
-    let max_time = (*times.iter().max().unwrap_or(&1)).max(1);
+    let max_ticks = (*times.iter().max().unwrap_or(&1)).max(1);
     let max_gen = (times.len() - 1).max(1);
 
-    // Axes
     draw_line(panel_x + 40.0, panel_y + panel_h - 40.0, panel_x + panel_w - 40.0, panel_y + panel_h - 40.0, 1.0, GRAY);
     draw_line(panel_x + 40.0, panel_y + 40.0, panel_x + 40.0, panel_y + panel_h - 40.0, 1.0, GRAY);
     
-    draw_text(&format!("{}", max_time), panel_x + 5.0, panel_y + 50.0, 14.0, GRAY);
-    draw_text("0", panel_x + 25.0, panel_y + panel_h - 35.0, 14.0, GRAY);
-    draw_text("Gen", panel_x + panel_w - 35.0, panel_y + panel_h - 25.0, 14.0, GRAY);
+    let (max_label, zero, r#gen) = ui_logic::get_graph_axes_labels(max_ticks, tick_to_mins);
+    draw_text(&max_label, panel_x + 5.0, panel_y + 50.0, 14.0, GRAY);
+    draw_text(&zero, panel_x + 25.0, panel_y + panel_h - 35.0, 14.0, GRAY);
+    draw_text(&r#gen, panel_x + panel_w - 35.0, panel_y + panel_h - 25.0, 14.0, GRAY);
 
     let mut last_pts: Option<(f32, f32)> = None;
     for (i, &time) in times.iter().enumerate() {
         let px = panel_x + 40.0 + (i as f32 / max_gen as f32) * (panel_w - 80.0);
-        let py = panel_y + panel_h - 40.0 - (time as f32 / max_time as f32) * (panel_h - 80.0);
+        let py = panel_y + panel_h - 40.0 - (time as f32 / max_ticks as f32) * (panel_h - 80.0);
         draw_circle(px, py, 3.0, YELLOW);
         if let Some(lp) = last_pts { draw_line(lp.0, lp.1, px, py, 2.0, Color::new(0.0, 1.0, 0.8, 1.0)); }
         last_pts = Some((px, py));
@@ -312,28 +377,23 @@ pub fn draw_config_panel(
     _active_button: &mut Option<String>,
     _hold_time: &mut f32,
 ) {
-    let panel_w = 400.0;
-    let panel_h = (screen_height() - 40.0).min(900.0);
-    let panel_x = screen_width() - panel_w - 20.0;
-    let panel_y = (screen_height() - panel_h) / 2.0;
+    let layout = ui_logic::calculate_config_layout(screen_width(), screen_height());
+    draw_rectangle(layout.x, layout.y, layout.w, layout.h, Color::new(0.0, 0.05, 0.05, 0.98));
+    draw_rectangle_lines(layout.x, layout.y, layout.w, layout.h, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
 
-    draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.0, 0.05, 0.05, 0.98));
-    draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
+    let mut py = layout.y + 20.0;
+    draw_text("CONFIGURATION", layout.x + 20.0, py, 24.0, Color::new(0.0, 1.0, 0.8, 1.0)); py += 35.0;
 
-    let mut py = panel_y + 20.0;
-    draw_text("CONFIGURATION", panel_x + 20.0, py, 24.0, Color::new(0.0, 1.0, 0.8, 1.0)); py += 35.0;
-
-    // Search
-    draw_rectangle(panel_x + 20.0, py, panel_w - 40.0, 30.0, Color::new(0.1, 0.1, 0.1, 1.0));
-    draw_rectangle_lines(panel_x + 20.0, py, panel_w - 40.0, 30.0, 1.0, GRAY);
-    if search_query.is_empty() { draw_text("Search settings...", panel_x + 30.0, py + 20.0, 18.0, DARKGRAY); }
-    else { draw_text(search_query, panel_x + 30.0, py + 20.0, 18.0, WHITE); }
+    draw_rectangle(layout.x + 20.0, py, layout.w - 40.0, 30.0, Color::new(0.1, 0.1, 0.1, 1.0));
+    draw_rectangle_lines(layout.x + 20.0, py, layout.w - 40.0, 30.0, 1.0, GRAY);
+    if search_query.is_empty() { draw_text("Search settings...", layout.x + 30.0, py + 20.0, 18.0, DARKGRAY); }
+    else { draw_text(search_query, layout.x + 30.0, py + 20.0, 18.0, WHITE); }
     
     while let Some(c) = get_char_pressed() { if !c.is_control() { search_query.push(c); } }
     if is_key_pressed(KeyCode::Backspace) { search_query.pop(); }
     py += 45.0;
 
-    let save_btn = Rect::new(panel_x + 20.0, py, 120.0, 35.0);
+    let save_btn = Rect::new(layout.x + 20.0, py, 120.0, 35.0);
     let hover = save_btn.contains(vec2(mx, my));
     draw_rectangle(save_btn.x, save_btn.y, save_btn.w, save_btn.h, if hover { Color::new(0.0, 0.6, 0.5, 1.0) } else { Color::new(0.0, 0.4, 0.3, 1.0) });
     draw_text("SAVE JSON", save_btn.x + 15.0, save_btn.y + 24.0, 18.0, WHITE);
@@ -343,19 +403,63 @@ pub fn draw_config_panel(
     let filtered = ui_logic::get_filtered_config_items(config, last_saved, search_query);
     let mut item_y = py + *scroll;
     for item in filtered {
+        if item_y < py || item_y > layout.y + layout.h - 40.0 { item_y += 35.0; continue; }
         let text_color: Color = item.color.into();
-        draw_text(&item.label, panel_x + 30.0, item_y + 20.0, 16.0, text_color);
-        draw_text(&item.value_str, panel_x + 180.0, item_y + 20.0, 16.0, text_color);
+        draw_text(&item.label, layout.x + 30.0, item_y + 20.0, 14.0, text_color);
+        draw_text(&item.value_str, layout.x + 220.0, item_y + 20.0, 14.0, text_color);
         
-        let inc_btn = Rect::new(panel_x + 340.0, item_y + 4.0, 30.0, 24.0);
-        let hover = inc_btn.contains(vec2(mx, my));
-        draw_rectangle(inc_btn.x, inc_btn.y, inc_btn.w, inc_btn.h, if hover { GREEN } else { GRAY });
+        let inc_btn = Rect::new(layout.x + 330.0, item_y + 4.0, 30.0, 24.0);
+        let dec_btn = Rect::new(layout.x + 300.0, item_y + 4.0, 30.0, 24.0);
+        
+        if left_clicked && inc_btn.contains(vec2(mx, my)) { update_val(config, &item.key, 1.0); *config_changed = true; }
+        if left_clicked && dec_btn.contains(vec2(mx, my)) { update_val(config, &item.key, -1.0); *config_changed = true; }
+        
+        draw_rectangle(inc_btn.x, inc_btn.y, inc_btn.w, inc_btn.h, if inc_btn.contains(vec2(mx, my)) { GREEN } else { GRAY });
+        draw_rectangle(dec_btn.x, dec_btn.y, dec_btn.w, dec_btn.h, if dec_btn.contains(vec2(mx, my)) { RED } else { GRAY });
         draw_text("+", inc_btn.x + 8.0, inc_btn.y + 18.0, 20.0, WHITE);
-        
-        if left_clicked && hover { 
-            config.world.regen_rate = (config.world.regen_rate + 0.005).clamp(0.0, 1.0);
-            *config_changed = true;
-        }
+        draw_text("-", dec_btn.x + 10.0, dec_btn.y + 18.0, 20.0, WHITE);
         item_y += 35.0;
+    }
+}
+
+fn update_val(c: &mut crate::config::SimConfig, key: &str, dir: f32) {
+    match key {
+        "world.regen_rate" => c.world.regen_rate = (c.world.regen_rate + 0.001 * dir).max(0.0),
+        "world.max_tile_resource" => c.world.max_tile_resource = (c.world.max_tile_resource + 100.0 * dir).max(0.0),
+        "world.max_tile_water" => c.world.max_tile_water = (c.world.max_tile_water + 100.0 * dir).max(0.0),
+        "world.tick_to_mins" => c.world.tick_to_mins = (c.world.tick_to_mins + 1.0 * dir).max(0.1),
+        
+        "sim.agent_count" => c.sim.agent_count = (c.sim.agent_count as i32 + 100 * dir as i32).max(1) as u32,
+        "sim.spawn_group_size" => c.sim.spawn_group_size = (c.sim.spawn_group_size as i32 + 10 * dir as i32).max(1) as u32,
+        "sim.founder_count" => c.sim.founder_count = (c.sim.founder_count as i32 + 10 * dir as i32).max(1) as u32,
+        "sim.load_saved_agents_on_start" => c.sim.load_saved_agents_on_start = (c.sim.load_saved_agents_on_start as i32 + dir as i32).clamp(0, 2) as u32,
+
+        "bio.base_speed" => c.bio.base_speed = (c.bio.base_speed + 0.5 * dir).max(0.1),
+        "bio.max_age" => c.bio.max_age = (c.bio.max_age + 10000.0 * dir).max(100.0),
+        "bio.max_health" => c.bio.max_health = (c.bio.max_health + 10.0 * dir).max(1.0),
+        "bio.max_stamina" => c.bio.max_stamina = (c.bio.max_stamina + 10.0 * dir).max(1.0),
+        "bio.max_water" => c.bio.max_water = (c.bio.max_water + 10.0 * dir).max(1.0),
+        "bio.puberty_age" => c.bio.puberty_age = (c.bio.puberty_age + 1000.0 * dir).max(0.0),
+        "bio.gestation_period" => c.bio.gestation_period = (c.bio.gestation_period + 100.0 * dir).max(0.0),
+        "bio.starvation_rate" => c.bio.starvation_rate = (c.bio.starvation_rate + 0.01 * dir).max(0.0),
+
+        "eco.baseline_cost" => c.eco.baseline_cost = (c.eco.baseline_cost + 0.01 * dir).max(0.0),
+        "eco.reproduction_cost" => c.eco.reproduction_cost = (c.eco.reproduction_cost + 1.0 * dir).max(0.0),
+        "eco.boat_cost" => c.eco.boat_cost = (c.eco.boat_cost + 10.0 * dir).max(0.0),
+        "eco.water_transfer_amount" => c.eco.water_transfer_amount = (c.eco.water_transfer_amount + 0.1 * dir).max(0.0),
+        "eco.base_spoilage_rate" => c.eco.base_spoilage_rate = (c.eco.base_spoilage_rate + 0.001 * dir).max(0.0),
+
+        "genetics.mutation_rate" => c.genetics.mutation_rate = (c.genetics.mutation_rate + 0.01 * dir).clamp(0.0, 1.0),
+        "genetics.mutation_strength" => c.genetics.mutation_strength = (c.genetics.mutation_strength + 0.01 * dir).max(0.0),
+        "genetics.random_spawn_percentage" => c.genetics.random_spawn_percentage = (c.genetics.random_spawn_percentage + 0.05 * dir).clamp(0.0, 1.0),
+
+        "infra.infra_cost" => c.infra.infra_cost = (c.infra.infra_cost + 5.0 * dir).max(0.0),
+        "infra.road_speed_bonus" => c.infra.road_speed_bonus = (c.infra.road_speed_bonus + 0.1 * dir).max(1.0),
+        "infra.housing_rest_bonus" => c.infra.housing_rest_bonus = (c.infra.housing_rest_bonus + 0.1 * dir).max(1.0),
+        "infra.storage_rot_reduction" => c.infra.storage_rot_reduction = (c.infra.storage_rot_reduction + 0.05 * dir).clamp(0.0, 1.0),
+
+        "combat.attacker_damage" => c.combat.attacker_damage = (c.combat.attacker_damage + 1.0 * dir).max(0.0),
+        "combat.steal_amount" => c.combat.steal_amount = (c.combat.steal_amount + 1.0 * dir).max(0.0),
+        _ => {}
     }
 }
