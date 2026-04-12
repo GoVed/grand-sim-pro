@@ -278,12 +278,16 @@ impl Environment {
 
         #[test]
         fn test_environment_new() {
-        let config = SimConfig::default();
-        let width = 100;
-        let height = 100;
-        let env = Environment::new(width, height, 12345, &config);
+            let config = SimConfig::default();
+            let width = 100;
+            let height = 100;
+            let env = Environment::new(width, height, 12345, &config);
 
-        assert_eq!(env.height_map.len(), (width * height) as usize);
-        assert_eq!(env.map_cells.len(), (width * height) as usize);
+            assert_eq!(env.height_map.len(), (width * height) as usize);
+            assert_eq!(env.map_cells.len(), (width * height) as usize);
+            
+            // Test that water generation worked
+            let water_tiles = env.map_cells.iter().filter(|c| c.market_water > 0).count();
+            assert!(water_tiles > 0, "No water tiles generated on the map");
         }
         }

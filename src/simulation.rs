@@ -287,6 +287,15 @@ mod tests {
     }
 
     #[test]
+    fn test_load_founders() {
+        let config = SimConfig::default();
+        let founders = load_founders(&config);
+        // It should either be empty or load some default files if they exist in the workspace, 
+        // but it won't crash.
+        let _ = founders.len();
+    }
+
+    #[test]
     fn test_process_genetics_and_births() {
         let mut config = SimConfig::default();
         config.world.map_width = 800;

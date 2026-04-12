@@ -564,4 +564,25 @@ mod tests {
         let outputs = p.mental_simulation(&inputs);
         assert_eq!(outputs.len(), NUM_OUTPUTS);
     }
+
+    #[test]
+    fn test_calculate_input_output_influence() {
+        let config = SimConfig::default();
+        let p = Person::new(0.0, 0.0, 0, &config);
+        let influence = p.calculate_input_output_influence();
+        assert_eq!(influence.len(), NUM_INPUTS * NUM_OUTPUTS);
+    }
+
+    #[test]
+    fn test_apply_weights_with_outputs_fallback() {
+        let config = SimConfig::default();
+        let p1 = Person::new(0.0, 0.0, 0, &config);
+        let mut weights = p1.extract_weights();
+        weights.w3.clear(); // Force fallback to outputs mapping
+        
+        let mut p2 = Person::new(1.0, 1.0, 1, &config);
+        p2.apply_weights(&weights);
+        // We just ensure it doesn't crash and applied some weights
+        assert_eq!(p1.state.hidden_count, p2.state.hidden_count);
+    }
 }
