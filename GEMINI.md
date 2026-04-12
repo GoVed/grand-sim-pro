@@ -25,7 +25,10 @@
 | `src/environment.rs` | World Engine | Procedural 3D spherical noise generation and tile state management. |
 | `src/gpu_engine.rs` | WGPU Backend | Handles GPGPU compute shaders and agent/map rendering. |
 | `src/sim_thread.rs` | Sim Thread | (NEW) Main loop manager with spatial sorting for GPU memory locality. |
-| `src/sim.wgsl` | Compute Shader | The "Hot Loop" - GPU code with LDS caching and register-pressure optimizations. |
+| `src/shaders/sim.wgsl` | Compute Shader | The "Hot Loop" - GPU code with LDS caching and register-pressure optimizations. |
+| `src/shaders/types.wgsl` | Shader Types | WGSL structs for Agents, Config, and Map Cells. |
+| `src/shaders/bindings.wgsl`| Shader Bindings| WGSL Global variables and storage bindings. |
+| `src/shaders/render.wgsl` | Render Shader | The GPU pipeline for processing map telemetry for display. |
 | `src/config.rs` | Global Config | Simulation constants, economic parameters, and GPU-safe struct. |
 | `src/shared.rs` | Shared Types | Data structures shared between the UI thread and Simulation thread. |
 | `DECISION_LOG.md` | Dev Log | (NEW) Scientific and technical justification for cognitive and architectural shifts. |

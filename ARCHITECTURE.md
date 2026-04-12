@@ -32,7 +32,7 @@ The application runs on two primary threads:
 2.  **Simulation Thread:** Dispatches compute shaders via `wgpu`. It uses non-blocking `try_lock` patterns to read/write `SharedData`, ensuring simulation spikes never cause UI "stutter."
 
 ## 4. GPGPU Simulation Pipeline
-The WGSL kernel (`src/sim.wgsl`) is the "hot loop" of the project.
+The WGSL kernels (split across `src/shaders/` for maintainability) form the "hot loop" of the project, primarily located in `src/shaders/sim.wgsl`.
 
 ### Expanded Cognitive Model (Human-Approximate)
 To move beyond simple reactive behaviors, the agent brain has been expanded based on biological and psychological scaling laws:
