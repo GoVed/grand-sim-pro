@@ -496,7 +496,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         if (agents[idx].attack_intent > 0.5 && local_population > 1.0 && !resting && agents[idx].age > cfg.bio.puberty_age) {
             let steal_amount = min((local_population - 1.0) * 0.5, cfg.combat.steal_amount);
             if (agents[idx].defend_intent < 0.5) {
-                agents[idx].wealth = min(agents[idx].wealth + steal_amount * 5.0, cfg.eco.boat_cost); 
+                let actual_stolen = min(steal_amount * 5.0, cfg.eco.boat_cost);
+                agents[idx].wealth = agents[idx].wealth + actual_stolen; 
                 if (local_avg_aggression > 0.5) { agents[idx].health = agents[idx].health - cfg.combat.attacker_damage; }
             }
         } else if (agents[idx].drop_water_intent > 0.5 && agents[idx].water > cfg.eco.water_transfer_amount) {
