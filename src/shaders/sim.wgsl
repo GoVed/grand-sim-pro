@@ -332,8 +332,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     agents[idx].rest_intent = rest_intent;
     
+    var comm_exertion = 0.0;
     for (var c = 0u; c < 12u; c = c + 1u) {
-        agents[idx].comms[c] = select(clamp(outputs[6 + c], -1.0, 1.0), 0.0, resting);
+        var val = outputs[6 + c];
+        if (abs(val) < 0.15) { val = 0.0; } // Silence deadband
+        agents[idx].comms[c] = select(clamp(val, -1.0, 1.0), 0.0, resting);
+        comm_exertion = comm_exertion + abs(agents[idx].comms[c]);
     }
 
     let learn_intent = clamp(outputs[18] * 0.5 + 0.5, 0.0, 1.0); 
@@ -435,6 +439,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         if (agents[idx].build_farm_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
         if (agents[idx].build_storage_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
         if (agents[idx].destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; }
+        intent_exertion = intent_exertion + (comm_exertion * 0.01); // Vocalizing burns energy
     }
 
     if (!resting) {
@@ -625,18 +630,19 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         map_cells[safe_current_idx].avg_pregnancy = mix(local_avg_pregnancy, agents[idx].is_pregnant, 0.1);
         map_cells[safe_current_idx].avg_turn = mix(local_avg_turn, turn_intent, 0.1);
         map_cells[safe_current_idx].avg_rest = mix(local_avg_rest, rest_intent, 0.1);
-        map_cells[safe_current_idx].comm1 = mix(local_comm1, agents[idx].comms[0], 0.1);
-        map_cells[safe_current_idx].comm2 = mix(local_comm2, agents[idx].comms[1], 0.1);
-        map_cells[safe_current_idx].comm3 = mix(local_comm3, agents[idx].comms[2], 0.1);
-        map_cells[safe_current_idx].comm4 = mix(local_comm4, agents[idx].comms[3], 0.1);
-        map_cells[safe_current_idx].comm5 = mix(map_cells[safe_current_idx].comm5, agents[idx].comms[4], 0.1);
-        map_cells[safe_current_idx].comm6 = mix(map_cells[safe_current_idx].comm6, agents[idx].comms[5], 0.1);
-        map_cells[safe_current_idx].comm7 = mix(map_cells[safe_current_idx].comm7, agents[idx].comms[6], 0.1);
-        map_cells[safe_current_idx].comm8 = mix(map_cells[safe_current_idx].comm8, agents[idx].comms[7], 0.1);
-        map_cells[safe_current_idx].comm9 = mix(map_cells[safe_current_idx].comm9, agents[idx].comms[8], 0.1);
-        map_cells[safe_current_idx].comm10 = mix(map_cells[safe_current_idx].comm10, agents[idx].comms[9], 0.1);
-        map_cells[safe_current_idx].comm11 = mix(map_cells[safe_current_idx].comm11, agents[idx].comms[10], 0.1);
-        map_cells[safe_current_idx].comm12 = mix(map_cells[safe_current_idx].comm12, agents[idx].comms[11], 0.1);
+        let sound_decay = 0.8;
+        map_cells[safe_current_idx].comm1 = mix(local_comm1 * sound_decay, agents[idx].comms[0], 0.2);
+        map_cells[safe_current_idx].comm2 = mix(local_comm2 * sound_decay, agents[idx].comms[1], 0.2);
+        map_cells[safe_current_idx].comm3 = mix(local_comm3 * sound_decay, agents[idx].comms[2], 0.2);
+        map_cells[safe_current_idx].comm4 = mix(local_comm4 * sound_decay, agents[idx].comms[3], 0.2);
+        map_cells[safe_current_idx].comm5 = mix(local_comm5 * sound_decay, agents[idx].comms[4], 0.2);
+        map_cells[safe_current_idx].comm6 = mix(local_comm6 * sound_decay, agents[idx].comms[5], 0.2);
+        map_cells[safe_current_idx].comm7 = mix(local_comm7 * sound_decay, agents[idx].comms[6], 0.2);
+        map_cells[safe_current_idx].comm8 = mix(local_comm8 * sound_decay, agents[idx].comms[7], 0.2);
+        map_cells[safe_current_idx].comm9 = mix(local_comm9 * sound_decay, agents[idx].comms[8], 0.2);
+        map_cells[safe_current_idx].comm10 = mix(local_comm10 * sound_decay, agents[idx].comms[9], 0.2);
+        map_cells[safe_current_idx].comm11 = mix(local_comm11 * sound_decay, agents[idx].comms[10], 0.2);
+        map_cells[safe_current_idx].comm12 = mix(local_comm12 * sound_decay, agents[idx].comms[11], 0.2);
         map_cells[safe_current_idx].pheno_r = mix(local_pheno_r, agents[idx].pheno_r, 0.1);
         map_cells[safe_current_idx].pheno_g = mix(local_pheno_g, agents[idx].pheno_g, 0.1);
         map_cells[safe_current_idx].pheno_b = mix(local_pheno_b, agents[idx].pheno_b, 0.1);
