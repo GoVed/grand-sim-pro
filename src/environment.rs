@@ -238,26 +238,32 @@ impl Environment {
                 }
             }
 
-            // If the river ends in a landlocked pit, flood it to create a lake
+            // If the river ends in a landlocked pit, flood it to create a natural topographic lake
             if is_lake {
                 if let Some(&last_idx) = river_path.last() {
                     let lx = (last_idx as u32) % width;
                     let ly = (last_idx as u32) / width;
-                    let lake_radius = rng.gen_range(2..6) as i32;
                     
-                    for dy in -(lake_radius + 1)..=(lake_radius + 1) {
-                        for dx in -(lake_radius + 1)..=(lake_radius + 1) {
+                    let h_pit = height_map[last_idx];
+                    // The lake surface level is slightly higher than the pit bottom
+                    let h_surface = h_pit + rng.r#gen::<f32>() * 0.03 + 0.01;
+                    let max_radius = 12i32;
+                    
+                    for dy in -max_radius..=max_radius {
+                        for dx in -max_radius..=max_radius {
                             let dist_sq = dx * dx + dy * dy;
-                            if dist_sq <= lake_radius * lake_radius {
-                                let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
-                                let tidx = (ty * width + tx) as usize;
-                                
+                            if dist_sq > max_radius * max_radius { continue; }
+
+                            let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
+                            let tidx = (ty * width + tx) as usize;
+                            
+                            // Topographic flooding: fill tiles below the surface level
+                            // This creates non-circular, natural shapes that follow valley contours.
+                            if height_map[tidx] < h_surface {
                                 map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                                 if height_map[tidx] > -0.01 { height_map[tidx] = -0.01; }
-                            } else if dist_sq <= (lake_radius + 1) * (lake_radius + 1) {
-                                let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
-                                let tidx = (ty * width + tx) as usize;
-                                
+                            } else if height_map[tidx] < h_surface + 0.01 {
+                                // Create a walkable muddy bank/shoreline around the lake
                                 map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                                 if height_map[tidx] > 0.01 { height_map[tidx] = 0.01; }
                             }
