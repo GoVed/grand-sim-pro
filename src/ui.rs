@@ -264,14 +264,17 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
     let mut hover_node = None;
     let mut is_hover_output = false;
 
-    let right_spacing = (panel_h - (py - panel_y) - 50.0) / (NUM_OUTPUTS as f32);
+    let right_spacing = (panel_h - (py - panel_y) - 20.0).max(0.0) / (NUM_OUTPUTS as f32);
     for o in 0..NUM_OUTPUTS {
         let ny = py + o as f32 * right_spacing;
         let dist_sq = (mx - right_nodes_x) * (mx - right_nodes_x) + (my - ny) * (my - ny);
-        let is_hover = dist_sq < (node_radius * 3.0) * (node_radius * 3.0);
+        let is_hover = dist_sq < (node_radius * 2.0) * (node_radius * 2.0);
         if is_hover { hover_node = Some(o); is_hover_output = true; }
-        draw_circle(right_nodes_x, ny, node_radius, if is_hover { YELLOW } else { Color::new(0.3, 0.3, 0.3, 1.0) });
-        draw_text(crate::agent::OUTPUT_LABELS[o], right_nodes_x + 15.0, ny + 5.0, 11.0, if is_hover { WHITE } else { GRAY });
+        draw_circle(right_nodes_x, ny, node_radius * 0.8, if is_hover { YELLOW } else { Color::new(0.3, 0.3, 0.3, 1.0) });
+        // Draw every other label if spacing is too tight, or use smaller font
+        if right_spacing > 8.0 || o % 2 == 0 {
+            draw_text(crate::agent::OUTPUT_LABELS[o], right_nodes_x + 10.0, ny + 4.0, 9.0, if is_hover { WHITE } else { GRAY });
+        }
     }
 
     let mut input_importance = vec![0.0f32; crate::agent::NUM_INPUTS];
@@ -283,24 +286,24 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
     top_input_indices.truncate(30);
     top_input_indices.sort();
 
-    let left_spacing = (panel_h - (py - panel_y) - 50.0) / (top_input_indices.len() as f32);
+    let left_spacing = (panel_h - (py - panel_y) - 20.0).max(0.0) / (top_input_indices.len() as f32);
     for (idx, &i_idx) in top_input_indices.iter().enumerate() {
         let ny = py + idx as f32 * left_spacing;
         let dist_sq = (mx - left_nodes_x) * (mx - left_nodes_x) + (my - ny) * (my - ny);
-        let is_hover = dist_sq < (node_radius * 3.0) * (node_radius * 3.0);
+        let is_hover = dist_sq < (node_radius * 2.0) * (node_radius * 2.0);
         if is_hover { hover_node = Some(i_idx); is_hover_output = false; }
-        draw_circle(left_nodes_x, ny, node_radius, if is_hover { YELLOW } else { Color::new(0.3, 0.3, 0.3, 1.0) });
-        draw_text(crate::agent::INPUT_LABELS[i_idx], left_nodes_x - 110.0, ny + 5.0, 11.0, if is_hover { WHITE } else { GRAY });
+        draw_circle(left_nodes_x, ny, node_radius * 0.8, if is_hover { YELLOW } else { Color::new(0.3, 0.3, 0.3, 1.0) });
+        draw_text(crate::agent::INPUT_LABELS[i_idx], left_nodes_x - 100.0, ny + 4.0, 9.0, if is_hover { WHITE } else { GRAY });
     }
 
-    let connections = ui_logic::get_top_connections(&influence, crate::agent::NUM_INPUTS, NUM_OUTPUTS, hover_node, is_hover_output, if hover_node.is_some() { 20 } else { 40 });
+    let connections = ui_logic::get_top_connections(&influence, crate::agent::NUM_INPUTS, NUM_OUTPUTS, hover_node, is_hover_output, if hover_node.is_some() { 30 } else { 50 });
     for conn in connections {
         if let Some(left_idx) = top_input_indices.iter().position(|&x| x == conn.from_idx) {
             let ly = py + left_idx as f32 * left_spacing;
             let ry = py + conn.to_idx as f32 * right_spacing;
-            let alpha = (conn.weight.abs() * 2.0).min(1.0);
+            let alpha = (conn.weight.abs() * 3.0).min(1.0);
             let color = if conn.weight > 0.0 { Color::new(0.0, 0.8, 1.0, alpha) } else { Color::new(1.0, 0.4, 0.0, alpha) };
-            draw_line(left_nodes_x, ly, right_nodes_x, ry, (conn.weight.abs() * 5.0).max(0.5), color);
+            draw_line(left_nodes_x, ly, right_nodes_x, ry, (conn.weight.abs() * 2.0).clamp(0.2, 4.0), color);
             if hover_node.is_some() {
                 let mid_x = (left_nodes_x + right_nodes_x) / 2.0;
                 let mid_y = (ly + ry) / 2.0;

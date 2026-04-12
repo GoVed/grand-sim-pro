@@ -19,18 +19,8 @@ struct AgentState {
     reproduce_desire: f32,
     attack_intent: f32,
     rest_intent: f32,
-    comm1: f32,
-    comm2: f32,
-    comm3: f32,
-    comm4: f32,
-    mem1: f32,
-    mem2: f32,
-    mem3: f32,
-    mem4: f32,
-    mem5: f32,
-    mem6: f32,
-    mem7: f32,
-    mem8: f32,
+    comms: array<f32, 12>,
+    mems: array<f32, 24>,
     buy_intent: f32,
     sell_intent: f32,
     ask_price: f32,
@@ -47,7 +37,7 @@ struct AgentState {
     pheno_r: f32,
     pheno_g: f32,
     pheno_b: f32,
-    _pad_agent1: f32,
+    emergency_intent: f32,
     _pad_agent2: f32,
     _pad_agent3: f32,
     food: f32,
@@ -61,10 +51,10 @@ struct AgentState {
 }
 
 struct Genetics {
-    w1_weights: array<f32, 512>, // 64 * 8 Fixed-K Sparse weights
-    w1_indices: array<u32, 512>, // 64 * 8 Fixed-K Sparse indices
-    w2: array<f32, 4096>, // 64 * 64
-    w3: array<f32, 1984>, // 64 * 31
+    w1_weights: array<f32, 1024>, // 128 * 8 Fixed-K Sparse weights
+    w1_indices: array<u32, 1024>, // 128 * 8 Fixed-K Sparse indices
+    w2: array<f32, 16384>, // 128 * 128
+    w3: array<f32, 7168>, // 128 * 56
 }
 
 struct WorldConfig {
@@ -176,6 +166,14 @@ struct CellState {
     comm2: f32,
     comm3: f32,
     comm4: f32,
+    comm5: f32,
+    comm6: f32,
+    comm7: f32,
+    comm8: f32,
+    comm9: f32,
+    comm10: f32,
+    comm11: f32,
+    comm12: f32,
     avg_ask: f32,
     avg_bid: f32,
     market_food: atomic<i32>,
@@ -315,7 +313,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let vision_multiplier = (0.3 + day_intensity * 0.7) * vis_mult; 
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 160>();
+    var inputs = array<f32, 184>();
     inputs[0] = 1.0;
     inputs[1] = local_res_value / 1000.0;
     inputs[2] = local_population;
@@ -326,45 +324,47 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[7] = local_avg_pregnancy;
     inputs[8] = local_avg_turn;
     inputs[9] = local_avg_rest;
+    
     inputs[10] = local_comm1;
     inputs[11] = local_comm2;
     inputs[12] = local_comm3;
     inputs[13] = local_comm4;
-    inputs[14] = agents[idx].health / cfg.bio.max_health;
-    inputs[15] = (agents[idx].food / 1000.0) / cfg.eco.boat_cost; 
-    inputs[16] = agents[idx].water / cfg.bio.max_water;
-    inputs[17] = agents[idx].stamina / cfg.bio.max_stamina;
-    inputs[18] = agents[idx].age / cfg.bio.max_age;
-    inputs[19] = agents[idx].gender;
-    inputs[20] = local_temp;
-    inputs[21] = season_sine;
-    inputs[22] = agents[idx].is_pregnant; 
-    inputs[23] = ((agents[idx].food / 1000.0) + agents[idx].water) / cfg.bio.max_carry_weight; // Food limit weight
-    inputs[24] = local_population / cfg.combat.crowding_threshold;
-    inputs[25] = agents[idx].mem1;
-    inputs[26] = agents[idx].mem2;
-    inputs[27] = agents[idx].mem3;
-    inputs[28] = agents[idx].mem4;
-    inputs[29] = agents[idx].mem5;
-    inputs[30] = agents[idx].mem6;
-    inputs[31] = agents[idx].mem7;
-    inputs[32] = agents[idx].mem8;
-    inputs[33] = agents[idx].wealth / cfg.eco.boat_cost;
-    inputs[34] = local_avg_ask / 10.0;
-    inputs[35] = local_avg_bid / 10.0;
-    inputs[36] = day_intensity;
-    inputs[37] = agents[idx].pheno_r;
-    inputs[38] = agents[idx].pheno_g;
-    inputs[39] = agents[idx].pheno_b;
-    inputs[40] = local_pheno_r;
-    inputs[41] = local_pheno_g;
-    inputs[42] = local_pheno_b;
-    inputs[155] = local_infra_roads / cfg.infra.max_infra;
-    inputs[156] = local_infra_housing / cfg.infra.max_infra;
-    inputs[157] = local_infra_farms / cfg.infra.max_infra;
-    inputs[158] = local_infra_storage / cfg.infra.max_infra;
+    for (var c = 4u; c < 12u; c = c + 1u) { inputs[10 + c] = 0.0; } // comm5 to 12
 
-    var input_idx = 43u;
+    inputs[22] = agents[idx].health / cfg.bio.max_health;
+    inputs[23] = clamp((agents[idx].food / 1000.0) / cfg.eco.boat_cost, 0.0, 2.0); 
+    inputs[24] = agents[idx].water / cfg.bio.max_water;
+    inputs[25] = agents[idx].stamina / cfg.bio.max_stamina;
+    inputs[26] = agents[idx].age / cfg.bio.max_age;
+    inputs[27] = agents[idx].gender;
+    inputs[28] = local_temp;
+    inputs[29] = season_sine;
+    inputs[30] = agents[idx].is_pregnant; 
+    inputs[31] = clamp(((agents[idx].food / 1000.0) + agents[idx].water) / cfg.bio.max_carry_weight, 0.0, 2.0); // Food limit weight
+    inputs[32] = local_population / cfg.combat.crowding_threshold;
+    
+    for (var m = 0u; m < 24u; m = m + 1u) {
+        inputs[33 + m] = agents[idx].mems[m];
+    }
+    
+    inputs[57] = agents[idx].wealth / cfg.eco.boat_cost;
+    inputs[58] = local_avg_ask / 10.0;
+    inputs[59] = local_avg_bid / 10.0;
+    inputs[60] = day_intensity;
+    inputs[61] = agents[idx].pheno_r;
+    inputs[62] = agents[idx].pheno_g;
+    inputs[63] = agents[idx].pheno_b;
+    inputs[64] = local_pheno_r;
+    inputs[65] = local_pheno_g;
+    inputs[66] = local_pheno_b;
+    
+    inputs[179] = local_infra_roads / cfg.infra.max_infra;
+    inputs[180] = local_infra_housing / cfg.infra.max_infra;
+    inputs[181] = local_infra_farms / cfg.infra.max_infra;
+    inputs[182] = local_infra_storage / cfg.infra.max_infra;
+    inputs[183] = 0.0;
+
+    var input_idx = 67u;
     let cos_h = cos(ah);
     let sin_h = sin(ah);
     let view_spacing = 8.0; // Sample tiles 8 pixels apart for good spread
@@ -445,13 +445,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         }
     }
 
-    var hidden1 = array<f32, 64>();
-    for (var h1 = 0u; h1 < 64u; h1 = h1 + 1u) {
+    var hidden1 = array<f32, 128>();
+    for (var h1 = 0u; h1 < 128u; h1 = h1 + 1u) {
         var sum = 0.0;
         let hidden_count = agents[idx].hidden_count;
         if (h1 < hidden_count) {
             for (var k = 0u; k < 8u; k = k + 1u) {
-                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 159u);
+                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 183u);
                 sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[h1 * 8u + k];
             }
             hidden1[h1] = tanh(sum);
@@ -460,14 +460,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         }
     }
 
-    var hidden2 = array<f32, 64>();
-    for (var h2 = 0u; h2 < 64u; h2 = h2 + 1u) {
+    var hidden2 = array<f32, 128>();
+    for (var h2 = 0u; h2 < 128u; h2 = h2 + 1u) {
         var sum = 0.0;
         let hidden_count = agents[idx].hidden_count;
         if (h2 < hidden_count) {
-            for (var h1 = 0u; h1 < 64u; h1 = h1 + 1u) {
+            for (var h1 = 0u; h1 < 128u; h1 = h1 + 1u) {
                 if (h1 < hidden_count) {
-                    sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 64u + h2];
+                    sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2];
                 }
             }
             hidden2[h2] = tanh(sum);
@@ -476,13 +476,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         }
     }
 
-    var outputs = array<f32, 31>(); 
-    for (var o = 0u; o < 31u; o = o + 1u) {
+    var outputs = array<f32, 56>(); 
+    for (var o = 0u; o < 56u; o = o + 1u) {
         var sum = 0.0;
         let hidden_count = agents[idx].hidden_count;
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
             if (h2 < hidden_count) {
-                sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 31u + o];
+                sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 56u + o];
             }
         }
         outputs[o] = tanh(sum);
@@ -531,59 +531,66 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     agents[idx].rest_intent = rest_intent;
     
-    agents[idx].comm1 = clamp(outputs[6], -1.0, 1.0);
-    agents[idx].comm2 = clamp(outputs[7], -1.0, 1.0);
-    agents[idx].comm3 = clamp(outputs[8], -1.0, 1.0);
-    agents[idx].comm4 = clamp(outputs[9], -1.0, 1.0);
-    if (resting) { agents[idx].comm1 = 0.0; agents[idx].comm2 = 0.0; agents[idx].comm3 = 0.0; agents[idx].comm4 = 0.0; }
+    for (var c = 0u; c < 12u; c = c + 1u) {
+        agents[idx].comms[c] = select(clamp(outputs[6 + c], -1.0, 1.0), 0.0, resting);
+    }
 
-    let learn_intent = clamp(outputs[10] * 0.5 + 0.5, 0.0, 1.0); 
-    agents[idx].mem1 = outputs[11];
-    agents[idx].mem2 = outputs[12];
-    agents[idx].mem3 = outputs[13];
-    agents[idx].mem4 = outputs[14];
-    agents[idx].mem5 = outputs[15];
-    agents[idx].mem6 = outputs[16];
-    agents[idx].mem7 = outputs[17];
-    agents[idx].mem8 = outputs[18];
+    let learn_intent = clamp(outputs[18] * 0.5 + 0.5, 0.0, 1.0); 
+    for (var m = 0u; m < 24u; m = m + 1u) {
+        agents[idx].mems[m] = outputs[19 + m];
+    }
     
-    agents[idx].buy_intent = clamp(outputs[19] * 0.5 + 0.5, 0.0, 1.0);
+    agents[idx].buy_intent = clamp(outputs[43] * 0.5 + 0.5, 0.0, 1.0);
     if (resting) { agents[idx].buy_intent = 0.0; }
     
-    agents[idx].sell_intent = clamp(outputs[20] * 0.5 + 0.5, 0.0, 1.0);
+    agents[idx].sell_intent = clamp(outputs[44] * 0.5 + 0.5, 0.0, 1.0);
     if (resting) { agents[idx].sell_intent = 0.0; }
     
-    agents[idx].ask_price = abs(outputs[21]) * 10.0;
-    agents[idx].bid_price = abs(outputs[22]) * 10.0;
+    agents[idx].ask_price = abs(outputs[45]) * 10.0;
+    agents[idx].bid_price = abs(outputs[46]) * 10.0;
     
-    agents[idx].drop_water_intent = clamp(outputs[23] * 0.5 + 0.5, 0.0, 1.0); 
+    agents[idx].drop_water_intent = clamp(outputs[47] * 0.5 + 0.5, 0.0, 1.0); 
     if (resting) { agents[idx].drop_water_intent = 0.0; }
     
-    agents[idx].pickup_water_intent = clamp(outputs[24] * 0.5 + 0.5, 0.0, 1.0); 
+    agents[idx].pickup_water_intent = clamp(outputs[48] * 0.5 + 0.5, 0.0, 1.0); 
     if (resting) { agents[idx].pickup_water_intent = 0.0; }
     
-    agents[idx].defend_intent = clamp(outputs[25] * 0.5 + 0.5, 0.0, 1.0);
+    agents[idx].defend_intent = clamp(outputs[49] * 0.5 + 0.5, 0.0, 1.0);
     if (resting) { agents[idx].defend_intent = 0.0; }
+
+    let e_intent = clamp(outputs[55] * 0.5 + 0.5, 0.0, 1.0);
+    agents[idx].emergency_intent = e_intent;
+    let is_emergency = e_intent > 0.5;
+
+    let b_road = clamp(outputs[50] * 0.5 + 0.5, 0.0, 1.0);
+    let b_house = clamp(outputs[51] * 0.5 + 0.5, 0.0, 1.0);
+    let b_farm = clamp(outputs[52] * 0.5 + 0.5, 0.0, 1.0);
+    let b_storage = clamp(outputs[53] * 0.5 + 0.5, 0.0, 1.0);
+
+    let max_build_intent = max(b_road, max(b_house, max(b_farm, b_storage)));
+    let is_building = max_build_intent > 0.5 && max_build_intent > speed_intent && !is_emergency;
+
+    if (resting || is_emergency || !is_building) {
+        agents[idx].build_road_intent = 0.0;
+        agents[idx].build_house_intent = 0.0;
+        agents[idx].build_farm_intent = 0.0;
+        agents[idx].build_storage_intent = 0.0;
+    } else {
+        agents[idx].build_road_intent = b_road;
+        agents[idx].build_house_intent = b_house;
+        agents[idx].build_farm_intent = b_farm;
+        agents[idx].build_storage_intent = b_storage;
+    }
     
-    agents[idx].build_road_intent = clamp(outputs[26] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].build_road_intent = 0.0; }
-
-    agents[idx].build_house_intent = clamp(outputs[27] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].build_house_intent = 0.0; }
-
-    agents[idx].build_farm_intent = clamp(outputs[28] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].build_farm_intent = 0.0; }
-
-    agents[idx].build_storage_intent = clamp(outputs[29] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].build_storage_intent = 0.0; }
-    
-    agents[idx].destroy_infra_intent = clamp(outputs[30] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].destroy_infra_intent = 0.0; }
+    agents[idx].destroy_infra_intent = clamp(outputs[54] * 0.5 + 0.5, 0.0, 1.0);
+    if (resting || is_emergency) { agents[idx].destroy_infra_intent = 0.0; }
 
     var base_speed = speed_intent * cfg.bio.base_speed;
-    if (resting) {
+    if (resting || is_building) {
         base_speed = 0.0;
-        agents[idx].stamina = min(agents[idx].stamina + 2.0, cfg.bio.max_stamina);
+        if (resting) {
+            agents[idx].stamina = min(agents[idx].stamina + 2.0, cfg.bio.max_stamina);
+        }
     }
 
     let next_x = ax + cos(agents[idx].heading) * base_speed * lon_scale;
@@ -813,10 +820,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         map_cells[safe_current_idx].avg_pregnancy = mix(local_avg_pregnancy, agents[idx].is_pregnant, 0.1);
         map_cells[safe_current_idx].avg_turn = mix(local_avg_turn, turn_intent, 0.1);
         map_cells[safe_current_idx].avg_rest = mix(local_avg_rest, rest_intent, 0.1);
-        map_cells[safe_current_idx].comm1 = mix(local_comm1, agents[idx].comm1, 0.1);
-        map_cells[safe_current_idx].comm2 = mix(local_comm2, agents[idx].comm2, 0.1);
-        map_cells[safe_current_idx].comm3 = mix(local_comm3, agents[idx].comm3, 0.1);
-        map_cells[safe_current_idx].comm4 = mix(local_comm4, agents[idx].comm4, 0.1);
+        map_cells[safe_current_idx].comm1 = mix(local_comm1, agents[idx].comms[0], 0.1);
+        map_cells[safe_current_idx].comm2 = mix(local_comm2, agents[idx].comms[1], 0.1);
+        map_cells[safe_current_idx].comm3 = mix(local_comm3, agents[idx].comms[2], 0.1);
+        map_cells[safe_current_idx].comm4 = mix(local_comm4, agents[idx].comms[3], 0.1);
         map_cells[safe_current_idx].pheno_r = mix(local_pheno_r, agents[idx].pheno_r, 0.1);
         map_cells[safe_current_idx].pheno_g = mix(local_pheno_g, agents[idx].pheno_g, 0.1);
         map_cells[safe_current_idx].pheno_b = mix(local_pheno_b, agents[idx].pheno_b, 0.1);
@@ -859,25 +866,25 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let health_delta = agents[idx].health - prev_health;
     let food_delta = agents[idx].food - prev_food;
     let wealth_delta = agents[idx].wealth - prev_wealth;
-    let dopamine_signal = (health_delta * 20.0) + (food_delta / 5000.0) + (wealth_delta * 0.5);
+    let dopamine_signal = (health_delta * 20.0) + (food_delta / 10000.0) + (wealth_delta * 0.5);
 
     if (abs(dopamine_signal) > 0.01 && learn_intent > 0.1) {
         let lr = dopamine_signal * learn_intent * 0.0005; 
         let hidden_count = agents[idx].hidden_count;
         for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
             for (var k = 0u; k < 8u; k = k + 1u) {
-                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 159u);
+                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 183u);
                 genetics[g_idx].w1_weights[h1 * 8u + k] = clamp(genetics[g_idx].w1_weights[h1 * 8u + k] + lr * inputs[in_idx] * hidden1[h1], -2.0, 2.0);
             }
         }
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
             for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
-                genetics[g_idx].w2[h1 * 64u + h2] = clamp(genetics[g_idx].w2[h1 * 64u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
+                genetics[g_idx].w2[h1 * 128u + h2] = clamp(genetics[g_idx].w2[h1 * 128u + h2] + lr * hidden1[h1] * hidden2[h2], -2.0, 2.0);
             }
         }
-        for (var o = 0u; o < 31u; o = o + 1u) {
+        for (var o = 0u; o < 56u; o = o + 1u) {
             for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
-                genetics[g_idx].w3[h2 * 31u + o] = clamp(genetics[g_idx].w3[h2 * 31u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
+                genetics[g_idx].w3[h2 * 56u + o] = clamp(genetics[g_idx].w3[h2 * 56u + o] + lr * hidden2[h2] * outputs[o], -2.0, 2.0);
             }
         }
     }

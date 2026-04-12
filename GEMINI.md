@@ -28,6 +28,7 @@
 | `src/sim.wgsl` | Compute Shader | The "Hot Loop" - GPU code with LDS caching and register-pressure optimizations. |
 | `src/config.rs` | Global Config | Simulation constants, economic parameters, and GPU-safe struct. |
 | `src/shared.rs` | Shared Types | Data structures shared between the UI thread and Simulation thread. |
+| `DECISION_LOG.md` | Dev Log | (NEW) Scientific and technical justification for cognitive and architectural shifts. |
 | `tests/performance.rs` | Benchmarking | Integration tests for tracking sim and reproduction throughput. |
 | `tests/ui_verification.rs` | UI Tests | Headless verification of UI logic and behavioral inference. |
 | `scripts/test_perf.sh` | Perf Logger | Automated tool for updating `PERFORMANCE_LOG.md`. |

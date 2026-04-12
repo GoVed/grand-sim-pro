@@ -15,7 +15,7 @@ use world_sim::agent::Person;
 #[test]
 fn test_behavioral_inference_logic() {
     let config = SimConfig::default();
-    let p = Person::new(0.0, 0.0, &config);
+    let p = Person::new(0.0, 0.0, 0, &config);
     
     // Test that logic produces a profile without crashing
     let profile = ui_logic::calculate_behavioral_profile(&p);

@@ -23,10 +23,18 @@ pub struct CellState {
     pub avg_pregnancy: f32,  // Signals males to protect rather than attack
     pub avg_turn: f32,       // Abstract herd direction
     pub avg_rest: f32,       // Abstract encampment state
-    pub comm1: f32,          // Abstract communication channel 1
-    pub comm2: f32,          // Abstract communication channel 2
-    pub comm3: f32,          // Abstract communication channel 3
-    pub comm4: f32,          // Abstract communication channel 4
+    pub comm1: f32,          
+    pub comm2: f32,          
+    pub comm3: f32,          
+    pub comm4: f32,          
+    pub comm5: f32,          
+    pub comm6: f32,          
+    pub comm7: f32,          
+    pub comm8: f32,          
+    pub comm9: f32,          
+    pub comm10: f32,          
+    pub comm11: f32,          
+    pub comm12: f32,          
     pub avg_ask: f32,        // Average price asked to sell food
     pub avg_bid: f32,        // Average price bid to buy food
     pub market_food: i32,    // Fixed-point (val * 1000) for GPU atomics
@@ -107,6 +115,14 @@ impl Environment {
                     comm2: 0.0,
                     comm3: 0.0,
                     comm4: 0.0,
+                    comm5: 0.0,
+                    comm6: 0.0,
+                    comm7: 0.0,
+                    comm8: 0.0,
+                    comm9: 0.0,
+                    comm10: 0.0,
+                    comm11: 0.0,
+                    comm12: 0.0,
                     avg_ask: 1.0,
                     avg_bid: 1.0,
                     market_food: 50_000_000,
