@@ -427,10 +427,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         preg_mult = cfg.combat.pregnancy_cost_mult; 
     }
     
+    var intent_exertion = 0.0;
     if (!resting) {
-        agents[idx].stamina = agents[idx].stamina - (actual_speed * 0.05 * (2.0 - age_stamina_mult));
+        if (agents[idx].build_road_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agents[idx].build_house_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agents[idx].build_farm_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agents[idx].build_storage_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
+        if (agents[idx].destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; }
+    }
+
+    if (!resting) {
+        let base_drain = 0.05 + intent_exertion * 0.2;
+        agents[idx].stamina = agents[idx].stamina - ((actual_speed * 0.05 + base_drain) * (2.0 - age_stamina_mult));
         if (agents[idx].stamina <= 0.0) {
             agents[idx].stamina = 0.0;
+            agents[idx].health = agents[idx].health - (cfg.bio.starvation_rate * 2.0); // Exhaustion damage
             resting = true;
         }
     }
@@ -455,14 +466,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (resting) { rest_mult = 0.5 - ((local_infra_housing / cfg.infra.max_infra) * cfg.infra.housing_rest_bonus); } 
     var defend_mult = 1.0; if (agents[idx].defend_intent > 0.5 && !resting) { defend_mult = cfg.combat.defend_cost_mult; }
     let carrying_effort = 1.0 + (total_weight / 50.0);
-    var intent_exertion = 0.0;
-    if (!resting) {
-        if (agents[idx].build_road_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].build_house_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].build_farm_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].build_storage_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; }
-    }
     
     let metabolic_rate = cfg.eco.baseline_cost * caloric_maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
 
