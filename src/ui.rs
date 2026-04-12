@@ -297,13 +297,20 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
     }
 
     let connections = ui_logic::get_top_connections(&influence, crate::agent::NUM_INPUTS, NUM_OUTPUTS, hover_node, is_hover_output, if hover_node.is_some() { 30 } else { 50 });
+    
+    let mut max_weight = 0.0001_f32;
+    for conn in &connections {
+        if conn.weight.abs() > max_weight { max_weight = conn.weight.abs(); }
+    }
+
     for conn in connections {
         if let Some(left_idx) = top_input_indices.iter().position(|&x| x == conn.from_idx) {
             let ly = py + left_idx as f32 * left_spacing;
             let ry = py + conn.to_idx as f32 * right_spacing;
-            let alpha = (conn.weight.abs() * 3.0).min(1.0);
+            let norm_weight = conn.weight.abs() / max_weight;
+            let alpha = (norm_weight * 0.8 + 0.2).min(1.0);
             let color = if conn.weight > 0.0 { Color::new(0.0, 0.8, 1.0, alpha) } else { Color::new(1.0, 0.4, 0.0, alpha) };
-            draw_line(left_nodes_x, ly, right_nodes_x, ry, (conn.weight.abs() * 2.0).clamp(0.2, 4.0), color);
+            draw_line(left_nodes_x, ly, right_nodes_x, ry, (norm_weight * 3.0).clamp(0.5, 4.0), color);
             if hover_node.is_some() {
                 let mid_x = (left_nodes_x + right_nodes_x) / 2.0;
                 let mid_y = (ly + ry) / 2.0;
