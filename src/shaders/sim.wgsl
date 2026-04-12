@@ -246,44 +246,30 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     }
 
     var hidden1 = array<f32, 128>();
-    for (var h1 = 0u; h1 < 128u; h1 = h1 + 1u) {
+    let hidden_count = agents[idx].hidden_count;
+    for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
         var sum = 0.0;
-        let hidden_count = agents[idx].hidden_count;
-        if (h1 < hidden_count) {
-            for (var k = 0u; k < 8u; k = k + 1u) {
-                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 183u);
-                sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[h1 * 8u + k];
-            }
-            hidden1[h1] = tanh(sum);
-        } else {
-            hidden1[h1] = 0.0;
+        for (var k = 0u; k < 8u; k = k + 1u) {
+            let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 183u);
+            sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[h1 * 8u + k];
         }
+        hidden1[h1] = tanh(sum);
     }
 
     var hidden2 = array<f32, 128>();
-    for (var h2 = 0u; h2 < 128u; h2 = h2 + 1u) {
+    for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
         var sum = 0.0;
-        let hidden_count = agents[idx].hidden_count;
-        if (h2 < hidden_count) {
-            for (var h1 = 0u; h1 < 128u; h1 = h1 + 1u) {
-                if (h1 < hidden_count) {
-                    sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2];
-                }
-            }
-            hidden2[h2] = tanh(sum);
-        } else {
-            hidden2[h2] = 0.0;
+        for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
+            sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2];
         }
+        hidden2[h2] = tanh(sum);
     }
 
     var outputs = array<f32, 56>(); 
     for (var o = 0u; o < 56u; o = o + 1u) {
         var sum = 0.0;
-        let hidden_count = agents[idx].hidden_count;
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
-            if (h2 < hidden_count) {
-                sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 56u + o];
-            }
+            sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 56u + o];
         }
         outputs[o] = tanh(sum);
     }

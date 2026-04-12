@@ -261,24 +261,41 @@ impl Person {
         let mutation_rate = 0.05;
         let mutation_strength = 0.05;
 
-        // Crossover
-        for i in 0..W1_SIZE { if rng.r#gen::<f32>() > 0.5 { child.genetics.w1_weights[i] = parent2.genetics.w1_weights[i]; child.genetics.w1_indices[i] = parent2.genetics.w1_indices[i]; } }
-        for i in 0..W2_SIZE { if rng.r#gen::<f32>() > 0.5 { child.genetics.w2[i] = parent2.genetics.w2[i]; } }
-        for i in 0..W3_SIZE { if rng.r#gen::<f32>() > 0.5 { child.genetics.w3[i] = parent2.genetics.w3[i]; } }
+        // Block Crossover (Optimized)
+        let cp_w1 = rng.gen_range(0..W1_SIZE);
+        child.genetics.w1_weights[cp_w1..].copy_from_slice(&parent2.genetics.w1_weights[cp_w1..]);
+        child.genetics.w1_indices[cp_w1..].copy_from_slice(&parent2.genetics.w1_indices[cp_w1..]);
 
-        // Mutation
-        for w in child.genetics.w1_weights.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        let cp_w2 = rng.gen_range(0..W2_SIZE);
+        child.genetics.w2[cp_w2..].copy_from_slice(&parent2.genetics.w2[cp_w2..]);
+
+        let cp_w3 = rng.gen_range(0..W3_SIZE);
+        child.genetics.w3[cp_w3..].copy_from_slice(&parent2.genetics.w3[cp_w3..]);
+
+        // Sparse Mutation Sampling (Optimized)
+        let num_mut_w1 = (W1_SIZE as f32 * mutation_rate) as usize;
+        for _ in 0..num_mut_w1 {
+            let i = rng.gen_range(0..W1_SIZE);
+            child.genetics.w1_weights[i] = (child.genetics.w1_weights[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
-        for idx in child.genetics.w1_indices.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate * 0.1 { *idx = rng.gen_range(0..NUM_INPUTS as u32); }
+        let num_mut_w1_idx = (W1_SIZE as f32 * mutation_rate * 0.1) as usize;
+        for _ in 0..num_mut_w1_idx {
+            let i = rng.gen_range(0..W1_SIZE);
+            child.genetics.w1_indices[i] = rng.gen_range(0..NUM_INPUTS as u32);
         }
-        for w in child.genetics.w2.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        
+        let num_mut_w2 = (W2_SIZE as f32 * mutation_rate) as usize;
+        for _ in 0..num_mut_w2 {
+            let i = rng.gen_range(0..W2_SIZE);
+            child.genetics.w2[i] = (child.genetics.w2[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
-        for w in child.genetics.w3.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        
+        let num_mut_w3 = (W3_SIZE as f32 * mutation_rate) as usize;
+        for _ in 0..num_mut_w3 {
+            let i = rng.gen_range(0..W3_SIZE);
+            child.genetics.w3[i] = (child.genetics.w3[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
+
         child
     }
 
@@ -324,17 +341,28 @@ impl Person {
         if rng.r#gen::<f32>() < mutation_rate { child.state.pheno_g = (child.state.pheno_g + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }
         if rng.r#gen::<f32>() < mutation_rate { child.state.pheno_b = (child.state.pheno_b + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }
 
-        for w in child.genetics.w1_weights.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        // Sparse Mutation Sampling (Optimized)
+        let num_mut_w1 = (W1_SIZE as f32 * mutation_rate) as usize;
+        for _ in 0..num_mut_w1 {
+            let i = rng.gen_range(0..W1_SIZE);
+            child.genetics.w1_weights[i] = (child.genetics.w1_weights[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
-        for idx in child.genetics.w1_indices.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate * 0.1 { *idx = rng.gen_range(0..NUM_INPUTS as u32); }
+        let num_mut_w1_idx = (W1_SIZE as f32 * mutation_rate * 0.1) as usize;
+        for _ in 0..num_mut_w1_idx {
+            let i = rng.gen_range(0..W1_SIZE);
+            child.genetics.w1_indices[i] = rng.gen_range(0..NUM_INPUTS as u32);
         }
-        for w in child.genetics.w2.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        
+        let num_mut_w2 = (W2_SIZE as f32 * mutation_rate) as usize;
+        for _ in 0..num_mut_w2 {
+            let i = rng.gen_range(0..W2_SIZE);
+            child.genetics.w2[i] = (child.genetics.w2[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
-        for w in child.genetics.w3.iter_mut() {
-            if rng.r#gen::<f32>() < mutation_rate { *w = (*w + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0); }
+        
+        let num_mut_w3 = (W3_SIZE as f32 * mutation_rate) as usize;
+        for _ in 0..num_mut_w3 {
+            let i = rng.gen_range(0..W3_SIZE);
+            child.genetics.w3[i] = (child.genetics.w3[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
         child
     }
