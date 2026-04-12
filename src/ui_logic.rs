@@ -43,7 +43,7 @@ pub fn calculate_behavioral_profile(a: &Person) -> Vec<BehavioralSituation> {
     ];
 
     situations.iter().map(|(name, inputs_setup)| {
-        let mut test_inputs = [0.0f32; 160];
+        let mut test_inputs = [0.0f32; crate::agent::NUM_INPUTS];
         for (idx, val) in inputs_setup { test_inputs[*idx as usize] = *val; }
         let outputs = a.mental_simulation(&test_inputs);
         
@@ -51,8 +51,8 @@ pub fn calculate_behavioral_profile(a: &Person) -> Vec<BehavioralSituation> {
             name,
             combat: outputs[4].max(0.0),
             altruism: (outputs[2].max(0.0) + outputs[6].max(0.0)) / 2.0,
-            industry: (outputs[26].max(0.0) + outputs[27].max(0.0) + outputs[28].max(0.0)) / 3.0,
-            trade: (outputs[19].max(0.0) + outputs[20].max(0.0)) / 2.0,
+            industry: (outputs[50].max(0.0) + outputs[51].max(0.0) + outputs[52].max(0.0)) / 3.0,
+            trade: (outputs[43].max(0.0) + outputs[44].max(0.0)) / 2.0,
             agility: (outputs[1].abs() + outputs[0].abs()) / 2.0,
         }
     }).collect()

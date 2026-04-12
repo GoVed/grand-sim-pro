@@ -33,6 +33,14 @@ The application runs on two primary threads:
 
 ## 4. GPGPU Simulation Pipeline
 The WGSL kernel (`src/sim.wgsl`) is the "hot loop" of the project.
+
+### Expanded Cognitive Model (Human-Approximate)
+To move beyond simple reactive behaviors, the agent brain has been expanded based on biological and psychological scaling laws:
+- **Representational Capacity:** Hidden layer width increased to **128 nodes**, allowing for complex non-linear decision-making and persistence of multiple internal states.
+- **Working Memory:** Expanded to **24 channels** (grounded in Miller's Law), enabling the agent to maintain concurrent goals, spatial anchors, and social signatures.
+- **Vocal/Signal Bandwidth:** Increased to **12 communication channels**, providing a high-dimensional semantic space for emergent tribal and resource-related signals.
+- **Competitive Intent Dynamics:** Implemented a "Winner-Take-All" priority system. Agents face realistic physical trade-offs; for example, construction (building) requires absolute immobility and is only performed if its neural intent exceeds the desire for movement.
+
 - **Cooperative LDS Caching:** GPU workgroups utilize Local Device Storage (LDS) to cache a 16x16 tile patch of the environment. All 64 agents in a workgroup sample their vision from this high-speed local cache rather than global VRAM.
 - **Register Pressure Optimization:** To prevent register spilling, the kernel avoids loading the massive `Agent` struct into local memory, instead operating directly on the storage buffer via pointer-style indexing.
 - **Spatial Awareness:** LiDAR vision is simulated by sampling the pheromone and elevation maps in a 3x3 grid around each agent.

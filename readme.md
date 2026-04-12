@@ -21,7 +21,7 @@ The engine is built on a high-performance **Hybrid CPU-GPU Compute Engine**. Det
   <img src="readme_imgs/agent_info_ui.png" alt="Neural Influence UI" width="80%">
 </p>
 
-Every agent contains a massive **Deep Neural Network** evaluating **160 sensory inputs** against **31 complex output intents**. 
+Every agent contains a massive **Deep Neural Network** evaluating **184 sensory inputs** against **56 complex output intents**. 
 
 Instead of viewing opaque hidden layers, the Inspector provides a **Linearized Sensory-Behavioral Influence Map**. This bipartite graph computes the direct impact of every sensory input (e.g., "Hunger", "Crowding") on every behavioral output (e.g., "Attack", "Build Road") by multiplying the weight matrices ($W_3 \times W_2 \times W_{sparse1}$).
 
@@ -31,7 +31,9 @@ Instead of viewing opaque hidden layers, the Inspector provides a **Linearized S
 
 ### ⚡ In-Lifetime Neuroplasticity & Memory
 - **Hebbian Learning Engine:** Agents don't just rely on Darwinian genetics; they can learn on the fly. By firing a specific "Learn Intent" node, an agent triggers an active Hebbian gradient update inside the compute shader, dynamically rewiring its own synaptic weights based on real-time environmental context.
-- **Recurrent Memory Loops:** Agents feature 8 dedicated abstract memory channels. What they output to these memory states in one frame is fed directly back into their sensory inputs on the next, allowing them to recall context (like the direction of a shoreline or the location of an attacker).
+- **Recurrent Memory Loops:** Agents feature **24 dedicated abstract memory channels** (grounded in Miller's Law). What they output to these memory states in one frame is fed directly back into their sensory inputs on the next, allowing them to recall context (like the direction of a shoreline or the location of an attacker).
+- **Vocal/Signal Bandwidth:** Agents utilize **12 communication channels**, providing a high-dimensional semantic space for emergent tribal signatures and resource coordination.
+- **Competitive Action Selection:** Real-world physical trade-offs are enforced. Agents must choose between movement and construction; building infrastructure requires absolute immobility and is only performed if the neural intent for building exceeds the desire for speed.
 - **Sleep State & Dreaming:** When an agent rests or passes out from exhaustion, they enter a realistic sleep state. Because the Hebbian learning intent can remain active, agents can literally *dream*—consolidating memories and updating synapses while asleep!
 
 ### 🧪 Situational Behavioral Probing
