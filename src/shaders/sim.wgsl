@@ -74,6 +74,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let local_comm2 = map_cells[safe_current_idx].comm2;
     let local_comm3 = map_cells[safe_current_idx].comm3;
     let local_comm4 = map_cells[safe_current_idx].comm4;
+    let local_comm5 = map_cells[safe_current_idx].comm5;
+    let local_comm6 = map_cells[safe_current_idx].comm6;
+    let local_comm7 = map_cells[safe_current_idx].comm7;
+    let local_comm8 = map_cells[safe_current_idx].comm8;
+    let local_comm9 = map_cells[safe_current_idx].comm9;
+    let local_comm10 = map_cells[safe_current_idx].comm10;
+    let local_comm11 = map_cells[safe_current_idx].comm11;
+    let local_comm12 = map_cells[safe_current_idx].comm12;
     let local_avg_ask = map_cells[safe_current_idx].avg_ask;
     let local_avg_bid = map_cells[safe_current_idx].avg_bid;
     let local_pheno_r = map_cells[safe_current_idx].pheno_r;
@@ -129,7 +137,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[11] = local_comm2;
     inputs[12] = local_comm3;
     inputs[13] = local_comm4;
-    for (var c = 4u; c < 12u; c = c + 1u) { inputs[10 + c] = 0.0; } // comm5 to 12
+    inputs[14] = local_comm5;
+    inputs[15] = local_comm6;
+    inputs[16] = local_comm7;
+    inputs[17] = local_comm8;
+    inputs[18] = local_comm9;
+    inputs[19] = local_comm10;
+    inputs[20] = local_comm11;
+    inputs[21] = local_comm12;
 
     inputs[22] = agents[idx].health / cfg.bio.max_health;
     inputs[23] = clamp((agents[idx].food / 1000.0) / cfg.eco.boat_cost, 0.0, 2.0); 
@@ -614,6 +629,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         map_cells[safe_current_idx].comm2 = mix(local_comm2, agents[idx].comms[1], 0.1);
         map_cells[safe_current_idx].comm3 = mix(local_comm3, agents[idx].comms[2], 0.1);
         map_cells[safe_current_idx].comm4 = mix(local_comm4, agents[idx].comms[3], 0.1);
+        map_cells[safe_current_idx].comm5 = mix(map_cells[safe_current_idx].comm5, agents[idx].comms[4], 0.1);
+        map_cells[safe_current_idx].comm6 = mix(map_cells[safe_current_idx].comm6, agents[idx].comms[5], 0.1);
+        map_cells[safe_current_idx].comm7 = mix(map_cells[safe_current_idx].comm7, agents[idx].comms[6], 0.1);
+        map_cells[safe_current_idx].comm8 = mix(map_cells[safe_current_idx].comm8, agents[idx].comms[7], 0.1);
+        map_cells[safe_current_idx].comm9 = mix(map_cells[safe_current_idx].comm9, agents[idx].comms[8], 0.1);
+        map_cells[safe_current_idx].comm10 = mix(map_cells[safe_current_idx].comm10, agents[idx].comms[9], 0.1);
+        map_cells[safe_current_idx].comm11 = mix(map_cells[safe_current_idx].comm11, agents[idx].comms[10], 0.1);
+        map_cells[safe_current_idx].comm12 = mix(map_cells[safe_current_idx].comm12, agents[idx].comms[11], 0.1);
         map_cells[safe_current_idx].pheno_r = mix(local_pheno_r, agents[idx].pheno_r, 0.1);
         map_cells[safe_current_idx].pheno_g = mix(local_pheno_g, agents[idx].pheno_g, 0.1);
         map_cells[safe_current_idx].pheno_b = mix(local_pheno_b, agents[idx].pheno_b, 0.1);

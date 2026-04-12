@@ -343,6 +343,16 @@ async fn main() {
             }));
             
             if show_inspector {
+                if let Some(ref mut selected) = selected_agent {
+                    if let Some(s) = data.sim.states.iter().find(|s| s.id == selected.state.id) {
+                        if s.health > 0.0 {
+                            selected.state = *s; // Update state live
+                        } else {
+                            selected_agent = None; // Agent died
+                        }
+                    }
+                }
+                
                 if inspector_agents.len() != data.sim.states.iter().filter(|s| s.health > 0.0).count() {
                     inspector_agents.clear();
                     for (i, s) in data.sim.states.iter().enumerate() {

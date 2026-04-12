@@ -240,6 +240,27 @@ fn draw_agent_detail_view(a: &Person, tick_to_mins: f32) {
     draw_text(&format!("Health: {:.1} | Stamina: {:.1}", a.state.health, a.state.stamina), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
     draw_text(&format!("Wealth: ${:.2} | Food: {:.0}g", a.state.wealth, a.state.food), panel_x + 20.0, py, 16.0, WHITE); py += 35.0;
 
+    // --- New: Memory & Communication Display ---
+    draw_text("WORKING MEMORY (Recurrent Context):", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    let mem_cell_w = 20.0;
+    let mem_cell_h = 10.0;
+    for m in 0..24 {
+        let val = a.state.mems[m];
+        let color = if val > 0.0 { Color::new(0.0, 0.8, 1.0, (val * 0.8 + 0.2).min(1.0)) } else { Color::new(1.0, 0.4, 0.0, (val.abs() * 0.8 + 0.2).min(1.0)) };
+        draw_rectangle(panel_x + 20.0 + m as f32 * (mem_cell_w + 2.0), py, mem_cell_w, mem_cell_h, color);
+        if m % 6 == 5 && m < 23 { /* split into groups of 6 for readability if needed, but horizontal fits 24 */ }
+    }
+    py += 25.0;
+
+    draw_text("VOCAL SIGNALING (Communication):", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    let comm_cell_w = 42.0;
+    for c in 0..12 {
+        let val = a.state.comms[c];
+        let color = if val > 0.0 { Color::new(0.0, 1.0, 0.5, (val * 0.8 + 0.2).min(1.0)) } else { Color::new(1.0, 0.0, 0.2, (val.abs() * 0.8 + 0.2).min(1.0)) };
+        draw_rectangle(panel_x + 20.0 + c as f32 * (comm_cell_w + 2.0), py, comm_cell_w, mem_cell_h, color);
+    }
+    py += 30.0;
+
     let matrix_x = panel_x + 20.0;
     draw_text("NEURAL INFLUENCE MATRIX (W3)", matrix_x, py, 14.0, GRAY); py += 20.0;
     let cell_size = 7.0;
