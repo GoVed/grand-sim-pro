@@ -160,8 +160,16 @@ impl Environment {
         for _ in 0..num_rivers {
             let mut sx = rng.gen_range(0..width);
             let mut sy = rng.gen_range(0..height);
-            let mut attempts = 0;
             
+            // --- Spherical Distribution Fix ---
+            // On a 2D projection, the poles (top/bottom) are stretched. 
+            // We scale the spawn probability by cos(latitude) so that the density remains 
+            // constant per physical unit of area on the sphere.
+            let lat_rad = ((sy as f32 / height as f32) - 0.5) * std::f32::consts::PI; // -PI/2 to PI/2
+            let spawn_prob = lat_rad.cos();
+            if rng.r#gen::<f32>() > spawn_prob { continue; }
+
+            let mut attempts = 0;
             // Find a high elevation mountain spring to start the river
             while height_map[(sy * width + sx) as usize] < 0.2 && attempts < 100 {
                 sx = rng.gen_range(0..width);
