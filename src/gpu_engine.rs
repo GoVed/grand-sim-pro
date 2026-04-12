@@ -108,7 +108,17 @@ impl GpuEngine {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-            let shader = device.create_shader_module(wgpu::include_wgsl!("sim.wgsl"));
+            let shader_src = format!(
+                "{}\n{}\n{}\n{}",
+                include_str!("shaders/types.wgsl"),
+                include_str!("shaders/bindings.wgsl"),
+                include_str!("shaders/sim.wgsl"),
+                include_str!("shaders/render.wgsl")
+            );
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Sim Shader"),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Owned(shader_src)),
+            });
             
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Sim Pipeline"), layout: None, module: &shader, entry_point: "main",
