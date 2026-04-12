@@ -55,7 +55,11 @@ fn bench_agent_reproduction() {
     }
     let duration = start.elapsed();
     println!("10000 reproductions in {:?}", duration);
-    assert!(duration.as_millis() < 2500, "Reproduction is too slow: {:?}", duration);
+    if cfg!(debug_assertions) {
+        assert!(duration.as_secs() < 20, "Reproduction is too slow even in debug: {:?}", duration);
+    } else {
+        assert!(duration.as_millis() < 2500, "Reproduction is too slow: {:?}", duration);
+    }
 }
 
 #[test]
@@ -75,7 +79,11 @@ fn bench_massive_scale_simulation() {
     let duration = start.elapsed();
     
     println!("Massive Scale: Processed 100 CPU steps with 50000 agents in {:?}", duration);
-    assert!(duration.as_secs() < 10, "Massive scale CPU logic is too slow: {:?}", duration);
+    if cfg!(debug_assertions) {
+        assert!(duration.as_secs() < 120, "Massive scale CPU logic is too slow even in debug: {:?}", duration);
+    } else {
+        assert!(duration.as_secs() < 10, "Massive scale CPU logic is too slow: {:?}", duration);
+    }
 }
 
 #[test]
