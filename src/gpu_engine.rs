@@ -10,6 +10,7 @@
 
 use wgpu::util::DeviceExt;
 use pollster::block_on;
+use std::sync::Mutex;
 
 pub struct GpuEngine {
     device: wgpu::Device,
@@ -29,6 +30,7 @@ pub struct GpuEngine {
     config_buffer: wgpu::Buffer,
     height_buffer: wgpu::Buffer,
     agent_count: u32,
+    staging_lock: Mutex<()>,
 }
 
 impl GpuEngine {
@@ -158,26 +160,28 @@ impl GpuEngine {
                 ],
             });
 
-            Self { device, queue, pipeline, render_pipeline, bind_group, render_bind_group, agent_state_buffer, genetics_buffer, staging_state_buffer, staging_genetics_buffer, staging_cell_buffer, cell_buffer, render_buffer, staging_render_buffer, config_buffer, height_buffer, agent_count: states.len() as u32 }
+            Self { 
+                device, queue, pipeline, render_pipeline, bind_group, render_bind_group, 
+                agent_state_buffer, genetics_buffer, staging_state_buffer, staging_genetics_buffer, 
+                staging_cell_buffer, cell_buffer, render_buffer, staging_render_buffer, 
+                config_buffer, height_buffer, agent_count: states.len() as u32,
+                staging_lock: Mutex::new(()),
+            }
         })
     }
 
     pub fn compute_ticks(&self, ticks: usize) {
-        let chunk_size = 250;
-        let mut remaining = ticks;
-        
-        while remaining > 0 {
-            let current_ticks = remaining.min(chunk_size);
-            remaining -= current_ticks;
-            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            for _ in 0..current_ticks {
-                let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                cpass.set_pipeline(&self.pipeline);
-                cpass.set_bind_group(0, &self.bind_group, &[]);
+        if ticks == 0 { return; }
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            cpass.set_pipeline(&self.pipeline);
+            cpass.set_bind_group(0, &self.bind_group, &[]);
+            for _ in 0..ticks {
                 cpass.dispatch_workgroups((self.agent_count as f32 / 64.0).ceil() as u32, 1, 1);
             }
-            self.queue.submit(Some(encoder.finish()));
         }
+        self.queue.submit(Some(encoder.finish()));
     }
 
     pub fn update_agents(&self, states: &[crate::agent::AgentState], genetics: &[crate::agent::Genetics]) {
@@ -234,6 +238,7 @@ impl GpuEngine {
     }
 
     pub fn fetch_cells(&self) -> Vec<crate::environment::CellState> {
+        let _guard = self.staging_lock.lock().unwrap();
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         encoder.copy_buffer_to_buffer(&self.cell_buffer, 0, &self.staging_cell_buffer, 0, self.staging_cell_buffer.size());
         self.queue.submit(Some(encoder.finish()));
