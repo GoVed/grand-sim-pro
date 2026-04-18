@@ -46,6 +46,8 @@ pub struct SharedData {
     pub restart_message_active: bool,
     pub ticks_per_loop: usize,
     pub total_ticks: u64,
+    pub cumulative_ticks: u64,
+    pub last_telemetry_tick: u64,
     pub last_compute_time_micros: u128,
     pub ticks_per_second: f32,
     pub generation_survival_times: Vec<u64>,
