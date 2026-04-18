@@ -81,6 +81,8 @@ pub fn draw_metrics(
     draw_text(&format!("Config Panel [C]: {}", if show_config_panel { "OPEN" } else { "CLOSED" }), 20.0, y, 16.0, WHITE);
     y += dy;
     draw_text("Save Agents [S]", 20.0, y, 16.0, WHITE);
+    y += dy;
+    draw_text("Full Save [F]", 20.0, y, 16.0, WHITE);
 
     if paused { draw_text("PAUSED", screen_width() / 2.0 - 50.0, 30.0, 30.0, RED); }
     if restart_msg {
@@ -466,6 +468,7 @@ fn update_val(c: &mut crate::config::SimConfig, key: &str, dir: f32) {
         "sim.spawn_group_size" => c.sim.spawn_group_size = (c.sim.spawn_group_size as i32 + 10 * dir as i32).max(1) as u32,
         "sim.founder_count" => c.sim.founder_count = (c.sim.founder_count as i32 + 10 * dir as i32).max(1) as u32,
         "sim.load_saved_agents_on_start" => c.sim.load_saved_agents_on_start = (c.sim.load_saved_agents_on_start as i32 + dir as i32).clamp(0, 2) as u32,
+        "sim.auto_save_interval_ticks" => c.sim.auto_save_interval_ticks = (c.sim.auto_save_interval_ticks as i32 + 1_000_000 * dir as i32).max(100_000) as u32,
 
         "bio.base_speed" => c.bio.base_speed = (c.bio.base_speed + 0.5 * dir).max(0.1),
         "bio.max_age" => c.bio.max_age = (c.bio.max_age + 10000.0 * dir).max(100.0),

@@ -22,6 +22,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
         let mut last_fetch_time = Instant::now();
         let mut telemetry = crate::telemetry::TelemetryExporter::new("telemetry.csv");
         let mut last_telemetry_tick = 0;
+        let mut last_auto_save_tick = 0;
         
         let mut last_perf_calc_time = Instant::now();
         let mut ticks_this_second = 0u64;
@@ -95,6 +96,20 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         let generation = data.generation_survival_times.len() as u32;
                         let _ = telemetry.export(&data.sim, &data.config, data.total_ticks, generation);
                         last_telemetry_tick = data.total_ticks;
+                    }
+
+                    // Auto-Save
+                    let auto_save_interval = data.config.sim.auto_save_interval_ticks as u64;
+                    if auto_save_interval > 0 && data.total_ticks >= last_auto_save_tick + auto_save_interval {
+                        data.sim.env.map_cells = gpu.fetch_cells();
+                        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                        let save_name = format!("auto_save_{}", timestamp);
+                        let shared_clone = data.clone();
+                        // Run save in background thread to avoid blocking simulation
+                        std::thread::spawn(move || {
+                            pollster::block_on(crate::shared::save_everything(&shared_clone, &save_name, false, None));
+                        });
+                        last_auto_save_tick = data.total_ticks;
                     }
 
                     // Check for auto-restart while we have the lock
@@ -246,6 +261,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         }
                         data.sim.states = new_states;
                         data.sim.genetics = new_genetics;
+                        data.sim.total_births = data.config.sim.agent_count as u64;
+                        data.sim.total_deaths = 0;
 
                         data.total_ticks = 0;
                         last_telemetry_tick = 0;

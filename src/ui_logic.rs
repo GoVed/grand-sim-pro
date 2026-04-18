@@ -99,6 +99,7 @@ pub fn get_filtered_config_items(
     push_item(&mut results, "S: Spawn Group", "sim.spawn_group_size", config.sim.spawn_group_size as f32, last_saved.sim.spawn_group_size as f32, &q);
     push_item(&mut results, "S: Founders", "sim.founder_count", config.sim.founder_count as f32, last_saved.sim.founder_count as f32, &q);
     push_item(&mut results, "S: Load Mode (0..2)", "sim.load_saved_agents_on_start", config.sim.load_saved_agents_on_start as f32, last_saved.sim.load_saved_agents_on_start as f32, &q);
+    push_item(&mut results, "S: Auto-Save Ticks", "sim.auto_save_interval_ticks", config.sim.auto_save_interval_ticks as f32, last_saved.sim.auto_save_interval_ticks as f32, &q);
 
     // Bio
     push_item(&mut results, "B: Base Speed", "bio.base_speed", config.bio.base_speed, last_saved.bio.base_speed, &q);
