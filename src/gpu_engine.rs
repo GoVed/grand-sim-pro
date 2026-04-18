@@ -172,16 +172,32 @@ impl GpuEngine {
 
     pub fn compute_ticks(&self, ticks: usize) {
         if ticks == 0 { return; }
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            cpass.set_pipeline(&self.pipeline);
-            cpass.set_bind_group(0, &self.bind_group, &[]);
-            for _ in 0..ticks {
-                cpass.dispatch_workgroups((self.agent_count as f32 / 64.0).ceil() as u32, 1, 1);
+        
+        // Chunk dispatches to prevent GPU hangs/TDR (Timeout Detection and Recovery)
+        // Drivers often kill contexts that take > 2 seconds.
+        let max_ticks_per_submission = 250;
+        let mut remaining = ticks;
+
+        while remaining > 0 {
+            let current_batch = remaining.min(max_ticks_per_submission);
+            remaining -= current_batch;
+
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            {
+                let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+                cpass.set_pipeline(&self.pipeline);
+                cpass.set_bind_group(0, &self.bind_group, &[]);
+                for _ in 0..current_batch {
+                    cpass.dispatch_workgroups((self.agent_count as f32 / 64.0).ceil() as u32, 1, 1);
+                }
+            }
+            self.queue.submit(Some(encoder.finish()));
+            
+            // In high-load batches, occasionally poll to let the driver stay alive
+            if remaining > 0 {
+                self.device.poll(wgpu::Maintain::Poll);
             }
         }
-        self.queue.submit(Some(encoder.finish()));
     }
 
     pub fn update_agents(&self, states: &[crate::agent::AgentState], genetics: &[crate::agent::Genetics]) {

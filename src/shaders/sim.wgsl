@@ -312,8 +312,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     agents[idx].buy_intent = select(outputs[43] * 0.5 + 0.5, 0.0, resting);
     agents[idx].sell_intent = select(outputs[44] * 0.5 + 0.5, 0.0, resting);
-    agents[idx].ask_price = abs(outputs[45]) * 10.0;
-    agents[idx].bid_price = abs(outputs[46]) * 10.0;
+    // Use exponential scaling for prices (e^x) to allow theoretically unlimited range
+    // outputs[n] is tanh result (-1 to 1). 
+    // Shift to 0..1 then scale. e.g. e^(8 * x) gives range ~1 to 2980.
+    agents[idx].ask_price = exp((outputs[45] * 0.5 + 0.5) * 10.0);
+    agents[idx].bid_price = exp((outputs[46] * 0.5 + 0.5) * 10.0);
     agents[idx].drop_water_intent = select(outputs[47] * 0.5 + 0.5, 0.0, resting);
     agents[idx].pickup_water_intent = select(outputs[48] * 0.5 + 0.5, 0.0, resting);
     agents[idx].defend_intent = select(outputs[49] * 0.5 + 0.5, 0.0, resting);
