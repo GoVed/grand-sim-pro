@@ -77,8 +77,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                 }
 
                 // Async Fetch & Process
-                // Headless doesn't need frequent UI updates, so we sync much less often
-                let sync_interval = if is_headless { 1000 } else { 64 };
+                // Headless doesn't need frequent UI updates, but 1s is too slow for telemetry accuracy
+                let sync_interval = if is_headless { 200 } else { 64 };
                 if !is_worker_active && last_fetch_time.elapsed().as_millis() >= sync_interval { 
                     let (states, genetics) = gpu.fetch_agents();
                     let _ = worker_tx.send((states, genetics, config));
