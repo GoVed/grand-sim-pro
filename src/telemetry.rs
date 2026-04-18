@@ -127,7 +127,7 @@ impl TelemetryExporter {
 
         writeln!(
             writer,
-            "{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{:.4},{:.4},{:.4},{:.4},{:.0},{:.0},{:.4}",
+            "{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{:.6},{:.6},{:.6},{:.6},{:.0},{:.0},{:.6}",
             generation, cumulative_ticks, pop_count, 
             sanitize(avg_age), sanitize(avg_health), sanitize(avg_wealth), sanitize(avg_food), sanitize(avg_stamina), sanitize(avg_water),
             infra_roads, infra_housing, infra_farms, infra_storage, cumulative_births, cumulative_deaths,

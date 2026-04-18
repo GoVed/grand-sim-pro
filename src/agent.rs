@@ -180,20 +180,21 @@ impl Person {
             for k in 0..8 {
                 let idx = rng.gen_range(0..available.len());
                 w1_indices[h * 8 + k] = available.remove(idx);
-                w1_weights[h * 8 + k] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit;
+                // Bias towards small non-zero values to kickstart evolution
+                w1_weights[h * 8 + k] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit + 0.01;
             }
         }
 
         let mut w2 = [0.0; W2_SIZE];
         for i in 0..hidden_count {
             for j in 0..hidden_count {
-                w2[i * NUM_HIDDEN_MAX + j] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit;
+                w2[i * NUM_HIDDEN_MAX + j] = (rng.r#gen::<f32>() * 2.0 * w2_limit) - w2_limit + 0.01;
             }
         }
         let mut w3 = [0.0; W3_SIZE];
         for i in 0..hidden_count {
             for j in 0..NUM_OUTPUTS {
-                w3[i * NUM_OUTPUTS + j] = (rng.r#gen::<f32>() * 2.0 * w3_limit) - w3_limit;
+                w3[i * NUM_OUTPUTS + j] = (rng.r#gen::<f32>() * 2.0 * w3_limit) - w3_limit + 0.01;
             }
         }
 
