@@ -48,6 +48,8 @@ pub struct SharedData {
     pub total_ticks: u64,
     pub cumulative_ticks: u64,
     pub last_telemetry_tick: u64,
+    pub cumulative_births: u64,
+    pub cumulative_deaths: u64,
     pub last_compute_time_micros: u128,
     pub ticks_per_second: f32,
     pub generation_survival_times: Vec<u64>,

@@ -29,12 +29,11 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
         let (worker_tx, worker_rx) = std::sync::mpsc::channel::<(Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>, crate::config::SimConfig)>();
         let (result_tx, result_rx) = std::sync::mpsc::channel::<(Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>, u64)>();
 
-        // Spawn background worker for heavy CPU tasks (Sorting)
+        // Spawn background worker for heavy CPU tasks (Spatial Sorting)
         thread::spawn(move || {
             while let Ok((mut states, genetics, config)) = worker_rx.recv() {
                 let start_worker = Instant::now();
                 
-                // Spatial Sorting
                 use rayon::prelude::*;
                 let map_w = config.world.map_width as usize;
                 let map_h = config.world.map_height as usize;
@@ -78,8 +77,6 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 // Async Fetch & Process
                 if !is_worker_active && last_fetch_time.elapsed().as_millis() >= 32 { 
                     let (states, genetics) = gpu.fetch_agents();
-                    // Sync part: Genetics & Births are fast but need proper state sync, so we do it here for now
-                    // Actually, let's keep it simple: fetch, then send to worker for sorting.
                     let _ = worker_tx.send((states, genetics, config));
                     is_worker_active = true;
                     last_fetch_time = Instant::now();
@@ -87,58 +84,45 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
                 // Check for worker results
                 if let Ok((states, genetics, worker_micros)) = result_rx.try_recv() {
-                    let mut telemetry_task = None;
-                    let mut auto_save_task = None;
-
                     if let Ok(mut data) = sim_thread_data.lock() {
+                        let prev_births = data.sim.total_births;
+                        let prev_deaths = data.sim.total_deaths;
+
                         data.sim.states = states;
                         data.sim.genetics = genetics;
                         data.last_compute_time_micros = worker_micros as u128;
                         
-                        // Process births synchronously since it's O(Agents) and fast
                         data.sim.process_genetics_and_births(&config);
+                        
+                        let new_births = data.sim.total_births.saturating_sub(prev_births);
+                        let new_deaths = data.sim.total_deaths.saturating_sub(prev_deaths);
+                        data.cumulative_births += new_births;
+                        data.cumulative_deaths += new_deaths;
                         
                         gpu.update_agents(&data.sim.states, &data.sim.genetics);
                         
                         data.total_ticks += ticks_per_loop as u64;
                         data.cumulative_ticks += ticks_per_loop as u64;
 
-                        // Telemetry (Prepare data)
+                        // Telemetry (Seamless & Backgrounded)
                         let telemetry_interval = data.config.telemetry.export_interval_ticks as u64;
                         if data.config.telemetry.enabled != 0 && data.cumulative_ticks >= data.last_telemetry_tick + telemetry_interval {
-                            telemetry_task = Some((data.sim.clone(), data.config.clone(), data.cumulative_ticks, data.generation_survival_times.len() as u32));
+                            let config_clone = data.config.clone();
+                            let states_clone = data.sim.states.clone();
+                            let cumulative_ticks = data.cumulative_ticks;
+                            let cumulative_births = data.cumulative_births;
+                            let cumulative_deaths = data.cumulative_deaths;
+                            let generation = data.generation_survival_times.len() as u32;
+                            let gpu_c = gpu.clone();
+                            
+                            std::thread::spawn(move || {
+                                let mut telemetry_exporter = crate::telemetry::TelemetryExporter::new("telemetry.csv");
+                                let cells = gpu_c.fetch_cells();
+                                let _ = telemetry_exporter.export_optimized(&config_clone, &states_clone, &cells, cumulative_ticks, cumulative_births, cumulative_deaths, generation);
+                            });
                             data.last_telemetry_tick = data.cumulative_ticks;
                         }
-
-                        // Auto-Save (Prepare data)
-                        let auto_save_interval = data.config.sim.auto_save_interval_ticks as u64;
-                        if auto_save_interval > 0 && data.total_ticks >= last_auto_save_tick + auto_save_interval {
-                            auto_save_task = Some(data.clone());
-                            last_auto_save_tick = data.total_ticks;
-                        }
                     }
-
-                    // Execute Background Tasks OUTSIDE the lock
-                    if let Some((mut sim_clone, config_clone, cumulative_ticks, generation)) = telemetry_task {
-                        let gpu_c = gpu.clone();
-                        std::thread::spawn(move || {
-                            let mut telemetry = crate::telemetry::TelemetryExporter::new("telemetry.csv");
-                            sim_clone.env.map_cells = gpu_c.fetch_cells();
-                            let _ = telemetry.export(&sim_clone, &config_clone, cumulative_ticks, generation);
-                        });
-                    }
-
-                    if let Some(shared_clone) = auto_save_task {
-                        let gpu_c = gpu.clone();
-                        std::thread::spawn(move || {
-                            let mut s = shared_clone;
-                            s.sim.env.map_cells = gpu_c.fetch_cells();
-                            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-                            let save_name = format!("auto_save_{}", timestamp);
-                            pollster::block_on(crate::shared::save_everything(&s, &save_name, false, None));
-                        });
-                    }
-                    
                     is_worker_active = false;
                 }
                 
@@ -148,7 +132,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                      // Check for auto-restart
                     let survivors: Vec<_> = data.sim.states.iter().enumerate()
                         .filter(|(_, s)| s.health > 0.0)
-                        .map(|(i, s)| Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })
+                        .map(|(_, s)| Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })
                         .collect();
                     
                     if survivors.len() < data.config.sim.founder_count as usize {
@@ -175,7 +159,9 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     // Auto-Save
                     let auto_save_interval = data.config.sim.auto_save_interval_ticks as u64;
                     if auto_save_interval > 0 && data.total_ticks >= last_auto_save_tick + auto_save_interval {
-                        auto_save_maintenance = Some(data.clone());
+                        let mut save_clone = data.clone();
+                        save_clone.sim.env.map_cells = Vec::new();
+                        auto_save_maintenance = Some(save_clone);
                         last_auto_save_tick = data.total_ticks;
                     }
                 }

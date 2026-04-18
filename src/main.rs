@@ -196,7 +196,10 @@ async fn main() {
             SharedData {
                 sim, config: config.clone(), last_saved_config: config.clone(),
                 is_paused: false, restart_message_active: false,
-                ticks_per_loop: 5, total_ticks: 0, cumulative_ticks: 0, last_telemetry_tick: 0,
+                ticks_per_loop: 5, total_ticks: 0, 
+                cumulative_ticks: 0, last_telemetry_tick: 0,
+                cumulative_births: config.sim.agent_count as u64,
+                cumulative_deaths: 0,
                 last_compute_time_micros: 0,
                 ticks_per_second: 0.0, generation_survival_times: Vec::new(),
             }
