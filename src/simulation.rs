@@ -126,7 +126,8 @@ impl SimulationManager {
                 }
             }
 
-            // Fill remaining slots
+            // Fill remaining slots using all founders round-robin
+            let mut founder_idx = 0;
             while states.len() < count as usize {
                 if spawn_count >= spawn_group_size { 
                     current_spawn_pt = get_land_spawn_point(&mut rng); 
@@ -135,7 +136,7 @@ impl SimulationManager {
                 }
                 let px = (current_spawn_pt.0 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(width as f32);
                 let py = (current_spawn_pt.1 + rng.gen_range(-5.0f32..5.0f32)).rem_euclid(height as f32);
-                let mut child = founders[0].clone_as_descendant(px, py, states.len() as u32, mutation_rate, mutation_strength, config);
+                let mut child = founders[founder_idx].clone_as_descendant(px, py, states.len() as u32, mutation_rate, mutation_strength, config);
                 child.state.age = rng.gen_range(0.0f32..config.bio.max_age * 0.8);
                 child.state.pheno_r = (current_base_color.0 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
                 child.state.pheno_g = (current_base_color.1 + rng.gen_range(-0.15f32..0.15f32)).clamp(-1.0, 1.0);
@@ -143,6 +144,7 @@ impl SimulationManager {
                 states.push(child.state);
                 genetics.push(child.genetics);
                 spawn_count += 1;
+                founder_idx = (founder_idx + 1) % founders.len();
             }
         }
         
@@ -290,6 +292,11 @@ mod tests {
         assert_eq!(sim.genetics.len(), 100);
         assert_eq!(sim.env.height_map.len(), 800 * 600);
         assert_eq!(sim.env.map_cells.len(), 800 * 600);
+
+        // Test with founders
+        let founders = vec![Person::new(0.0, 0.0, 0, &config); 5];
+        let sim_f = SimulationManager::new(800, 600, 12345, 100, &config, founders);
+        assert_eq!(sim_f.states.len(), 100);
     }
 
     #[test]
