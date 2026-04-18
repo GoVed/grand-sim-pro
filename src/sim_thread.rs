@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use crate::shared::SharedData;
 use crate::gpu_engine::GpuEngine;
+use crate::agent::Person;
 
 pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
     thread::spawn(move || {
@@ -145,14 +146,25 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 let mut auto_save_maintenance = None;
                 if let Ok(mut data) = sim_thread_data.try_lock() {
                      // Check for auto-restart
-                    let living_count = data.sim.states.iter().filter(|s| s.health > 0.0).count();
-                    if living_count < data.config.sim.founder_count as usize {
+                    let survivors: Vec<_> = data.sim.states.iter().enumerate()
+                        .filter(|(_, s)| s.health > 0.0)
+                        .map(|(i, s)| Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })
+                        .collect();
+                    
+                    if survivors.len() < data.config.sim.founder_count as usize {
                         data.restart_message_active = true;
                         let total_ticks = data.total_ticks;
                         if total_ticks > 0 { data.generation_survival_times.push(total_ticks); }
                         
                         let mut rng = ::rand::thread_rng();
-                        data.sim = crate::simulation::SimulationManager::new(data.config.world.map_width, data.config.world.map_height, rand::Rng::r#gen(&mut rng), data.config.sim.agent_count, &data.config, Vec::new());
+                        data.sim = crate::simulation::SimulationManager::new(
+                            data.config.world.map_width, 
+                            data.config.world.map_height, 
+                            rand::Rng::r#gen(&mut rng), 
+                            data.config.sim.agent_count, 
+                            &data.config, 
+                            survivors
+                        );
                         
                         data.total_ticks = 0; data.restart_message_active = false;
                         gpu.update_agents(&data.sim.states, &data.sim.genetics);
