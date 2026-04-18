@@ -11,8 +11,10 @@
 use rand::Rng;
 use noise::{NoiseFn, Perlin, Fbm};
 
+use serde::{Serialize, Deserialize};
+
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug)]
 pub struct CellState {
     pub res_value: i32,      // Fixed-point (val * 1000) for GPU atomics
     pub population: f32,     // Leaves a trace when agents step here
@@ -52,6 +54,7 @@ pub struct CellState {
     pub _pad_infra3: f32,
 }
 
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Environment {
     pub height_map: Vec<f32>,
     pub map_cells: Vec<CellState>,
@@ -162,9 +165,6 @@ impl Environment {
             let mut sy = rng.gen_range(0..height);
             
             // --- Spherical Distribution Fix ---
-            // On a 2D projection, the poles (top/bottom) are stretched. 
-            // We scale the spawn probability by cos(latitude) so that the density remains 
-            // constant per physical unit of area on the sphere.
             let lat_rad = ((sy as f32 / height as f32) - 0.5) * std::f32::consts::PI; // -PI/2 to PI/2
             let spawn_prob = lat_rad.cos();
             if rng.r#gen::<f32>() > spawn_prob { continue; }
@@ -216,14 +216,8 @@ impl Environment {
             // Carve the river into the map arrays
             for &idx in &river_path {
                 map_cells[idx].market_water = (config.world.max_tile_water * 1000.0) as i32;
+                if height_map[idx] > -0.01 { height_map[idx] = -0.01; }
                 
-                // Erode terrain to -0.01 (Shallow Water) so it naturally replenishes water forever
-                // Requires a boat to cross, making rivers and lakes actual water obstacles
-                if height_map[idx] > -0.01 {
-                    height_map[idx] = -0.01;
-                }
-                
-                // Carve walkable riverbanks (0.01) so agents can reach the water without a boat
                 let cx = (idx as u32) % width;
                 let cy = (idx as u32) / width;
                 let dirs = [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)];
@@ -232,9 +226,7 @@ impl Environment {
                     let tidx = (ty * width + tx) as usize;
                     
                     map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
-                    if height_map[tidx] > 0.01 {
-                        height_map[tidx] = 0.01;
-                    }
+                    if height_map[tidx] > 0.01 { height_map[tidx] = 0.01; }
                 }
             }
 
@@ -245,7 +237,6 @@ impl Environment {
                     let ly = (last_idx as u32) / width;
                     
                     let h_pit = height_map[last_idx];
-                    // The lake surface level is slightly higher than the pit bottom
                     let h_surface = h_pit + rng.r#gen::<f32>() * 0.03 + 0.01;
                     let max_radius = 12i32;
                     
@@ -257,13 +248,10 @@ impl Environment {
                             let (tx, ty) = wrap_coords(lx as i32, ly as i32, dx, dy, width as i32, height as i32);
                             let tidx = (ty * width + tx) as usize;
                             
-                            // Topographic flooding: fill tiles below the surface level
-                            // This creates non-circular, natural shapes that follow valley contours.
                             if height_map[tidx] < h_surface {
                                 map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                                 if height_map[tidx] > -0.01 { height_map[tidx] = -0.01; }
                             } else if height_map[tidx] < h_surface + 0.01 {
-                                // Create a walkable muddy bank/shoreline around the lake
                                 map_cells[tidx].market_water = (config.world.max_tile_water * 1000.0) as i32;
                                 if height_map[tidx] > 0.01 { height_map[tidx] = 0.01; }
                             }
@@ -274,26 +262,26 @@ impl Environment {
         }
 
         Self { height_map, map_cells }
-        }
-        }
+    }
+}
 
-        #[cfg(test)]
-        mod tests {
-        use super::*;
-        use crate::config::SimConfig;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::SimConfig;
 
-        #[test]
-        fn test_environment_new() {
-            let config = SimConfig::default();
-            let width = 100;
-            let height = 100;
-            let env = Environment::new(width, height, 12345, &config);
+    #[test]
+    fn test_environment_new() {
+        let config = SimConfig::default();
+        let width = 100;
+        let height = 100;
+        let env = Environment::new(width, height, 12345, &config);
 
-            assert_eq!(env.height_map.len(), (width * height) as usize);
-            assert_eq!(env.map_cells.len(), (width * height) as usize);
-            
-            // Test that water generation worked
-            let water_tiles = env.map_cells.iter().filter(|c| c.market_water > 0).count();
-            assert!(water_tiles > 0, "No water tiles generated on the map");
-        }
-        }
+        assert_eq!(env.height_map.len(), (width * height) as usize);
+        assert_eq!(env.map_cells.len(), (width * height) as usize);
+        
+        // Test that water generation worked
+        let water_tiles = env.map_cells.iter().filter(|c| c.market_water > 0).count();
+        assert!(water_tiles > 0, "No water tiles generated on the map");
+    }
+}

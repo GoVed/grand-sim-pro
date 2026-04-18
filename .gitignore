@@ -2,3 +2,5 @@
 Cargo.lock
 /saved_agents_weights
 telemetry.csv
+last_run/
+saves/

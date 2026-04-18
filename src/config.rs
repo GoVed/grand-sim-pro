@@ -32,7 +32,7 @@ pub struct SimulationConfig {
     pub load_saved_agents_on_start: u32,
     pub current_tick: u32,
     pub visual_mode: u32,
-    pub pad1: u32,
+    pub auto_save_interval_ticks: u32,
     pub pad2: u32,
 }
 
@@ -151,7 +151,7 @@ impl Default for SimConfig {
                 load_saved_agents_on_start: 2,
                 current_tick: 0,
                 visual_mode: 0,
-                pad1: 0,
+                auto_save_interval_ticks: 10_000_000,
                 pad2: 0,
             },
             bio: BiologyConfig {

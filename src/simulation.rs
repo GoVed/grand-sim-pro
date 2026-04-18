@@ -12,18 +12,29 @@ use crate::agent::{Person, AgentState, Genetics};
 use crate::environment::Environment;
 use ::rand::Rng;
 
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct SimulationManager {
     pub env: Environment,
     pub states: Vec<AgentState>,
     pub genetics: Vec<Genetics>,
     pub pending_births: std::collections::HashMap<u32, Person>,
+    pub total_births: u64,
+    pub total_deaths: u64,
     
     // Reusable buffers to avoid allocations in process_genetics_and_births
+    #[serde(skip)]
     cell_occupants: std::collections::HashMap<usize, Vec<usize>>,
+    #[serde(skip)]
     living_ids: std::collections::HashSet<u32>,
+    #[serde(skip)]
     dead_indices: Vec<usize>,
+    #[serde(skip)]
     births_to_process: Vec<(u32, f32, f32)>,
+    #[serde(skip)]
     males: Vec<usize>,
+    #[serde(skip)]
     females: Vec<usize>,
 }
 
@@ -140,6 +151,8 @@ impl SimulationManager {
             states, 
             genetics,
             pending_births: std::collections::HashMap::new(),
+            total_births: count as u64,
+            total_deaths: 0,
             cell_occupants: std::collections::HashMap::with_capacity(count as usize / 10),
             living_ids: std::collections::HashSet::with_capacity(count as usize),
             dead_indices: Vec::with_capacity(count as usize / 4),
@@ -171,6 +184,9 @@ impl SimulationManager {
             }
         }
 
+        let living_count = self.living_ids.len();
+        self.total_deaths = self.total_births.saturating_sub(living_count as u64);
+
         let living_ids_ref = &self.living_ids;
         self.pending_births.retain(|id, _| living_ids_ref.contains(id));
 
@@ -188,6 +204,7 @@ impl SimulationManager {
                 if let Some(mut child) = self.pending_births.remove(&mother_id) {
                     child.state.x = mx;
                     child.state.y = my;
+                    self.total_births += 1;
                     
                     // The child's state will be placed at dead_idx in self.states
                     // Its genetics will be placed at child.state.genetics_index in self.genetics
@@ -237,17 +254,6 @@ impl SimulationManager {
                     
                     let mut p1 = Person { state: self.states[m_idx], genetics: self.genetics[m_g_idx] };
                     let mut p2 = Person { state: self.states[f_idx], genetics: self.genetics[f_g_idx] };
-                    
-                    // The child needs a genetics index. We'll use the one from a dead agent later.
-                    // For now, we just need to pass something to reproduce_sexual_with_rng.
-                    // Wait, when we insert into pending_births, we don't know the dead_idx yet.
-                    // But Person::reproduce_sexual_with_rng takes genetics_index.
-                    // Actually, we should probably use the mother's or father's genetics_index if they were to die,
-                    // but they aren't dead yet.
-                    
-                    // Let's look at how it was done before:
-                    // child = Person::reproduce_sexual_with_rng(p1, p2, 0, reproduction_cost, &mut rng);
-                    // It was passing 0.
                     
                     let child = Person::reproduce_sexual_with_rng(&mut p1, &mut p2, f_g_idx as u32, reproduction_cost, &mut rng);
                     

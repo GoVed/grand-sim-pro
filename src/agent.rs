@@ -10,7 +10,7 @@
 
 use std::f32::consts::PI;
 use rand::Rng;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
 pub const NUM_INPUTS: usize = 184; // 160 + 8 (Comm) + 16 (Mem)
 pub const NUM_HIDDEN_MAX: usize = 128;
@@ -29,8 +29,8 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Own Pheno R", "Own Pheno G", "Own Pheno B",
     "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
     "FL Res", "FL Elev", "FL Pop", "FL C1", "FL C2", "FL C3", "FL C4", "FL PR", "FL PG", "FL PB", "FL Road", "FL House", "FL Farm", "FL Store",
-    "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB", "F Road", "F House", "F Farm", "F Store",
-    "FR Res", "FR Elev", "FR Pop", "FR C1", "FR C2", "FR C3", "FR C4", "FR PR", "FR PG", "FR PB", "FR Road", "FR House", "FR Farm", "FR Store",
+    "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB", "FL Road", "FL House", "FL Farm", "FL Store",
+    "FR Res", "FR Elev", "FR Pop", "FR C1", "FR C2", "FR C3", "FR C4", "FR PR", "FR PG", "FR PB", "FL Road", "FL House", "FL Farm", "FL Store",
     "L Res", "L Elev", "L Pop", "L C1", "L C2", "L C3", "L C4", "L PR", "L PG", "L PB", "L Road", "L House", "L Farm", "L Store",
     "R Res", "R Elev", "R Pop", "R C1", "R C2", "R C3", "R C4", "R PR", "R PG", "R PB", "R Road", "R House", "R Farm", "R Store",
     "BL Res", "BL Elev", "BL Pop", "BL C1", "BL C2", "BL C3", "BL C4", "BL PR", "BL PG", "BL PB", "BL Road", "BL House", "BL Farm", "BL Store",
@@ -67,7 +67,7 @@ pub struct AgentWeights {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug)]
 pub struct AgentState {
     pub x: f32,
     pub y: f32,
@@ -111,7 +111,7 @@ pub struct AgentState {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, PartialEq, Debug)]
 pub struct Genetics {
     pub w1_weights: [f32; W1_SIZE],
     pub w1_indices: [u32; W1_SIZE],
@@ -119,7 +119,45 @@ pub struct Genetics {
     pub w3: [f32; W3_SIZE],
 }
 
-#[derive(Clone, Copy)]
+#[derive(Serialize, Deserialize)]
+struct GeneticsSerializable {
+    w1_weights: Vec<f32>,
+    w1_indices: Vec<u32>,
+    w2: Vec<f32>,
+    w3: Vec<f32>,
+}
+
+impl Serialize for Genetics {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer {
+        GeneticsSerializable {
+            w1_weights: self.w1_weights.to_vec(),
+            w1_indices: self.w1_indices.to_vec(),
+            w2: self.w2.to_vec(),
+            w3: self.w3.to_vec(),
+        }.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Genetics {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: Deserializer<'de> {
+        let s = GeneticsSerializable::deserialize(deserializer)?;
+        let mut res = Genetics {
+            w1_weights: [0.0; W1_SIZE],
+            w1_indices: [0; W1_SIZE],
+            w2: [0.0; W2_SIZE],
+            w3: [0.0; W3_SIZE],
+        };
+        if s.w1_weights.len() == W1_SIZE { res.w1_weights.copy_from_slice(&s.w1_weights); }
+        if s.w1_indices.len() == W1_SIZE { res.w1_indices.copy_from_slice(&s.w1_indices); }
+        if s.w2.len() == W2_SIZE { res.w2.copy_from_slice(&s.w2); }
+        if s.w3.len() == W3_SIZE { res.w3.copy_from_slice(&s.w3); }
+        Ok(res)
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Person {
     pub state: AgentState,
     pub genetics: Genetics,
