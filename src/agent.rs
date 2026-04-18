@@ -67,7 +67,7 @@ pub struct AgentWeights {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug, Default)]
 pub struct AgentState {
     pub x: f32,
     pub y: f32,

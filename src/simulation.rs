@@ -25,17 +25,17 @@ pub struct SimulationManager {
     
     // Reusable buffers to avoid allocations in process_genetics_and_births
     #[serde(skip)]
-    cell_occupants: std::collections::HashMap<usize, Vec<usize>>,
+    pub cell_occupants: std::collections::HashMap<usize, Vec<usize>>,
     #[serde(skip)]
-    living_ids: std::collections::HashSet<u32>,
+    pub living_ids: std::collections::HashSet<u32>,
     #[serde(skip)]
-    dead_indices: Vec<usize>,
+    pub dead_indices: Vec<usize>,
     #[serde(skip)]
-    births_to_process: Vec<(u32, f32, f32)>,
+    pub births_to_process: Vec<(u32, f32, f32)>,
     #[serde(skip)]
-    males: Vec<usize>,
+    pub males: Vec<usize>,
     #[serde(skip)]
-    females: Vec<usize>,
+    pub females: Vec<usize>,
 }
 
 pub fn load_founders(config: &crate::config::SimConfig) -> Vec<Person> {

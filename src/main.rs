@@ -252,6 +252,8 @@ async fn main() {
     let mut saving_ui_report: Option<ProgressReport> = None;
     let (save_prog_tx, save_prog_rx) = std::sync::mpsc::channel::<ProgressReport>();
 
+    let mut metrics = (0, 0.0f32, 0.0f32, 0usize, 0u64, false, false, Vec::new());
+
     loop {
         if saving_ui_report.is_some() {
             clear_background(BLACK);
@@ -309,14 +311,20 @@ async fn main() {
         }
         last_mouse = (mx, my);
 
-        let mut metrics = (0, 0.0f32, 0.0f32, 0usize, 0u64, false, false, Vec::new());
         if let Ok(mut data) = shared_data.try_lock() {
-            data.config.sim.visual_mode = match current_visual_mode {
+            if data.config.sim.visual_mode != match current_visual_mode {
                 VisualMode::Default => 0, VisualMode::Resources => 1, VisualMode::Age => 2, VisualMode::Gender => 3,
                 VisualMode::Pregnancy => 4, VisualMode::MarketWealth => 5, VisualMode::MarketFood => 6, VisualMode::AskPrice => 7,
                 VisualMode::BidPrice => 8, VisualMode::Infrastructure => 9, VisualMode::Temperature => 10, VisualMode::DayNight => 11,
                 VisualMode::Tribes => 12, VisualMode::Water => 13,
-            };
+            } {
+                data.config.sim.visual_mode = match current_visual_mode {
+                    VisualMode::Default => 0, VisualMode::Resources => 1, VisualMode::Age => 2, VisualMode::Gender => 3,
+                    VisualMode::Pregnancy => 4, VisualMode::MarketWealth => 5, VisualMode::MarketFood => 6, VisualMode::AskPrice => 7,
+                    VisualMode::BidPrice => 8, VisualMode::Infrastructure => 9, VisualMode::Temperature => 10, VisualMode::DayNight => 11,
+                    VisualMode::Tribes => 12, VisualMode::Water => 13,
+                };
+            }
             
             metrics = (
                 data.sim.states.iter().filter(|s| s.health > 0.0).count(),
@@ -352,7 +360,7 @@ async fn main() {
             }
             if let Some(fid) = followed_agent_id {
                 if let Some(s) = data.sim.states.iter().find(|s| s.id == fid) {
-                    let mut a = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
+                    let a = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
                     offset_x = loaded_config.world.map_width as f32 / 2.0 - a.state.x;
                     offset_y = loaded_config.world.map_height as f32 / 2.0 - a.state.y;
                 } else { followed_agent_id = None; }
