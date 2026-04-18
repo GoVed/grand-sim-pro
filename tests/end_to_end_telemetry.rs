@@ -78,11 +78,12 @@ async fn test_e2e_telemetry_activity() {
 
     println!("E2E Results - Aggr: {}, Altr: {}, Ask: {}, Bid: {}", aggr, altruism, ask, bid);
 
-    // With our "kickstart" bias, these should definitely be non-zero
+    // With our "kickstart" bias and exponential scaling, these should be non-zero and potentially large
     assert!(aggr.abs() > 0.0, "Average aggression is still zero");
     assert!(altruism.abs() > 0.0, "Average altruism is still zero");
-    assert!(ask > 0.0, "Average ask price is still zero");
-    assert!(bid > 0.0, "Average bid price is still zero");
+    // e^0 is 1.0, so with bias they should be > 1.0
+    assert!(ask > 0.5, "Average ask price is too low");
+    assert!(bid > 0.5, "Average bid price is too low");
 
     let _ = std::fs::remove_file("telemetry.csv");
 }
