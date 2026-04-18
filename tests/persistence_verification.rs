@@ -26,6 +26,8 @@ fn test_persistence_roundtrip() {
         total_ticks: 1234,
         cumulative_ticks: 5678,
         last_telemetry_tick: 5000,
+        cumulative_births: 10000,
+        cumulative_deaths: 9000,
         last_compute_time_micros: 5678,
         ticks_per_second: 60.0,
         generation_survival_times: vec![1000, 2000, 3000],

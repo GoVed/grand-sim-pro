@@ -41,7 +41,7 @@ fn test_bottleneck_analysis() {
     println!("Testing Telemetry Logic Overhead...");
     let mut exporter = world_sim::telemetry::TelemetryExporter::new("perf_test_telemetry.csv");
     let start_telemetry = Instant::now();
-    let _ = exporter.export(&sim, &config, 0, 0);
+    let _ = exporter.export_optimized(&config, &sim.states, &sim.env.map_cells, 0, 0, 0, 0);
     let telemetry_time = start_telemetry.elapsed();
     println!("telemetry.export took: {:?}", telemetry_time);
     
