@@ -14,7 +14,7 @@ use noise::{NoiseFn, Perlin, Fbm};
 use serde::{Serialize, Deserialize};
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug, Default)]
 pub struct CellState {
     pub res_value: i32,      // Fixed-point (val * 1000) for GPU atomics
     pub population: f32,     // Leaves a trace when agents step here
