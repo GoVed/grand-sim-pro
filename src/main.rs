@@ -38,6 +38,10 @@ struct Cli {
     #[arg(long, default_value_t = 3000)]
     api_port: u16,
 
+    /// Initial simulation speed (ticks per loop)
+    #[arg(long, default_value_t = 50)]
+    speed: usize,
+
     /// Initial start mode
     #[arg(long, value_enum, default_value_t = StartMode::New)]
     mode: StartMode,
@@ -148,7 +152,8 @@ async fn main() {
                             else { 
                                 menu_state = MenuState::Loading;
                                 start_choice = Some(*choice); 
-                            }                        }
+                            }
+                        }
                         y += 60.0;
                     }
                 }
@@ -179,7 +184,7 @@ async fn main() {
     let (final_tx, final_rx) = std::sync::mpsc::channel::<SharedData>();
     let (prog_tx, prog_rx) = std::sync::mpsc::channel::<ProgressReport>();
     
-    let choice = start_choice.unwrap();
+    let choice = start_choice.expect("No start choice made");
     let save_path = selected_save_path.clone();
     let config = loaded_config.clone();
 
@@ -197,7 +202,7 @@ async fn main() {
             SharedData {
                 sim, config: config.clone(), last_saved_config: config.clone(),
                 is_paused: false, restart_message_active: false,
-                ticks_per_loop: 5, total_ticks: 0, cumulative_ticks: 0, last_telemetry_tick: 0,
+                ticks_per_loop: args.speed, total_ticks: 0, cumulative_ticks: 0, last_telemetry_tick: 0,
                 cumulative_births: config.sim.agent_count as u64, cumulative_deaths: 0,
                 last_compute_time_micros: 0, ticks_per_second: 0.0, generation_survival_times: Vec::new(),
             }
@@ -235,7 +240,7 @@ async fn main() {
         rt.block_on(api::start_api(api_shared, api_gpu, api_port));
     });
 
-    sim_thread::spawn(sim_thread_data.clone(), gpu.clone());
+    sim_thread::spawn(sim_thread_data.clone(), gpu.clone(), args.headless);
 
     if args.headless {
         println!("Headless mode active. Running at maximum throughput.");
@@ -275,6 +280,17 @@ async fn main() {
             if is_key_pressed(KeyCode::C) { show_config_panel = !show_config_panel; while get_char_pressed().is_some() {} }
             if !show_config_panel {
                 if is_key_pressed(KeyCode::Space) { let mut d = shared_data.lock().unwrap(); d.is_paused = !d.is_paused; }
+                if is_key_pressed(KeyCode::S) { 
+                    let data = shared_data.lock().unwrap();
+                    let _ = std::fs::create_dir_all("saved_agents_weights");
+                    let mut living: Vec<_> = data.sim.states.iter().enumerate().filter(|(_, s)| s.health > 0.0).collect();
+                    living.sort_by(|(_, a), (_, b)| (b.wealth + b.food).partial_cmp(&(a.wealth + a.food)).unwrap());
+                    for i in 0..living.len().min(data.config.sim.founder_count as usize) {
+                        let (_, s) = living[i];
+                        let p = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
+                        let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), serde_json::to_string_pretty(&p.extract_weights()).unwrap());
+                    }
+                }
                 if is_key_pressed(KeyCode::F) {
                     let mut data = shared_data.lock().unwrap(); data.sim.env.map_cells = gpu.fetch_cells();
                     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
@@ -285,6 +301,8 @@ async fn main() {
                 }
                 if is_key_pressed(KeyCode::R) { show_visuals_panel = !show_visuals_panel; }
                 if is_key_pressed(KeyCode::G) { show_generation_graph = !show_generation_graph; }
+                if is_key_pressed(KeyCode::Up) { let mut d = shared_data.lock().unwrap(); d.ticks_per_loop = (d.ticks_per_loop as f32 * 1.2).max(d.ticks_per_loop as f32 + 1.0) as usize; }
+                if is_key_pressed(KeyCode::Down) { let mut d = shared_data.lock().unwrap(); d.ticks_per_loop = (d.ticks_per_loop as f32 / 1.2).max(1.0) as usize; }
                 if is_key_pressed(KeyCode::Tab) { show_inspector = !show_inspector; selected_agent = None; }
             }
             let (_mw_x, mw_y) = mouse_wheel(); let (mx, my) = mouse_position(); let left_clicked = is_mouse_button_pressed(MouseButton::Left);

@@ -13,41 +13,35 @@ set -e
 
 PERF_LOG="PERFORMANCE_LOG.md"
 
-# Ensure log exists with header
-if [ ! -f "$PERF_LOG" ]; then
-    echo "| Timestamp | 10k Repro Time | 100 Sim Steps (10k agents) |" > "$PERF_LOG"
-    echo "|-----------|----------------|----------------------------|" >> "$PERF_LOG"
-fi
-
 # Run tests and capture output
-echo "Running performance tests in release mode..."
+echo "Running Stress Performance Tests in release mode..."
 OUTPUT=$(cargo test --release --test performance -- --nocapture 2>&1)
 
-# Extract values (using simple grep/awk)
-REPRO_TIME=$(echo "$OUTPUT" | grep "10000 reproductions in" | awk '{print $4}')
-SIM_TIME=$(echo "$OUTPUT" | grep "Processed 500 steps with 10000 agents in" | awk '{print $8}')
-WORLD_TIME=$(echo "$OUTPUT" | grep "World generation (800x600) took" | awk '{print $5}')
-SORT_TIME=$(echo "$OUTPUT" | grep "High Density: 100 Optimized Spatial Sorts" | awk '{print $11}')
+# Extract values from new stress test
+COMPUTE_TIME=$(echo "$OUTPUT" | grep "Compute 100 ticks" | awk '{print $5}')
+TPS=$(echo "$OUTPUT" | grep "Theoretical TPS:" | awk '{print $3}')
+FETCH_TIME=$(echo "$OUTPUT" | grep "Agent State Fetch" | awk '{print $4}')
+CELL_TIME=$(echo "$OUTPUT" | grep "Full Map Cell Fetch" | awk '{print $6}')
+SORT_TIME=$(echo "$OUTPUT" | grep "Parallel Spatial Sort" | awk '{print $5}')
 
 # Log current run
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
-NEW_ENTRY="| $TIMESTAMP | $REPRO_TIME | $SIM_TIME | $WORLD_TIME | $SORT_TIME |"
+NEW_ENTRY="| $TIMESTAMP | $TPS | $COMPUTE_TIME | $FETCH_TIME | $CELL_TIME | $SORT_TIME |"
 
 # Read current entries (excluding header)
-# Use tail to skip header (2 lines)
-EXISTING_ENTRIES=$(tail -n +3 "$PERF_LOG")
+if [ -f "$PERF_LOG" ]; then
+    EXISTING_ENTRIES=$(tail -n +3 "$PERF_LOG")
+else
+    EXISTING_ENTRIES=""
+fi
 
-# Prepare new file content with up to 4 old entries + 1 new
-echo "| Timestamp | 10k Repro | 500 Sim Steps | World Gen | 100 Sorts (20k) |" > "${PERF_LOG}.tmp"
-echo "|-----------|-----------|---------------|-----------|-----------------|" >> "${PERF_LOG}.tmp"
-# Append existing entries, limited to 4
+# Prepare new file content
+echo "| Timestamp | TPS (Stress) | 100 Ticks | 20k Fetch | 10M Cell Fetch | 20k Sort |" > "${PERF_LOG}.tmp"
+echo "|-----------|--------------|-----------|-----------|----------------|----------|" >> "${PERF_LOG}.tmp"
 echo "$EXISTING_ENTRIES" | tail -n 4 >> "${PERF_LOG}.tmp"
-# Append new entry
 echo "$NEW_ENTRY" >> "${PERF_LOG}.tmp"
 
-# Cleanup any empty lines if EXISTING_ENTRIES was empty
 sed -i '/^$/d' "${PERF_LOG}.tmp"
-
 mv "${PERF_LOG}.tmp" "$PERF_LOG"
 
 echo "Performance logged in $PERF_LOG"

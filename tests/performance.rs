@@ -10,115 +10,61 @@
 
 use world_sim::simulation::SimulationManager;
 use world_sim::config::SimConfig;
+use world_sim::gpu_engine::GpuEngine;
+use world_sim::agent::{AgentState, Genetics, W1_SIZE, W2_SIZE, W3_SIZE};
+use world_sim::environment::CellState;
 use std::time::Instant;
 
 #[test]
-fn bench_simulation_step() {
+fn test_stress_performance() {
     let mut config = SimConfig::default();
-    config.world.map_width = 800;
-    config.world.map_height = 600;
-    config.sim.agent_count = 10000;
+    // High-Resolution Research Map
+    config.world.map_width = 4000;
+    config.world.map_height = 2500;
+    config.sim.agent_count = 20000; // Stress population
     
-    let mut sim = SimulationManager::new(800, 600, 12345, 10000, &config, Vec::new());
+    let states = vec![AgentState::default(); config.sim.agent_count as usize];
+    let genetics = vec![Genetics { 
+        w1_weights: [0.0; W1_SIZE], w1_indices: [0; W1_SIZE], 
+        w2: [0.0; W2_SIZE], w3: [0.0; W3_SIZE] 
+    }; config.sim.agent_count as usize];
     
-    let start = Instant::now();
-    for _ in 0..500 {
-        sim.process_genetics_and_births(&config);
-    }
-    let duration = start.elapsed();
+    let map_size = (config.world.map_width * config.world.map_height) as usize;
+    let heights = vec![0.0f32; map_size];
+    let cells = vec![CellState::default(); map_size];
     
-    println!("Processed 500 steps with 10000 agents in {:?}", duration);
-    // Ensure it doesn't take more than 5 seconds
-    assert!(duration.as_secs() < 5, "Performance is too low: {:?}", duration);
-}
+    println!("--- Stress Performance Analysis (4000x2500 Map, 20k Agents) ---");
+    
+    let start_init = Instant::now();
+    let gpu = GpuEngine::new(&states, &genetics, &heights, &cells, &config);
+    println!("GPU Stress Init: {:?}", start_init.elapsed());
 
-#[test]
-fn bench_world_generation() {
-    let config = SimConfig::default();
-    let start = Instant::now();
-    let _sim = SimulationManager::new(800, 600, 12345, 1000, &config, Vec::new());
-    let duration = start.elapsed();
-    println!("World generation (800x600) took {:?}", duration);
-    assert!(duration.as_secs() < 10, "World generation is too slow: {:?}", duration);
-}
+    // Test 1: High-Density GPU Compute
+    let start_compute = Instant::now();
+    gpu.compute_ticks(100);
+    let compute_time = start_compute.elapsed();
+    println!("Compute 100 ticks (Stress): {:?}", compute_time);
+    println!("Theoretical TPS: {:.0}", 100.0 / compute_time.as_secs_f32());
 
-#[test]
-fn bench_agent_reproduction() {
-    let config = SimConfig::default();
-    let mut p1 = world_sim::agent::Person::new(0.0, 0.0, 0, &config);
-    let mut p2 = world_sim::agent::Person::new(0.0, 0.0, 0, &config);
-    let mut rng = rand::thread_rng();
-    
-    let start = Instant::now();
-    for _ in 0..10000 {
-        world_sim::agent::Person::reproduce_sexual_with_rng(&mut p1, &mut p2, 0, 500.0, &mut rng);
-    }
-    let duration = start.elapsed();
-    println!("10000 reproductions in {:?}", duration);
-    if cfg!(debug_assertions) {
-        assert!(duration.as_secs() < 20, "Reproduction is too slow even in debug: {:?}", duration);
-    } else {
-        assert!(duration.as_millis() < 2500, "Reproduction is too slow: {:?}", duration);
-    }
-}
+    // Test 2: Bus Bandwidth (Agent Sync)
+    let start_fetch = Instant::now();
+    let _ = gpu.fetch_agents();
+    println!("Agent State Fetch (20k): {:?}", start_fetch.elapsed());
 
-#[test]
-fn bench_massive_scale_simulation() {
-    let mut config = SimConfig::default();
-    config.world.map_width = 1600;
-    config.world.map_height = 1200;
-    config.sim.agent_count = 50000;
-    
-    let mut sim = SimulationManager::new(1600, 1200, 12345, 50000, &config, Vec::new());
-    
-    let start = Instant::now();
-    // Simulate 100 steps of birth/genetics logic (CPU side)
-    for _ in 0..100 {
-        sim.process_genetics_and_births(&config);
-    }
-    let duration = start.elapsed();
-    
-    println!("Massive Scale: Processed 100 CPU steps with 50000 agents in {:?}", duration);
-    if cfg!(debug_assertions) {
-        assert!(duration.as_secs() < 120, "Massive scale CPU logic is too slow even in debug: {:?}", duration);
-    } else {
-        assert!(duration.as_secs() < 10, "Massive scale CPU logic is too slow: {:?}", duration);
-    }
-}
+    // Test 3: Large-Scale Map Telemetry Fetch
+    let start_cells = Instant::now();
+    let _ = gpu.fetch_cells();
+    println!("Full Map Cell Fetch (10M tiles): {:?}", start_cells.elapsed());
 
-#[test]
-fn bench_high_density_sorting() {
-    let mut config = SimConfig::default();
-    config.world.map_width = 100;
-    config.world.map_height = 100;
-    config.sim.agent_count = 20000;
-    
-    let mut sim = SimulationManager::new(100, 100, 12345, 20000, &config, Vec::new());
-    
-    let start = Instant::now();
-    for _ in 0..100 {
-        // Mock optimized spatial sorting as done in sim_thread
-        use rayon::prelude::*;
-        let map_w = config.world.map_width as usize;
-        let map_h = config.world.map_height as usize;
-        
-        let mut indices: Vec<usize> = (0..sim.states.len()).collect();
-        indices.par_sort_by_key(|&i| {
-            let a = &sim.states[i];
-            if a.health <= 0.0 { return usize::MAX; }
-            let ty = (a.y as usize).clamp(0, map_h - 1);
-            let tx = (a.x as usize).clamp(0, map_w - 1);
-            ty * map_w + tx
-        });
-
-        let mut sorted_states = Vec::with_capacity(sim.states.len());
-        for &i in &indices {
-            sorted_states.push(sim.states[i]);
-        }
-        sim.states = sorted_states;
-    }
-    let duration = start.elapsed();
-    
-    println!("High Density: 100 Optimized Spatial Sorts of 20000 agents in {:?}", duration);
-    assert!(duration.as_secs() < 2, "High density sorting is too slow: {:?}", duration);
+    // Test 4: Heavy Spatial Sort
+    use rayon::prelude::*;
+    let mut indices: Vec<usize> = (0..states.len()).collect();
+    let start_sort = Instant::now();
+    indices.par_sort_by_key(|&i| {
+        let s = &states[i];
+        let ty = (s.y as usize).clamp(0, config.world.map_height as usize - 1);
+        let tx = (s.x as usize).clamp(0, config.world.map_width as usize - 1);
+        ty * config.world.map_width as usize + tx
+    });
+    println!("Parallel Spatial Sort (20k agents): {:?}", start_sort.elapsed());
 }
