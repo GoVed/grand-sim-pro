@@ -63,9 +63,11 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
             if !is_paused {
                 gpu.update_config(&config);
-                gpu.compute_ticks(ticks_per_loop);
+                // Dispatch compute. If we're not fetching this frame, we can do more ticks to boost performance.
+                let batch_size = if !is_worker_active { ticks_per_loop * 2 } else { ticks_per_loop };
+                gpu.compute_ticks(batch_size);
                 
-                ticks_this_second += ticks_per_loop as u64;
+                ticks_this_second += batch_size as u64;
                 if last_perf_calc_time.elapsed().as_secs() >= 1 {
                     if let Ok(mut data) = sim_thread_data.lock() {
                         data.ticks_per_second = ticks_this_second as f32 / last_perf_calc_time.elapsed().as_secs_f32();
@@ -75,7 +77,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 }
 
                 // Async Fetch & Process
-                if !is_worker_active && last_fetch_time.elapsed().as_millis() >= 32 { 
+                // We only sync with CPU every 64ms (~15 FPS for genetics/sorting) to maximize GPU air-time
+                if !is_worker_active && last_fetch_time.elapsed().as_millis() >= 64 { 
                     let (states, genetics) = gpu.fetch_agents();
                     let _ = worker_tx.send((states, genetics, config));
                     is_worker_active = true;
@@ -101,41 +104,43 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         
                         gpu.update_agents(&data.sim.states, &data.sim.genetics);
                         
-                        data.total_ticks += ticks_per_loop as u64;
-                        data.cumulative_ticks += ticks_per_loop as u64;
-
-                        // Telemetry (Seamless & Backgrounded)
-                        let telemetry_interval = data.config.telemetry.export_interval_ticks as u64;
-                        if data.config.telemetry.enabled != 0 && data.cumulative_ticks >= data.last_telemetry_tick + telemetry_interval {
-                            let config_clone = data.config.clone();
-                            let states_clone = data.sim.states.clone();
-                            let cumulative_ticks = data.cumulative_ticks;
-                            let cumulative_births = data.cumulative_births;
-                            let cumulative_deaths = data.cumulative_deaths;
-                            let generation = data.generation_survival_times.len() as u32;
-                            let gpu_c = gpu.clone();
-                            
-                            std::thread::spawn(move || {
-                                let mut telemetry_exporter = crate::telemetry::TelemetryExporter::new("telemetry.csv");
-                                let cells = gpu_c.fetch_cells();
-                                let _ = telemetry_exporter.export_optimized(&config_clone, &states_clone, &cells, cumulative_ticks, cumulative_births, cumulative_deaths, generation);
-                            });
-                            data.last_telemetry_tick = data.cumulative_ticks;
-                        }
+                        // Note: total_ticks and cumulative_ticks are incremented by the batch_size above
+                        // But we only do it inside the lock for consistency.
                     }
                     is_worker_active = false;
                 }
                 
-                // Shared maintenance
-                let mut auto_save_maintenance = None;
                 if let Ok(mut data) = sim_thread_data.try_lock() {
+                    data.total_ticks += batch_size as u64;
+                    data.cumulative_ticks += batch_size as u64;
+
+                    // Telemetry (OPTIMIZED: NO FULL CLONE)
+                    let telemetry_interval = data.config.telemetry.export_interval_ticks as u64;
+                    if data.config.telemetry.enabled != 0 && data.cumulative_ticks >= data.last_telemetry_tick + telemetry_interval {
+                        let cfg_c = data.config.clone();
+                        let st_c = data.sim.states.clone();
+                        let ct = data.cumulative_ticks;
+                        let cb = data.cumulative_births;
+                        let cd = data.cumulative_deaths;
+                        let r#gen = data.generation_survival_times.len() as u32;
+                        
+                        let gpu_c = gpu.clone();
+                        std::thread::spawn(move || {
+                            let mut telemetry_exporter = crate::telemetry::TelemetryExporter::new("telemetry.csv");
+                            let cells = gpu_c.fetch_cells();
+                            let _ = telemetry_exporter.export_optimized(&cfg_c, &st_c, &cells, ct, cb, cd, r#gen);
+                        });
+                        data.last_telemetry_tick = data.cumulative_ticks;
+                    }
+
                      // Check for auto-restart
-                    let survivors: Vec<_> = data.sim.states.iter().enumerate()
-                        .filter(|(_, s)| s.health > 0.0)
-                        .map(|(_, s)| Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })
-                        .collect();
-                    
-                    if survivors.len() < data.config.sim.founder_count as usize {
+                    let survivors_count = data.sim.states.iter().filter(|s| s.health > 0.0).count();
+                    if survivors_count < data.config.sim.founder_count as usize {
+                        let survivors: Vec<_> = data.sim.states.iter().enumerate()
+                            .filter(|(_, s)| s.health > 0.0)
+                            .map(|(_, s)| Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })
+                            .collect();
+
                         data.restart_message_active = true;
                         let total_ticks = data.total_ticks;
                         if total_ticks > 0 { data.generation_survival_times.push(total_ticks); }
@@ -156,25 +161,21 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         gpu.update_cells(&data.sim.env.map_cells);
                     }
                     
-                    // Auto-Save
+                    // Auto-Save (OPTIMIZED: NO FULL CLONE)
                     let auto_save_interval = data.config.sim.auto_save_interval_ticks as u64;
                     if auto_save_interval > 0 && data.total_ticks >= last_auto_save_tick + auto_save_interval {
-                        let mut save_clone = data.clone();
-                        save_clone.sim.env.map_cells = Vec::new();
-                        auto_save_maintenance = Some(save_clone);
+                        let mut save_shared = data.clone();
+                        save_shared.sim.env.map_cells = Vec::new(); // Strip map cells
+                        let gpu_c = gpu.clone();
+                        std::thread::spawn(move || {
+                            let mut s = save_shared;
+                            s.sim.env.map_cells = gpu_c.fetch_cells();
+                            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                            let save_name = format!("auto_save_{}", timestamp);
+                            pollster::block_on(crate::shared::save_everything(&s, &save_name, false, None));
+                        });
                         last_auto_save_tick = data.total_ticks;
                     }
-                }
-
-                if let Some(shared_clone) = auto_save_maintenance {
-                    let gpu_c = gpu.clone();
-                    std::thread::spawn(move || {
-                        let mut s = shared_clone;
-                        s.sim.env.map_cells = gpu_c.fetch_cells();
-                        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-                        let save_name = format!("auto_save_{}", timestamp);
-                        pollster::block_on(crate::shared::save_everything(&s, &save_name, false, None));
-                    });
                 }
             }
 

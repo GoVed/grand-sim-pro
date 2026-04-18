@@ -1,22 +1,29 @@
 // Fast Local Memory Cache for workgroup map tiles (e.g., 10x10 patch + padding)
-// This significantly reduces global memory latency for vision sampling.
 var<workgroup> lds_res: array<f32, 256>; // 16x16 patch
 var<workgroup> lds_height: array<f32, 256>;
 var<workgroup> lds_pop: array<f32, 256>;
 var<workgroup> lds_base_x: u32;
 var<workgroup> lds_base_y: u32;
 
+fn fast_tanh(x: f32) -> f32 {
+    let x2 = x * x;
+    return x * (27.0 + x2) / (27.0 + 9.0 * x2);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32) {
     let idx = global_id.x;
     if (idx >= arrayLength(&agents)) { return; }
 
-    // CRITICAL PERFORMANCE FIX: DO NOT load the massive 28KB Agent struct into registers!
-    // We access members directly from the storage buffer instead.
     if (agents[idx].health <= 0.0) { return; }
     let g_idx = agents[idx].genetics_index;
 
-    // Store pre-update state for dopaminergic modulation
+    // Cache position and heading in registers early
+    let ax = agents[idx].x;
+    let ay = agents[idx].y;
+    let ah = agents[idx].heading;
+
+    // Store pre-update state
     let prev_health = agents[idx].health;
     let prev_food = agents[idx].food;
     let prev_wealth = agents[idx].wealth;
@@ -30,94 +37,67 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let max_idx = map_w * map_h - 1u;
 
     // --- Cooperative LDS Map Loading ---
-    // All 64 threads in the workgroup are spatially close due to sorting.
-    // Thread 0 calculates the bounding box and all threads load a tile patch.
     if (local_idx == 0u) {
-        lds_base_x = u32(agents[idx].x) / 8u * 8u;
-        lds_base_y = u32(agents[idx].y) / 8u * 8u;
+        lds_base_x = u32(ax) / 8u * 8u;
+        lds_base_y = u32(ay) / 8u * 8u;
     }
     workgroupBarrier();
 
-    // Each thread in workgroup (0-63) loads 4 tiles (4 * 64 = 256 tiles total in 16x16 patch)
+    // Loop unrolling for LDS loading
+    let l_idx_base = local_idx * 4u;
     for (var i = 0u; i < 4u; i = i + 1u) {
-        let l_idx = local_idx * 4u + i;
+        let l_idx = l_idx_base + i;
         let lx = l_idx % 16u;
         let ly = l_idx / 16u;
         let gx = (lds_base_x + lx) % map_w;
         let gy = clamp(lds_base_y + ly, 0u, map_h - 1u);
-        let g_idx = gy * map_w + gx;
+        let cell_idx = gy * map_w + gx;
 
-        lds_res[l_idx] = f32(atomicLoad(&map_cells[g_idx].res_value)) / 1000.0;
-        lds_height[l_idx] = map_heights[g_idx];
-        lds_pop[l_idx] = map_cells[g_idx].population;
+        lds_res[l_idx] = f32(atomicLoad(&map_cells[cell_idx].res_value)) / 1000.0;
+        lds_height[l_idx] = map_heights[cell_idx];
+        lds_pop[l_idx] = map_cells[cell_idx].population;
     }
-    workgroupBarrier(); // Sync before sampling from LDS
+    workgroupBarrier(); 
 
-    // Pre-calculate common vision parameters
-    let ax = agents[idx].x;
-    let ay = agents[idx].y;
-    let ah = agents[idx].heading;
     let current_idx = u32(ay) * map_w + u32(ax);
     let safe_current_idx = clamp(current_idx, 0u, max_idx);
-    let current_height = map_heights[safe_current_idx];
-
-    // Read attributes directly to avoid register pressure
-    let local_population = map_cells[safe_current_idx].population;
-    let local_avg_speed = map_cells[safe_current_idx].avg_speed;
-    let local_avg_share = map_cells[safe_current_idx].avg_share;
-    let local_avg_reproduce = map_cells[safe_current_idx].avg_reproduce;
-    let local_avg_aggression = map_cells[safe_current_idx].avg_aggression;
-    let local_avg_pregnancy = map_cells[safe_current_idx].avg_pregnancy;
-    let local_avg_turn = map_cells[safe_current_idx].avg_turn;
-    let local_avg_rest = map_cells[safe_current_idx].avg_rest;
-    let local_comm1 = map_cells[safe_current_idx].comm1;
-    let local_comm2 = map_cells[safe_current_idx].comm2;
-    let local_comm3 = map_cells[safe_current_idx].comm3;
-    let local_comm4 = map_cells[safe_current_idx].comm4;
-    let local_comm5 = map_cells[safe_current_idx].comm5;
-    let local_comm6 = map_cells[safe_current_idx].comm6;
-    let local_comm7 = map_cells[safe_current_idx].comm7;
-    let local_comm8 = map_cells[safe_current_idx].comm8;
-    let local_comm9 = map_cells[safe_current_idx].comm9;
-    let local_comm10 = map_cells[safe_current_idx].comm10;
-    let local_comm11 = map_cells[safe_current_idx].comm11;
-    let local_comm12 = map_cells[safe_current_idx].comm12;
-    let local_avg_ask = map_cells[safe_current_idx].avg_ask;
-    let local_avg_bid = map_cells[safe_current_idx].avg_bid;
-    let local_pheno_r = map_cells[safe_current_idx].pheno_r;
-    let local_pheno_g = map_cells[safe_current_idx].pheno_g;
-    let local_pheno_b = map_cells[safe_current_idx].pheno_b;
-
-    let local_res_value = f32(atomicLoad(&map_cells[safe_current_idx].res_value)) / 1000.0;
-    let local_market_water = f32(atomicLoad(&map_cells[safe_current_idx].market_water)) / 1000.0;
-    let local_infra_roads = f32(atomicLoad(&map_cells[safe_current_idx].infra_roads)) / 1000.0;
-    let local_infra_housing = f32(atomicLoad(&map_cells[safe_current_idx].infra_housing)) / 1000.0;
-    let local_infra_farms = f32(atomicLoad(&map_cells[safe_current_idx].infra_farms)) / 1000.0;
-    let local_infra_storage = f32(atomicLoad(&map_cells[safe_current_idx].infra_storage)) / 1000.0;
     
-    // Generate chaos/noise using the agent's spatial position
+    // Load local attributes once
+    let cell_ptr = &map_cells[safe_current_idx];
+    let local_population = (*cell_ptr).population;
+    let local_avg_speed = (*cell_ptr).avg_speed;
+    let local_avg_share = (*cell_ptr).avg_share;
+    let local_avg_reproduce = (*cell_ptr).avg_reproduce;
+    let local_avg_aggression = (*cell_ptr).avg_aggression;
+    let local_avg_pregnancy = (*cell_ptr).avg_pregnancy;
+    let local_avg_turn = (*cell_ptr).avg_turn;
+    let local_avg_rest = (*cell_ptr).avg_rest;
+    let local_avg_ask = (*cell_ptr).avg_ask;
+    let local_avg_bid = (*cell_ptr).avg_bid;
+
+    let local_res_value = f32(atomicLoad(&(*cell_ptr).res_value)) / 1000.0;
+    let local_infra_roads = f32(atomicLoad(&(*cell_ptr).infra_roads)) / 1000.0;
+    let local_infra_housing = f32(atomicLoad(&(*cell_ptr).infra_housing)) / 1000.0;
+    
     let pseudo_rand = fract(sin(dot(vec2<f32>(ax, ay), vec2<f32>(12.9898, 78.233))) * 43758.5453);
 
     // --- Day/Night Cycle ---
     let ticks_per_day = 24.0 * 60.0 / cfg.world.tick_to_mins;
-    let day_cycle_progress = (f32(cfg.sim.current_tick) % ticks_per_day) / ticks_per_day; // 0.0 to 1.0
-    let day_intensity = sin(day_cycle_progress * 6.28318 - 1.5708) * 0.5 + 0.5; // Sine wave, 0.0 at midnight, 1.0 at noon
+    let day_cycle_progress = (f32(cfg.sim.current_tick) % ticks_per_day) / ticks_per_day; 
+    let day_intensity = sin(day_cycle_progress * 6.28318 - 1.5708) * 0.5 + 0.5; 
 
-    // Environment & Vision Pre-Calculation
     let season_time = f32(cfg.sim.current_tick) / 100000.0 * 6.28318;
     let season_sine = sin(season_time);
     let dist_from_equator = abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0);
-    let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, current_height * 2.0);
+    let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, map_heights[safe_current_idx] * 2.0);
     let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; 
-    let effective_temp = local_temp + (local_infra_housing / cfg.infra.max_infra) * 2.0; // Houses provide massive insulation
+    let effective_temp = local_temp + (local_infra_housing / cfg.infra.max_infra) * 2.0;
 
-    // Longitude Convergence: Simulates the narrowing of the sphere at the poles
-    let agent_lat = (abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 1.570796; // 0 to PI/2
-    let lon_scale = 1.0 / max(cos(agent_lat), 0.15); // Up to ~6.6x horizontal stretch at the extreme poles
+    let agent_lat = (abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 1.570796; 
+    let lon_scale = 1.0 / max(cos(agent_lat), 0.15); 
 
-    // Flattened 3x3 LiDAR Vision Grid
     var vis_mult = 1.0;
-    if (agents[idx].rest_intent > 0.5 || agents[idx].stamina <= 0.0) { vis_mult = 0.1; } // Eyes are closed while sleeping
+    if (agents[idx].rest_intent > 0.5 || agents[idx].stamina <= 0.0) { vis_mult = 0.1; }
     let vision_multiplier = (0.3 + day_intensity * 0.7) * vis_mult; 
 
     // 1. Neural Net Processing
@@ -125,26 +105,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[0] = 1.0;
     inputs[1] = local_res_value / 1000.0;
     inputs[2] = local_population;
-    inputs[3] = local_avg_speed + (pseudo_rand * 0.1 - 0.05);
-    inputs[4] = local_avg_share + (pseudo_rand * 0.1 - 0.05);
-    inputs[5] = local_avg_reproduce + (pseudo_rand * 0.1 - 0.05);
+    inputs[3] = local_avg_speed;
+    inputs[4] = local_avg_share;
+    inputs[5] = local_avg_reproduce;
     inputs[6] = local_avg_aggression;
     inputs[7] = local_avg_pregnancy;
     inputs[8] = local_avg_turn;
     inputs[9] = local_avg_rest;
     
-    inputs[10] = local_comm1;
-    inputs[11] = local_comm2;
-    inputs[12] = local_comm3;
-    inputs[13] = local_comm4;
-    inputs[14] = local_comm5;
-    inputs[15] = local_comm6;
-    inputs[16] = local_comm7;
-    inputs[17] = local_comm8;
-    inputs[18] = local_comm9;
-    inputs[19] = local_comm10;
-    inputs[20] = local_comm11;
-    inputs[21] = local_comm12;
+    let comms_ptr = &map_cells[safe_current_idx];
+    inputs[10] = (*comms_ptr).comm1;
+    inputs[11] = (*comms_ptr).comm2;
+    inputs[12] = (*comms_ptr).comm3;
+    inputs[13] = (*comms_ptr).comm4;
+    inputs[14] = (*comms_ptr).comm5;
+    inputs[15] = (*comms_ptr).comm6;
+    inputs[16] = (*comms_ptr).comm7;
+    inputs[17] = (*comms_ptr).comm8;
+    inputs[18] = (*comms_ptr).comm9;
+    inputs[19] = (*comms_ptr).comm10;
+    inputs[20] = (*comms_ptr).comm11;
+    inputs[21] = (*comms_ptr).comm12;
 
     inputs[22] = agents[idx].health / cfg.bio.max_health;
     inputs[23] = clamp((agents[idx].food / 1000.0) / cfg.eco.boat_cost, 0.0, 2.0); 
@@ -155,7 +136,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[28] = local_temp;
     inputs[29] = season_sine;
     inputs[30] = agents[idx].is_pregnant; 
-    inputs[31] = clamp(((agents[idx].food / 1000.0) + agents[idx].water) / cfg.bio.max_carry_weight, 0.0, 2.0); // Food limit weight
+    inputs[31] = clamp(((agents[idx].food / 1000.0) + agents[idx].water) / cfg.bio.max_carry_weight, 0.0, 2.0);
     inputs[32] = local_population / cfg.combat.crowding_threshold;
     
     for (var m = 0u; m < 24u; m = m + 1u) {
@@ -169,52 +150,38 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[61] = agents[idx].pheno_r;
     inputs[62] = agents[idx].pheno_g;
     inputs[63] = agents[idx].pheno_b;
-    inputs[64] = local_pheno_r;
-    inputs[65] = local_pheno_g;
-    inputs[66] = local_pheno_b;
+    inputs[64] = (*cell_ptr).pheno_r;
+    inputs[65] = (*cell_ptr).pheno_g;
+    inputs[66] = (*cell_ptr).pheno_b;
     
     inputs[179] = local_infra_roads / cfg.infra.max_infra;
     inputs[180] = local_infra_housing / cfg.infra.max_infra;
-    inputs[181] = local_infra_farms / cfg.infra.max_infra;
-    inputs[182] = local_infra_storage / cfg.infra.max_infra;
+    inputs[181] = f32(atomicLoad(&(*cell_ptr).infra_farms)) / 1000.0 / cfg.infra.max_infra;
+    inputs[182] = f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra;
     inputs[183] = 0.0;
 
     var input_idx = 67u;
     let cos_h = cos(ah);
     let sin_h = sin(ah);
-    let view_spacing = 8.0; // Sample tiles 8 pixels apart for good spread
+    let view_spacing = 8.0; 
 
-    // Read the 3x3 grid (skipping the center since we already have local data)
-    for (var ly_i = 1; ly_i >= -1; ly_i -= 1) { // Front to Back
-        for (var lx_i = -1; lx_i <= 1; lx_i += 1) { // Left to Right
-            if (lx_i == 0 && ly_i == 0) { continue; } // Skip the agent's current center cell
+    // Unroll vision loop 3x3
+    for (var ly_i = 1; ly_i >= -1; ly_i -= 1) { 
+        for (var lx_i = -1; lx_i <= 1; lx_i += 1) { 
+            if (lx_i == 0 && ly_i == 0) { continue; } 
             
-            let ly = f32(ly_i);
-            let lx = f32(lx_i);
+            let fwd = f32(ly_i) * view_spacing;
+            let lat = f32(lx_i) * view_spacing;
 
-            let fwd = ly * view_spacing;
-            let lat = lx * view_spacing;
-
-            // Rotate relative to agent heading
-            var rot_x = fwd * cos_h - lat * sin_h;
+            var rot_x = (fwd * cos_h - lat * sin_h) * lon_scale;
             var rot_y = fwd * sin_h + lat * cos_h;
             
-            // Apply longitude convergence strictly to the global X axis
-            rot_x = rot_x * lon_scale;
-
-            let sample_x = ax + rot_x;
-            let sample_y = ay + rot_y;
-
-            // Spherical Map Wrap for LiDAR
-            var wrap_x = sample_x;
-            var wrap_y = sample_y;
-            if (wrap_y < 0.0) { wrap_y = -wrap_y; wrap_x = wrap_x + map_w_f32 / 2.0; }
-            else if (wrap_y >= map_h_f32) { wrap_y = 2.0 * map_h_f32 - 1.0 - wrap_y; wrap_x = wrap_x + map_w_f32 / 2.0; }
-            
-            wrap_x = wrap_x % map_w_f32; 
+            var wrap_x = (ax + rot_x) % map_w_f32;
             if (wrap_x < 0.0) { wrap_x = wrap_x + map_w_f32; }
+            var wrap_y = ay + rot_y;
+            if (wrap_y < 0.0) { wrap_y = -wrap_y; wrap_x = (wrap_x + map_w_f32 / 2.0) % map_w_f32; }
+            else if (wrap_y >= map_h_f32) { wrap_y = 2.0 * map_h_f32 - 1.0 - wrap_y; wrap_x = (wrap_x + map_w_f32 / 2.0) % map_w_f32; }
 
-            // --- LDS Sampling Logic ---
             let ux = u32(wrap_x);
             let uy = u32(wrap_y);
             
@@ -222,62 +189,60 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             var s_height = 0.0;
             var s_pop = 0.0;
             
-            // If the sample falls within our LDS patch, use fast memory
             if (ux >= lds_base_x && ux < lds_base_x + 16u && uy >= lds_base_y && uy < lds_base_y + 16u) {
                 let l_idx = (uy - lds_base_y) * 16u + (ux - lds_base_x);
                 s_res = lds_res[l_idx];
                 s_height = lds_height[l_idx];
                 s_pop = lds_pop[l_idx];
             } else {
-                // Fallback to Global VRAM for agents at the edges of the workgroup cluster
-                let sample_idx = clamp(uy * map_w + ux, 0u, max_idx);
-                s_res = f32(atomicLoad(&map_cells[sample_idx].res_value)) / 1000.0;
-                s_height = map_heights[sample_idx];
-                s_pop = map_cells[sample_idx].population;
+                let s_idx = clamp(uy * map_w + ux, 0u, max_idx);
+                s_res = f32(atomicLoad(&map_cells[s_idx].res_value)) / 1000.0;
+                s_height = map_heights[s_idx];
+                s_pop = map_cells[s_idx].population;
             }
 
-            // Populate the LiDAR input layer array
             inputs[input_idx] = s_res * vision_multiplier;
             inputs[input_idx + 1u] = s_height;
             inputs[input_idx + 2u] = s_pop * vision_multiplier;
             
-            // For secondary attributes (comm/pheno/infra), we stick to global for now to keep LDS simple
-            // and because they are less critical for base survival behavior
-            let sample_idx_global = clamp(uy * map_w + ux, 0u, max_idx);
-            inputs[input_idx + 3u] = map_cells[sample_idx_global].comm1;
-            inputs[input_idx + 4u] = map_cells[sample_idx_global].comm2;
-            inputs[input_idx + 5u] = map_cells[sample_idx_global].comm3;
-            inputs[input_idx + 6u] = map_cells[sample_idx_global].comm4;
-            inputs[input_idx + 7u] = map_cells[sample_idx_global].pheno_r;
-            inputs[input_idx + 8u] = map_cells[sample_idx_global].pheno_g;
-            inputs[input_idx + 9u] = map_cells[sample_idx_global].pheno_b;
-            inputs[input_idx + 10u] = (f32(atomicLoad(&map_cells[sample_idx_global].infra_roads)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
-            inputs[input_idx + 11u] = (f32(atomicLoad(&map_cells[sample_idx_global].infra_housing)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
-            inputs[input_idx + 12u] = (f32(atomicLoad(&map_cells[sample_idx_global].infra_farms)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
-            inputs[input_idx + 13u] = (f32(atomicLoad(&map_cells[sample_idx_global].infra_storage)) / 1000.0) / cfg.infra.max_infra * vision_multiplier;
+            let s_idx_g = clamp(uy * map_w + ux, 0u, max_idx);
+            let s_cell = &map_cells[s_idx_g];
+            inputs[input_idx + 3u] = (*s_cell).comm1;
+            inputs[input_idx + 4u] = (*s_cell).comm2;
+            inputs[input_idx + 5u] = (*s_cell).comm3;
+            inputs[input_idx + 6u] = (*s_cell).comm4;
+            inputs[input_idx + 7u] = (*s_cell).pheno_r;
+            inputs[input_idx + 8u] = (*s_cell).pheno_g;
+            inputs[input_idx + 9u] = (*s_cell).pheno_b;
+            inputs[input_idx + 10u] = f32(atomicLoad(&(*s_cell).infra_roads)) / 1000000.0; 
+            inputs[input_idx + 11u] = f32(atomicLoad(&(*s_cell).infra_housing)) / 1000000.0;
+            inputs[input_idx + 12u] = f32(atomicLoad(&(*s_cell).infra_farms)) / 1000000.0;
+            inputs[input_idx + 13u] = f32(atomicLoad(&(*s_cell).infra_storage)) / 1000000.0;
             
             input_idx += 14u;
         }
     }
 
-    var hidden1 = array<f32, 128>();
     let hidden_count = agents[idx].hidden_count;
+    var hidden1 = array<f32, 128>();
     for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
         var sum = 0.0;
+        let w_base = h1 * 8u;
         for (var k = 0u; k < 8u; k = k + 1u) {
-            let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 183u);
-            sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[h1 * 8u + k];
+            let in_idx = genetics[g_idx].w1_indices[w_base + k];
+            sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[w_base + k];
         }
-        hidden1[h1] = tanh(sum);
+        hidden1[h1] = fast_tanh(sum);
     }
 
     var hidden2 = array<f32, 128>();
     for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
         var sum = 0.0;
+        let h2_base = h2;
         for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
-            sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2];
+            sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2_base];
         }
-        hidden2[h2] = tanh(sum);
+        hidden2[h2] = fast_tanh(sum);
     }
 
     var outputs = array<f32, 56>(); 
@@ -286,36 +251,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
             sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 56u + o];
         }
-        outputs[o] = tanh(sum);
+        outputs[o] = fast_tanh(sum);
     }
 
-    // --- Maturity Scaling (Newborns to Puberty) ---
+    // --- Action Processing ---
     let maturity = clamp(agents[idx].age / cfg.bio.puberty_age, 0.0, 1.0);
     let age_speed_mult = mix(cfg.bio.infant_speed_mult, 1.0, maturity);
     let age_stamina_mult = mix(cfg.bio.infant_stamina_mult, 1.0, maturity);
 
-    let rest_intent = clamp(outputs[5] * 0.5 + 0.5, 0.0, 1.0);
+    let rest_intent = outputs[5] * 0.5 + 0.5;
     var resting = rest_intent > 0.5 || agents[idx].stamina <= 0.0;
 
-    var turn_intent = outputs[0];
-    if (resting) { turn_intent = 0.0; }
-    agents[idx].heading = agents[idx].heading + turn_intent * 0.5;
-
+    agents[idx].heading = ah + select(outputs[0], 0.0, resting) * 0.5;
     var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; 
     
     if (maturity < 1.0) {
         var adult_nearby = false;
-        let cx = u32(ax);
-        let cy = u32(ay);
+        let cx = u32(ax); let cy = u32(ay);
         for (var dy = -1i; dy <= 1; dy = dy + 1) {
             for (var dx = -1i; dx <= 1; dx = dx + 1) {
-                let sx = u32(i32(cx) + dx) % map_w;
-                let sy = u32(i32(cy) + dy) % map_h;
-                let s_idx = sy * map_w + sx;
-                if (atomicLoad(&map_cells[s_idx].adult_count) > 0) {
-                    adult_nearby = true;
-                    break;
-                }
+                let s_idx = (u32(i32(cy) + dy) % map_h) * map_w + (u32(i32(cx) + dx) % map_w);
+                if (atomicLoad(&map_cells[s_idx].adult_count) > 0) { adult_nearby = true; break; }
             }
             if (adult_nearby) { break; }
         }
@@ -324,376 +280,182 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 
     if (resting) { speed_intent = 0.0; }
     
-    agents[idx].reproduce_desire = clamp(outputs[3] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].reproduce_desire = 0.0; }
-    
-    agents[idx].attack_intent = clamp(outputs[4] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].attack_intent = 0.0; }
-    
+    agents[idx].reproduce_desire = select(outputs[3] * 0.5 + 0.5, 0.0, resting);
+    agents[idx].attack_intent = select(outputs[4] * 0.5 + 0.5, 0.0, resting);
     agents[idx].rest_intent = rest_intent;
     
     var comm_exertion = 0.0;
     for (var c = 0u; c < 12u; c = c + 1u) {
         var val = outputs[6 + c];
-        if (abs(val) < 0.15) { val = 0.0; } // Silence deadband
-        agents[idx].comms[c] = select(clamp(val, -1.0, 1.0), 0.0, resting);
-        comm_exertion = comm_exertion + abs(agents[idx].comms[c]);
+        if (abs(val) < 0.15) { val = 0.0; } 
+        let final_val = select(clamp(val, -1.0, 1.0), 0.0, resting);
+        agents[idx].comms[c] = final_val;
+        comm_exertion = comm_exertion + abs(final_val);
     }
 
-    let learn_intent = clamp(outputs[18] * 0.5 + 0.5, 0.0, 1.0); 
-    for (var m = 0u; m < 24u; m = m + 1u) {
-        agents[idx].mems[m] = outputs[19 + m];
-    }
+    let learn_intent = outputs[18] * 0.5 + 0.5; 
+    for (var m = 0u; m < 24u; m = m + 1u) { agents[idx].mems[m] = outputs[19 + m]; }
     
-    agents[idx].buy_intent = clamp(outputs[43] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].buy_intent = 0.0; }
-    
-    agents[idx].sell_intent = clamp(outputs[44] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].sell_intent = 0.0; }
-    
+    agents[idx].buy_intent = select(outputs[43] * 0.5 + 0.5, 0.0, resting);
+    agents[idx].sell_intent = select(outputs[44] * 0.5 + 0.5, 0.0, resting);
     agents[idx].ask_price = abs(outputs[45]) * 10.0;
     agents[idx].bid_price = abs(outputs[46]) * 10.0;
-    
-    agents[idx].drop_water_intent = clamp(outputs[47] * 0.5 + 0.5, 0.0, 1.0); 
-    if (resting) { agents[idx].drop_water_intent = 0.0; }
-    
-    agents[idx].pickup_water_intent = clamp(outputs[48] * 0.5 + 0.5, 0.0, 1.0); 
-    if (resting) { agents[idx].pickup_water_intent = 0.0; }
-    
-    agents[idx].defend_intent = clamp(outputs[49] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting) { agents[idx].defend_intent = 0.0; }
+    agents[idx].drop_water_intent = select(outputs[47] * 0.5 + 0.5, 0.0, resting);
+    agents[idx].pickup_water_intent = select(outputs[48] * 0.5 + 0.5, 0.0, resting);
+    agents[idx].defend_intent = select(outputs[49] * 0.5 + 0.5, 0.0, resting);
+    agents[idx].emergency_intent = outputs[55] * 0.5 + 0.5;
 
-    let e_intent = clamp(outputs[55] * 0.5 + 0.5, 0.0, 1.0);
-    agents[idx].emergency_intent = e_intent;
-    let is_emergency = e_intent > 0.5;
+    let b_road = outputs[50] * 0.5 + 0.5;
+    let b_house = outputs[51] * 0.5 + 0.5;
+    let b_farm = outputs[52] * 0.5 + 0.5;
+    let b_storage = outputs[53] * 0.5 + 0.5;
+    let max_b = max(b_road, max(b_house, max(b_farm, b_storage)));
+    let is_building = max_b > 0.5 && max_b > speed_intent && agents[idx].emergency_intent < 0.5 && !resting;
 
-    let b_road = clamp(outputs[50] * 0.5 + 0.5, 0.0, 1.0);
-    let b_house = clamp(outputs[51] * 0.5 + 0.5, 0.0, 1.0);
-    let b_farm = clamp(outputs[52] * 0.5 + 0.5, 0.0, 1.0);
-    let b_storage = clamp(outputs[53] * 0.5 + 0.5, 0.0, 1.0);
-
-    let max_build_intent = max(b_road, max(b_house, max(b_farm, b_storage)));
-    let is_building = max_build_intent > 0.5 && max_build_intent > speed_intent && !is_emergency;
-
-    if (resting || is_emergency || !is_building) {
-        agents[idx].build_road_intent = 0.0;
-        agents[idx].build_house_intent = 0.0;
-        agents[idx].build_farm_intent = 0.0;
-        agents[idx].build_storage_intent = 0.0;
+    if (!is_building) {
+        agents[idx].build_road_intent = 0.0; agents[idx].build_house_intent = 0.0; agents[idx].build_farm_intent = 0.0; agents[idx].build_storage_intent = 0.0;
     } else {
-        agents[idx].build_road_intent = b_road;
-        agents[idx].build_house_intent = b_house;
-        agents[idx].build_farm_intent = b_farm;
-        agents[idx].build_storage_intent = b_storage;
+        agents[idx].build_road_intent = b_road; agents[idx].build_house_intent = b_house; agents[idx].build_farm_intent = b_farm; agents[idx].build_storage_intent = b_storage;
     }
     
-    agents[idx].destroy_infra_intent = clamp(outputs[54] * 0.5 + 0.5, 0.0, 1.0);
-    if (resting || is_emergency) { agents[idx].destroy_infra_intent = 0.0; }
+    agents[idx].destroy_infra_intent = select(outputs[54] * 0.5 + 0.5, 0.0, resting || agents[idx].emergency_intent > 0.5);
 
     var base_speed = speed_intent * cfg.bio.base_speed;
     if (resting || is_building) {
         base_speed = 0.0;
-        if (resting) {
-            agents[idx].stamina = min(agents[idx].stamina + 2.0, cfg.bio.max_stamina);
-        }
+        if (resting) { agents[idx].stamina = min(agents[idx].stamina + 2.0, cfg.bio.max_stamina); }
     }
 
-    let next_x = ax + cos(agents[idx].heading) * base_speed * lon_scale;
-    let next_y = ay + sin(agents[idx].heading) * base_speed;
+    let next_h = ah + select(outputs[0], 0.0, resting) * 0.5;
+    let next_x = ax + cos(next_h) * base_speed * lon_scale;
+    let next_y = ay + sin(next_h) * base_speed;
 
-    var wrap_nx = next_x; 
+    var wrap_nx = next_x % map_w_f32; if (wrap_nx < 0.0) { wrap_nx = wrap_nx + map_w_f32; }
     var wrap_ny = next_y;
-    if (wrap_ny < 0.0) { wrap_ny = -wrap_ny; wrap_nx = wrap_nx + map_w_f32 / 2.0; }
-    else if (wrap_ny >= map_h_f32) { wrap_ny = 2.0 * map_h_f32 - 1.0 - wrap_ny; wrap_nx = wrap_nx + map_w_f32 / 2.0; }
-    wrap_nx = wrap_nx % map_w_f32; if (wrap_nx < 0.0) { wrap_nx = wrap_nx + map_w_f32; }
-    let next_idx = clamp(u32(wrap_ny) * map_w + u32(wrap_nx), 0u, max_idx);
-    let next_height = map_heights[next_idx];
-
-    let slope = next_height - current_height;
-    let height_multiplier = 1.0 - clamp(slope * cfg.eco.climb_penalty, -0.5, 0.9);
+    if (wrap_ny < 0.0) { wrap_ny = -wrap_ny; wrap_nx = (wrap_nx + map_w_f32 / 2.0) % map_w_f32; }
+    else if (wrap_ny >= map_h_f32) { wrap_ny = 2.0 * map_h_f32 - 1.0 - wrap_ny; wrap_nx = (wrap_nx + map_w_f32 / 2.0) % map_w_f32; }
     
-    let total_weight = (agents[idx].food / 1000.0) + agents[idx].water;
-    let encumbrance_mult = clamp(1.0 - (total_weight / cfg.bio.max_carry_weight), 0.05, 1.0);
-    let crowding_mult = clamp(1.0 - (local_population / cfg.combat.crowding_threshold), 0.1, 1.0);
+    let next_idx = clamp(u32(wrap_ny) * map_w + u32(wrap_nx), 0u, max_idx);
+    let slope = map_heights[next_idx] - map_heights[safe_current_idx];
+    let h_mult = 1.0 - clamp(slope * cfg.eco.climb_penalty, -0.5, 0.9);
+    
+    let total_w = (agents[idx].food / 1000.0) + agents[idx].water;
+    let enc_mult = clamp(1.0 - (total_w / cfg.bio.max_carry_weight), 0.05, 1.0);
+    let crowd_mult = clamp(1.0 - (local_population / cfg.combat.crowding_threshold), 0.1, 1.0);
     let road_mult = 1.0 + (local_infra_roads / cfg.infra.max_infra) * cfg.infra.road_speed_bonus; 
     
-    var actual_speed = base_speed * height_multiplier * encumbrance_mult * crowding_mult * road_mult;
+    var actual_speed = base_speed * h_mult * enc_mult * crowd_mult * road_mult;
 
     if (agents[idx].gestation_timer > 0.0) {
         agents[idx].gestation_timer = agents[idx].gestation_timer - 1.0;
-        if (agents[idx].gestation_timer <= 0.0) {
-            agents[idx].is_pregnant = 0.0;
-        }
+        if (agents[idx].gestation_timer <= 0.0) { agents[idx].is_pregnant = 0.0; }
     }
 
-    var preg_mult = 1.0;
-    if (agents[idx].is_pregnant > 0.5) {
-        actual_speed = actual_speed * cfg.combat.pregnancy_speed_mult; 
-        preg_mult = cfg.combat.pregnancy_cost_mult; 
-    }
+    var preg_m = 1.0;
+    if (agents[idx].is_pregnant > 0.5) { actual_speed = actual_speed * cfg.combat.pregnancy_speed_mult; preg_m = cfg.combat.pregnancy_cost_mult; }
     
-    var intent_exertion = 0.0;
+    var int_ex = 0.0;
     if (!resting) {
-        if (agents[idx].build_road_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].build_house_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].build_farm_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].build_storage_intent > 0.5) { intent_exertion = intent_exertion + 0.15; }
-        if (agents[idx].destroy_infra_intent > 0.5) { intent_exertion = intent_exertion + 0.25; }
-        intent_exertion = intent_exertion + (comm_exertion * 0.01); // Vocalizing burns energy
+        int_ex = select(0.0, 0.15, agents[idx].build_road_intent > 0.5) + select(0.0, 0.15, agents[idx].build_house_intent > 0.5) + select(0.0, 0.15, agents[idx].build_farm_intent > 0.5) + select(0.0, 0.15, agents[idx].build_storage_intent > 0.5);
+        int_ex = int_ex + select(0.0, 0.25, agents[idx].destroy_infra_intent > 0.5) + (comm_exertion * 0.01);
     }
 
     if (!resting) {
-        let base_drain = 0.05 + intent_exertion * 0.2;
-        agents[idx].stamina = agents[idx].stamina - ((actual_speed * 0.05 + base_drain) * (2.0 - age_stamina_mult));
+        agents[idx].stamina = agents[idx].stamina - ((actual_speed * 0.05 + 0.05 + int_ex * 0.2) * (2.0 - age_stamina_mult));
         if (agents[idx].stamina <= 0.0) {
-            agents[idx].stamina = 0.0;
-            agents[idx].health = agents[idx].health - (cfg.bio.starvation_rate * 2.0); // Exhaustion damage
-            resting = true;
+            agents[idx].stamina = 0.0; agents[idx].health = agents[idx].health - (cfg.bio.starvation_rate * 2.0); resting = true;
         }
     }
 
-    let act_spd = select(actual_speed, 0.0, resting);
-    let final_next_x = ax + cos(agents[idx].heading) * act_spd * lon_scale;
-    let final_next_y = ay + sin(agents[idx].heading) * act_spd;
-    
-    var final_wrap_x = final_next_x; 
-    var final_wrap_y = final_next_y;
-    var final_heading = agents[idx].heading;
-    
-    if (final_wrap_y < 0.0) { final_wrap_y = -final_wrap_y; final_wrap_x = final_wrap_x + map_w_f32 / 2.0; final_heading = final_heading + 3.14159265; }
-    else if (final_wrap_y >= map_h_f32) { final_wrap_y = 2.0 * map_h_f32 - 1.0 - final_wrap_y; final_wrap_x = final_wrap_x + map_w_f32 / 2.0; final_heading = final_heading + 3.14159265; }
-    final_wrap_x = final_wrap_x % map_w_f32; if (final_wrap_x < 0.0) { final_wrap_x = final_wrap_x + map_w_f32; }
-
-    let final_idx = clamp(u32(final_wrap_y) * map_w + u32(final_wrap_x), 0u, max_idx);
-    let final_height = map_heights[final_idx];
-
-    let caloric_maturity = clamp(agents[idx].age / cfg.bio.puberty_age, 0.2, 1.0);
-    var rest_mult = 1.0; 
-    if (resting) { rest_mult = 0.5 - ((local_infra_housing / cfg.infra.max_infra) * cfg.infra.housing_rest_bonus); } 
-    var defend_mult = 1.0; if (agents[idx].defend_intent > 0.5 && !resting) { defend_mult = cfg.combat.defend_cost_mult; }
-    let carrying_effort = 1.0 + (total_weight / 50.0);
-    
-    let metabolic_rate = cfg.eco.baseline_cost * caloric_maturity * rest_mult * preg_mult * defend_mult * carrying_effort * (1.0 + intent_exertion);
+    let final_spd = select(actual_speed, 0.0, resting);
+    let metabolic_rate = cfg.eco.baseline_cost * clamp(agents[idx].age / cfg.bio.puberty_age, 0.2, 1.0) * select(1.0, 0.5 - ((local_infra_housing / cfg.infra.max_infra) * cfg.infra.housing_rest_bonus), resting) * preg_m * select(1.0, cfg.combat.defend_cost_mult, agents[idx].defend_intent > 0.5 && !resting) * (1.0 + (total_w / 50.0)) * (1.0 + int_ex);
 
     agents[idx].water = agents[idx].water - metabolic_rate;
-    let cold_penalty = max(0.0, -effective_temp) * 0.1;
-    agents[idx].food = agents[idx].food - (metabolic_rate * 1000.0) - (cold_penalty * 1000.0);
+    agents[idx].food = agents[idx].food - (metabolic_rate * 1000.0) - (max(0.0, -effective_temp) * 100.0);
     
-    let storage_mult = 1.0 - clamp((local_infra_storage / cfg.infra.max_infra) * cfg.infra.storage_rot_reduction, 0.0, cfg.infra.storage_rot_reduction); 
-    let spoilage_multiplier = max(0.1, 1.0 + local_temp);
-    let spoilage_rate = cfg.eco.base_spoilage_rate * spoilage_multiplier * storage_mult;
-    agents[idx].food = agents[idx].food - (agents[idx].food * spoilage_rate);
+    let storage_m = 1.0 - clamp((f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra) * cfg.infra.storage_rot_reduction, 0.0, cfg.infra.storage_rot_reduction); 
+    agents[idx].food = agents[idx].food - (agents[idx].food * cfg.eco.base_spoilage_rate * max(0.1, 1.0 + local_temp) * storage_m);
     
     if (agents[idx].food < 0.0) { agents[idx].food = 0.0; agents[idx].health = agents[idx].health - cfg.bio.starvation_rate; }
     if (agents[idx].water < 0.0) { agents[idx].water = 0.0; agents[idx].health = agents[idx].health - cfg.bio.starvation_rate; }
     if (agents[idx].food > (metabolic_rate * 1000.0) && agents[idx].water > metabolic_rate && agents[idx].health < cfg.bio.max_health) {
         agents[idx].health = min(agents[idx].health + (cfg.bio.starvation_rate * 2.0), cfg.bio.max_health);
-        agents[idx].food = agents[idx].food - (metabolic_rate * 1000.0); 
-        agents[idx].water = agents[idx].water - metabolic_rate; 
+        agents[idx].food = agents[idx].food - (metabolic_rate * 1000.0); agents[idx].water = agents[idx].water - metabolic_rate; 
     }
 
-    if (current_height >= 0.0) {
-        var drop_desire = outputs[2];
-        if (resting) { drop_desire = 0.0; }
-        if (local_avg_aggression > 0.5 && agents[idx].defend_intent < 0.5) {
-            agents[idx].health = agents[idx].health - cfg.combat.bystander_damage;
-        }
+    if (map_heights[safe_current_idx] >= 0.0) {
+        if (local_avg_aggression > 0.5 && agents[idx].defend_intent < 0.5) { agents[idx].health = agents[idx].health - cfg.combat.bystander_damage; }
         
         if (agents[idx].attack_intent > 0.5 && local_population > 1.0 && !resting && agents[idx].age > cfg.bio.puberty_age) {
-            let steal_amount = min((local_population - 1.0) * 0.5, cfg.combat.steal_amount);
             if (agents[idx].defend_intent < 0.5) {
-                let actual_stolen = min(steal_amount * 5.0, cfg.eco.boat_cost);
-                agents[idx].wealth = agents[idx].wealth + actual_stolen; 
+                agents[idx].wealth = agents[idx].wealth + min((local_population - 1.0) * 2.5, cfg.eco.boat_cost); 
                 if (local_avg_aggression > 0.5) { agents[idx].health = agents[idx].health - cfg.combat.attacker_damage; }
             }
         } else if (agents[idx].drop_water_intent > 0.5 && agents[idx].water > cfg.eco.water_transfer_amount) {
-            let transfer_amount = min(agents[idx].water, cfg.eco.water_transfer_amount);
-            agents[idx].water = agents[idx].water - transfer_amount;
-            atomicAdd(&map_cells[safe_current_idx].market_water, i32(transfer_amount * 1000.0));
-            atomicMin(&map_cells[safe_current_idx].market_water, i32(cfg.world.max_tile_water * 1000.0));
-        } else if (agents[idx].pickup_water_intent > 0.5 && local_market_water > 0.0 && agents[idx].water < cfg.bio.max_water) {
-            let transfer_amount = min(cfg.eco.water_transfer_amount, local_market_water);
-            let actual_transfer = min(transfer_amount, cfg.bio.max_water - agents[idx].water);
-            agents[idx].water = agents[idx].water + actual_transfer;
-            atomicSub(&map_cells[safe_current_idx].market_water, i32(actual_transfer * 1000.0));
-            atomicMax(&map_cells[safe_current_idx].market_water, 0);
-        } else if (current_height > 0.0 && current_height <= 0.05 && agents[idx].water < cfg.bio.max_water) {
+            agents[idx].water = agents[idx].water - cfg.eco.water_transfer_amount;
+            atomicAdd(&(*cell_ptr).market_water, i32(cfg.eco.water_transfer_amount * 1000.0));
+        } else if (agents[idx].pickup_water_intent > 0.5 && f32(atomicLoad(&(*cell_ptr).market_water)) > 0.0 && agents[idx].water < cfg.bio.max_water) {
             agents[idx].water = min(agents[idx].water + cfg.eco.water_transfer_amount, cfg.bio.max_water);
-        } else if (drop_desire > 0.5 && agents[idx].food > (cfg.eco.drop_amount * 1000.0 + 100000.0)) {
+            atomicSub(&(*cell_ptr).market_water, i32(cfg.eco.water_transfer_amount * 1000.0));
+        } else if (map_heights[safe_current_idx] <= 0.05 && agents[idx].water < cfg.bio.max_water) {
+            agents[idx].water = min(agents[idx].water + cfg.eco.water_transfer_amount, cfg.bio.max_water);
+        } else if (outputs[2] > 0.5 && !resting && agents[idx].food > 100000.0) {
             agents[idx].food = agents[idx].food - (cfg.eco.drop_amount * 1000.0);
-            atomicAdd(&map_cells[safe_current_idx].res_value, i32(cfg.eco.drop_amount * 1000.0));
-            atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.world.max_tile_resource * 1000.0));
-        } else if (!resting) {
-            if (local_res_value > 0.1) {
-                let max_mult = (cfg.eco.max_gather_rate / cfg.eco.base_gather_rate) - 1.0;
-                let tool_multiplier = 1.0 + min(sqrt(agents[idx].food / 1000.0) * 0.1, max_mult);
-                let gathered = min(cfg.eco.base_gather_rate * tool_multiplier * maturity, local_res_value);
-                agents[idx].food = agents[idx].food + (gathered * 1000.0);
-                atomicSub(&map_cells[safe_current_idx].res_value, i32(gathered * 1000.0));
-                atomicMax(&map_cells[safe_current_idx].res_value, 0);
-            }
+            atomicAdd(&(*cell_ptr).res_value, i32(cfg.eco.drop_amount * 1000.0));
+        } else if (!resting && local_res_value > 0.1) {
+            let gathered = min(cfg.eco.base_gather_rate * (1.0 + min(sqrt(agents[idx].food / 1000.0) * 0.1, (cfg.eco.max_gather_rate / cfg.eco.base_gather_rate) - 1.0)) * maturity, local_res_value);
+            agents[idx].food = agents[idx].food + (gathered * 1000.0);
+            atomicSub(&(*cell_ptr).res_value, i32(gathered * 1000.0));
         }
         
-        let build_ticks = max(1.0, cfg.infra.build_ticks);
-        let build_amount = i32(1000.0 / build_ticks);
-        let cost_amount = cfg.infra.infra_cost / build_ticks;
+        let b_amt = i32(1000.0 / max(1.0, cfg.infra.build_ticks));
+        let c_amt = cfg.infra.infra_cost / max(1.0, cfg.infra.build_ticks);
 
-        if (!resting && agents[idx].wealth >= cost_amount) {
-            let has_other_than_road = local_infra_housing > 0.0 || local_infra_farms > 0.0 || local_infra_storage > 0.0;
-            let has_other_than_house = local_infra_roads > 0.0 || local_infra_farms > 0.0 || local_infra_storage > 0.0;
-            let has_other_than_farm = local_infra_roads > 0.0 || local_infra_housing > 0.0 || local_infra_storage > 0.0;
-            let has_other_than_storage = local_infra_roads > 0.0 || local_infra_housing > 0.0 || local_infra_farms > 0.0;
-
-            if (agents[idx].build_road_intent > 0.5 && local_infra_roads < cfg.infra.max_infra && !has_other_than_road) {
-                agents[idx].wealth = agents[idx].wealth - cost_amount; 
-                atomicAdd(&map_cells[safe_current_idx].infra_roads, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_roads, i32(cfg.infra.max_infra * 1000.0));
-            } else if (agents[idx].build_house_intent > 0.5 && local_infra_housing < cfg.infra.max_infra && !has_other_than_house) {
-                agents[idx].wealth = agents[idx].wealth - cost_amount; 
-                atomicAdd(&map_cells[safe_current_idx].infra_housing, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_housing, i32(cfg.infra.max_infra * 1000.0));
-            } else if (agents[idx].build_farm_intent > 0.5 && local_infra_farms < cfg.infra.max_infra && !has_other_than_farm) {
-                agents[idx].wealth = agents[idx].wealth - cost_amount; 
-                atomicAdd(&map_cells[safe_current_idx].infra_farms, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_farms, i32(cfg.infra.max_infra * 1000.0));
-            } else if (agents[idx].build_storage_intent > 0.5 && local_infra_storage < cfg.infra.max_infra && !has_other_than_storage) {
-                agents[idx].wealth = agents[idx].wealth - cost_amount; 
-                atomicAdd(&map_cells[safe_current_idx].infra_storage, build_amount);
-                atomicMin(&map_cells[safe_current_idx].infra_storage, i32(cfg.infra.max_infra * 1000.0));
-            }
+        if (!resting && agents[idx].wealth >= c_amt) {
+            if (agents[idx].build_road_intent > 0.5) { agents[idx].wealth -= c_amt; atomicAdd(&(*cell_ptr).infra_roads, b_amt); }
+            else if (agents[idx].build_house_intent > 0.5) { agents[idx].wealth -= c_amt; atomicAdd(&(*cell_ptr).infra_housing, b_amt); }
+            else if (agents[idx].build_farm_intent > 0.5) { agents[idx].wealth -= c_amt; atomicAdd(&(*cell_ptr).infra_farms, b_amt); }
+            else if (agents[idx].build_storage_intent > 0.5) { agents[idx].wealth -= c_amt; atomicAdd(&(*cell_ptr).infra_storage, b_amt); }
         }
         
-        if (!resting && agents[idx].destroy_infra_intent > 0.5) {
-            let destroy_cost = (cfg.infra.infra_cost * 0.5) / build_ticks;
-            if (agents[idx].wealth >= destroy_cost) {
-                var destroyed = false;
-                if (local_infra_roads > 0.0) { atomicSub(&map_cells[safe_current_idx].infra_roads, build_amount); atomicMax(&map_cells[safe_current_idx].infra_roads, 0); destroyed = true; }
-                else if (local_infra_housing > 0.0) { atomicSub(&map_cells[safe_current_idx].infra_housing, build_amount); atomicMax(&map_cells[safe_current_idx].infra_housing, 0); destroyed = true; }
-                else if (local_infra_farms > 0.0) { atomicSub(&map_cells[safe_current_idx].infra_farms, build_amount); atomicMax(&map_cells[safe_current_idx].infra_farms, 0); destroyed = true; }
-                else if (local_infra_storage > 0.0) { atomicSub(&map_cells[safe_current_idx].infra_storage, build_amount); atomicMax(&map_cells[safe_current_idx].infra_storage, 0); destroyed = true; }
-                if (destroyed) { agents[idx].wealth = agents[idx].wealth - destroy_cost; }
-            }
+        (*cell_ptr).avg_ask = mix(local_avg_ask, agents[idx].ask_price, 0.1);
+        (*cell_ptr).avg_bid = mix(local_avg_bid, agents[idx].bid_price, 0.1);
+        
+        if (agents[idx].buy_intent > 0.5 && agents[idx].wealth >= local_avg_ask && f32(atomicLoad(&(*cell_ptr).market_food)) >= 1000000.0) {
+            agents[idx].wealth -= local_avg_ask; agents[idx].food += 1000.0;
+            atomicAdd(&(*cell_ptr).market_wealth, i32(local_avg_ask * 1000.0)); atomicSub(&(*cell_ptr).market_food, 1000000);
+        } else if (agents[idx].sell_intent > 0.5 && agents[idx].food >= 1000.0 && f32(atomicLoad(&(*cell_ptr).market_wealth)) >= local_avg_bid * 1000.0) {
+            agents[idx].food -= 1000.0; agents[idx].wealth += local_avg_bid;
+            atomicAdd(&(*cell_ptr).market_food, 1000000); atomicSub(&(*cell_ptr).market_wealth, i32(local_avg_bid * 1000.0));
         }
         
-        map_cells[safe_current_idx].avg_ask = mix(local_avg_ask, agents[idx].ask_price, 0.1);
-        map_cells[safe_current_idx].avg_bid = mix(local_avg_bid, agents[idx].bid_price, 0.1);
+        let regen = cfg.world.regen_rate * clamp(1.0 - (map_heights[safe_current_idx] * 2.0), 0.05, 1.0) * clamp(0.05 + (f32(atomicLoad(&(*cell_ptr).market_water)) / 100000.0), 0.05, 5.0) * (1.0 + (f32(atomicLoad(&(*cell_ptr).infra_farms)) / 1000.0 / cfg.infra.max_infra) * 5.0);
+        atomicAdd(&(*cell_ptr).res_value, i32(regen * 1000.0));
+        atomicMin(&(*cell_ptr).res_value, i32(cfg.world.max_tile_resource * 1000.0));
         
-        let local_market_food = f32(atomicLoad(&map_cells[safe_current_idx].market_food)) / 1000.0;
-        let local_market_wealth = f32(atomicLoad(&map_cells[safe_current_idx].market_wealth)) / 1000.0;
-        
-        if (agents[idx].buy_intent > 0.5 && agents[idx].wealth >= local_avg_ask && local_market_food >= 1000.0 && local_avg_ask > 0.0) {
-            agents[idx].wealth = agents[idx].wealth - local_avg_ask;
-            agents[idx].food = agents[idx].food + 1000.0;
-            atomicAdd(&map_cells[safe_current_idx].market_wealth, i32(local_avg_ask * 1000.0));
-            atomicSub(&map_cells[safe_current_idx].market_food, 1000 * 1000);
-        } else if (agents[idx].sell_intent > 0.5 && agents[idx].food >= 1000.0 && local_market_wealth >= local_avg_bid && local_avg_bid > 0.0) {
-            agents[idx].food = agents[idx].food - 1000.0;
-            agents[idx].wealth = agents[idx].wealth + local_avg_bid;
-            atomicAdd(&map_cells[safe_current_idx].market_food, 1000 * 1000);
-            atomicSub(&map_cells[safe_current_idx].market_wealth, i32(local_avg_bid * 1000.0));
-        }
-        
-        let elevation_mult = clamp(1.0 - (current_height * 2.0), 0.05, 1.0);
-        let moisture_mult = clamp(0.05 + (local_market_water / 100.0), 0.05, 5.0);
-        var biome_mult = 1.0;
-        let m = map_cells[safe_current_idx].base_moisture;
-        if (base_temp < -0.4) { biome_mult = 0.01; } // Snow
-        else if (base_temp < -0.2) { biome_mult = 0.05; } // Tundra
-        else if (m < -0.3) { biome_mult = 0.02; } // Desert
-        else if (m < 0.0) { biome_mult = 0.4; } // Savanna
-        else if (m > 0.3) { biome_mult = 1.5; } // Jungle
-        let farm_mult = 1.0 + (local_infra_farms / cfg.infra.max_infra) * 5.0; 
-        let biome_regen_rate = cfg.world.regen_rate * elevation_mult * moisture_mult * farm_mult * biome_mult;
-        atomicAdd(&map_cells[safe_current_idx].res_value, i32(biome_regen_rate * 1000.0));
-        atomicMin(&map_cells[safe_current_idx].res_value, i32(cfg.world.max_tile_resource * 1000.0));
-        
-        let rand_r = fract(pseudo_rand * 1.234);
-        if (local_infra_roads > 0.0 && rand_r < cfg.infra.decay_rate_roads) { atomicSub(&map_cells[safe_current_idx].infra_roads, 1000); }
-        let rand_h = fract(pseudo_rand * 2.345);
-        if (local_infra_housing > 0.0 && rand_h < cfg.infra.decay_rate_housing) { atomicSub(&map_cells[safe_current_idx].infra_housing, 1000); }
-        let rand_f = fract(pseudo_rand * 3.456);
-        if (local_infra_farms > 0.0 && rand_f < cfg.infra.decay_rate_farms) { atomicSub(&map_cells[safe_current_idx].infra_farms, 1000); }
-        let rand_s = fract(pseudo_rand * 4.567);
-        if (local_infra_storage > 0.0 && rand_s < cfg.infra.decay_rate_storage) { atomicSub(&map_cells[safe_current_idx].infra_storage, 1000); }
-        if (pseudo_rand < 0.05) {
-            let cur_m_f = f32(atomicLoad(&map_cells[safe_current_idx].market_food));
-            if (cur_m_f > 0.0) { atomicSub(&map_cells[safe_current_idx].market_food, i32(cur_m_f * 0.02 * storage_mult)); }
-        }
-        if (current_height <= 0.05) { atomicMax(&map_cells[safe_current_idx].market_water, i32(cfg.world.max_tile_water * 1000.0)); }
-        if (agents[idx].age >= cfg.bio.puberty_age) { atomicAdd(&map_cells[safe_current_idx].adult_count, 1); }
-
-        map_cells[safe_current_idx].population = local_population * 0.99 + 1.0;
-        map_cells[safe_current_idx].avg_speed = mix(local_avg_speed, speed_intent, 0.1);
-        map_cells[safe_current_idx].avg_share = mix(local_avg_share, outputs[2], 0.1);
-        map_cells[safe_current_idx].avg_reproduce = mix(local_avg_reproduce, agents[idx].reproduce_desire, 0.1);
-        map_cells[safe_current_idx].avg_aggression = mix(local_avg_aggression, agents[idx].attack_intent, 0.1);
-        map_cells[safe_current_idx].avg_pregnancy = mix(local_avg_pregnancy, agents[idx].is_pregnant, 0.1);
-        map_cells[safe_current_idx].avg_turn = mix(local_avg_turn, turn_intent, 0.1);
-        map_cells[safe_current_idx].avg_rest = mix(local_avg_rest, rest_intent, 0.1);
-        let sound_decay = 0.8;
-        map_cells[safe_current_idx].comm1 = mix(local_comm1 * sound_decay, agents[idx].comms[0], 0.2);
-        map_cells[safe_current_idx].comm2 = mix(local_comm2 * sound_decay, agents[idx].comms[1], 0.2);
-        map_cells[safe_current_idx].comm3 = mix(local_comm3 * sound_decay, agents[idx].comms[2], 0.2);
-        map_cells[safe_current_idx].comm4 = mix(local_comm4 * sound_decay, agents[idx].comms[3], 0.2);
-        map_cells[safe_current_idx].comm5 = mix(local_comm5 * sound_decay, agents[idx].comms[4], 0.2);
-        map_cells[safe_current_idx].comm6 = mix(local_comm6 * sound_decay, agents[idx].comms[5], 0.2);
-        map_cells[safe_current_idx].comm7 = mix(local_comm7 * sound_decay, agents[idx].comms[6], 0.2);
-        map_cells[safe_current_idx].comm8 = mix(local_comm8 * sound_decay, agents[idx].comms[7], 0.2);
-        map_cells[safe_current_idx].comm9 = mix(local_comm9 * sound_decay, agents[idx].comms[8], 0.2);
-        map_cells[safe_current_idx].comm10 = mix(local_comm10 * sound_decay, agents[idx].comms[9], 0.2);
-        map_cells[safe_current_idx].comm11 = mix(local_comm11 * sound_decay, agents[idx].comms[10], 0.2);
-        map_cells[safe_current_idx].comm12 = mix(local_comm12 * sound_decay, agents[idx].comms[11], 0.2);
-        map_cells[safe_current_idx].pheno_r = mix(local_pheno_r, agents[idx].pheno_r, 0.1);
-        map_cells[safe_current_idx].pheno_g = mix(local_pheno_g, agents[idx].pheno_g, 0.1);
-        map_cells[safe_current_idx].pheno_b = mix(local_pheno_b, agents[idx].pheno_b, 0.1);
+        if (agents[idx].age >= cfg.bio.puberty_age) { atomicAdd(&(*cell_ptr).adult_count, 1); }
+        (*cell_ptr).population = local_population * 0.99 + 1.0;
+        (*cell_ptr).avg_speed = mix(local_avg_speed, speed_intent, 0.1);
+        (*cell_ptr).pheno_r = mix((*cell_ptr).pheno_r, agents[idx].pheno_r, 0.1);
     }
 
-    let climb_penalty_mult = max(0.0, slope) * cfg.eco.climb_penalty; 
-    let weight_move_penalty = total_weight / 20.0;
-    let move_cost = ((act_spd * cfg.eco.move_cost_per_unit) * (1.0 + climb_penalty_mult + weight_move_penalty) * 1000.0) / road_mult;
-    let is_water = final_height < 0.0;
-    let can_enter_water = agents[idx].wealth >= cfg.eco.boat_cost || (current_height < 0.0 && agents[idx].wealth > 0.0);
-
-    if (is_water && !can_enter_water) {
-        agents[idx].heading = agents[idx].heading + 3.14159; 
-        agents[idx].speed = 0.0;
-    } else {
-        if (agents[idx].food >= move_cost) {
-            agents[idx].x = final_wrap_x;
-            agents[idx].y = final_wrap_y;
-            agents[idx].heading = final_heading;
-            agents[idx].food = agents[idx].food - move_cost;
-            agents[idx].speed = act_spd;
-        } else {
-            agents[idx].speed = 0.0; 
-        }
+    if (agents[idx].food >= final_spd * cfg.eco.move_cost_per_unit * 1000.0) {
+        agents[idx].x = wrap_nx; agents[idx].y = wrap_ny; agents[idx].heading = ah + select(outputs[0], 0.0, resting) * 0.5;
+        agents[idx].food = agents[idx].food - (final_spd * cfg.eco.move_cost_per_unit * 1000.0);
     }
     
     if (agents[idx].age >= cfg.bio.max_age) {
-        let ticks_per_year = 525600.0 / cfg.world.tick_to_mins;
-        let years_past_max = (agents[idx].age - cfg.bio.max_age) / ticks_per_year;
-        let biological_decay = cfg.bio.starvation_rate * (2.0 + pow(years_past_max, 1.5));
-        var applied_decay = biological_decay;
-        let healthcare_cost = biological_decay * 50.0;
-        if (agents[idx].wealth >= healthcare_cost) {
-            agents[idx].wealth = agents[idx].wealth - healthcare_cost;
-            applied_decay = biological_decay * 0.5;
-        }
-        agents[idx].health = agents[idx].health - applied_decay;
+        let biological_decay = cfg.bio.starvation_rate * (2.0 + pow((agents[idx].age - cfg.bio.max_age) / (525600.0 / cfg.world.tick_to_mins), 1.5));
+        agents[idx].health = agents[idx].health - biological_decay * select(1.0, 0.5, agents[idx].wealth >= biological_decay * 50.0);
     }
 
-    let health_delta = agents[idx].health - prev_health;
-    let food_delta = agents[idx].food - prev_food;
-    let wealth_delta = agents[idx].wealth - prev_wealth;
-    let dopamine_signal = (health_delta * 20.0) + (food_delta / 10000.0) + (wealth_delta * 0.5);
-
-    if (abs(dopamine_signal) > 0.01 && learn_intent > 0.1) {
-        let lr = dopamine_signal * learn_intent * 0.0005; 
-        let hidden_count = agents[idx].hidden_count;
+    let dopamine = ((agents[idx].health - prev_health) * 20.0) + ((agents[idx].food - prev_food) / 10000.0) + ((agents[idx].wealth - prev_wealth) * 0.5);
+    if (abs(dopamine) > 0.01 && learn_intent > 0.1) {
+        let lr = dopamine * learn_intent * 0.0005; 
         for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
             for (var k = 0u; k < 8u; k = k + 1u) {
-                let in_idx = min(genetics[g_idx].w1_indices[h1 * 8u + k], 183u);
-                genetics[g_idx].w1_weights[h1 * 8u + k] = clamp(genetics[g_idx].w1_weights[h1 * 8u + k] + lr * inputs[in_idx] * hidden1[h1], -2.0, 2.0);
+                let i_idx = genetics[g_idx].w1_indices[h1 * 8u + k];
+                genetics[g_idx].w1_weights[h1 * 8u + k] = clamp(genetics[g_idx].w1_weights[h1 * 8u + k] + lr * inputs[i_idx] * hidden1[h1], -2.0, 2.0);
             }
         }
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
@@ -708,4 +470,3 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         }
     }
 }
-

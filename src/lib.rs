@@ -18,3 +18,4 @@ pub mod sim_thread;
 pub mod ui;
 pub mod ui_logic;
 pub mod telemetry;
+pub mod api;
