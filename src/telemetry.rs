@@ -74,16 +74,17 @@ impl TelemetryExporter {
         let pop_count = living_states.len();
 
         let (avg_age, avg_health, avg_wealth, avg_food, avg_stamina, avg_water, avg_aggression, avg_altruism, avg_ask, avg_bid, pheno_var) = if pop_count > 0 {
-            let sum_age: f32 = living_states.iter().map(|s| s.age).sum();
-            let sum_health: f32 = living_states.iter().map(|s| s.health).sum();
-            let sum_wealth: f32 = living_states.iter().map(|s| s.wealth).sum();
-            let sum_food: f32 = living_states.iter().map(|s| s.food).sum();
-            let sum_stamina: f32 = living_states.iter().map(|s| s.stamina).sum();
-            let sum_water: f32 = living_states.iter().map(|s| s.water).sum();
-            let sum_aggr: f32 = living_states.iter().map(|s| s.attack_intent).sum();
-            let sum_repro_desire: f32 = living_states.iter().map(|s| s.reproduce_desire).sum();
-            let sum_ask: f32 = living_states.iter().map(|s| s.ask_price).sum();
-            let sum_bid: f32 = living_states.iter().map(|s| s.bid_price).sum();
+            let mut sum_age = 0.0; let mut sum_health = 0.0; let mut sum_wealth = 0.0;
+            let mut sum_food = 0.0; let mut sum_stamina = 0.0; let mut sum_water = 0.0;
+            let mut sum_aggr = 0.0; let mut sum_repro = 0.0;
+            let mut sum_ask = 0.0; let mut sum_bid = 0.0;
+
+            for s in &living_states {
+                sum_age += s.age; sum_health += s.health; sum_wealth += s.wealth;
+                sum_food += s.food; sum_stamina += s.stamina; sum_water += s.water;
+                sum_aggr += s.attack_intent; sum_repro += s.reproduce_desire;
+                sum_ask += s.ask_price; sum_bid += s.bid_price;
+            }
 
             let mut mean_r = 0.0; let mut mean_g = 0.0; let mut mean_b = 0.0;
             for s in &living_states { mean_r += s.pheno_r; mean_g += s.pheno_g; mean_b += s.pheno_b; }
@@ -95,11 +96,12 @@ impl TelemetryExporter {
             }
             var /= pop_count as f32;
             
+            let p_f32 = pop_count as f32;
             (
-                sum_age / pop_count as f32, sum_health / pop_count as f32, sum_wealth / pop_count as f32,
-                sum_food / pop_count as f32, sum_stamina / pop_count as f32, sum_water / pop_count as f32,
-                sum_aggr / pop_count as f32, sum_repro_desire / pop_count as f32, sum_ask / pop_count as f32, sum_bid / pop_count as f32,
-                var
+                sum_age / p_f32, sum_health / p_f32, sum_wealth / p_f32,
+                sum_food / p_f32, sum_stamina / p_f32, sum_water / p_f32,
+                sum_aggr / p_f32, sum_repro / p_f32, sum_ask / p_f32, sum_bid / p_f32,
+                if var.is_nan() { 0.0 } else { var }
             )
         } else {
             (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -121,12 +123,15 @@ impl TelemetryExporter {
             total_market_wealth += cell.market_wealth as f32 / 1000.0;
         }
 
+        let sanitize = |v: f32| if v.is_nan() || v.is_infinite() { 0.0 } else { v };
+
         writeln!(
             writer,
             "{},{},{},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{:.2},{},{},{:.4},{:.4},{:.4},{:.4},{:.0},{:.0},{:.4}",
-            generation, cumulative_ticks, pop_count, avg_age, avg_health, avg_wealth, avg_food, avg_stamina, avg_water,
+            generation, cumulative_ticks, pop_count, 
+            sanitize(avg_age), sanitize(avg_health), sanitize(avg_wealth), sanitize(avg_food), sanitize(avg_stamina), sanitize(avg_water),
             infra_roads, infra_housing, infra_farms, infra_storage, cumulative_births, cumulative_deaths,
-            avg_aggression, avg_altruism, avg_ask, avg_bid, total_market_food, total_market_wealth, pheno_var
+            sanitize(avg_aggression), sanitize(avg_altruism), sanitize(avg_ask), sanitize(avg_bid), total_market_food, total_market_wealth, sanitize(pheno_var)
         )?;
 
         Ok(())
@@ -146,7 +151,11 @@ mod tests {
     fn test_telemetry_export() {
         let config = SimConfig::default();
         let mut states = vec![AgentState::default(); 10];
-        for s in &mut states { s.health = 100.0; } // Ensure they are counted as living
+        for (i, s) in states.iter_mut().enumerate() { 
+            s.health = 100.0;
+            s.attack_intent = i as f32 * 0.1;
+            s.reproduce_desire = 0.5;
+        } 
         let cells = vec![CellState::default(); 100];
         let mut exporter = TelemetryExporter::new("test_telemetry.csv");
         
@@ -156,6 +165,8 @@ mod tests {
         let content = std::fs::read_to_string("test_telemetry.csv").unwrap();
         assert!(content.contains("Generation,Tick,Population"));
         assert!(content.contains("0,100,10"));
+        // Aggression should be (0+0.1+0.2+0.3+0.4+0.5+0.6+0.7+0.8+0.9)/10 = 0.45
+        assert!(content.contains(",0.4500,"));
         
         // Cleanup
         let _ = std::fs::remove_file("test_telemetry.csv");
