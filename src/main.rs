@@ -193,12 +193,14 @@ async fn main() {
             fs.shared
         } else {
             let sim = SimulationManager::new(config.world.map_width, config.world.map_height, ::rand::thread_rng().r#gen(), config.sim.agent_count, &config, founders);
-            SharedData {
-                sim, config: config.clone(), last_saved_config: config.clone(),
-                is_paused: false, restart_message_active: false,
-                ticks_per_loop: 5, total_ticks: 0, last_compute_time_micros: 0,
-                ticks_per_second: 0.0, generation_survival_times: Vec::new(),
-            }
+                SharedData {
+                    sim, config: config.clone(), last_saved_config: config.clone(),
+                    is_paused: false, restart_message_active: false,
+                    ticks_per_loop: 5, total_ticks: 0,
+                    cumulative_ticks: 0, last_telemetry_tick: 0,
+                    last_compute_time_micros: 0,
+                    ticks_per_second: 0.0, generation_survival_times: Vec::new(),
+                }
         };
         let _ = final_tx.send(shared);
     });

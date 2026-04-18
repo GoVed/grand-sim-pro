@@ -1,7 +1,7 @@
 {
   "world": {
-    "map_width": 2500,
-    "map_height": 1500,
+    "map_width": 4000,
+    "map_height": 2500,
     "display_width": 1280,
     "display_height": 720,
     "regen_rate": 0.01,
@@ -10,13 +10,13 @@
     "tick_to_mins": 10.0
   },
   "sim": {
-    "agent_count": 10000,
+    "agent_count": 8192,
     "spawn_group_size": 100,
-    "founder_count": 512,
+    "founder_count": 1024,
     "load_saved_agents_on_start": 2,
     "current_tick": 0,
     "visual_mode": 0,
-    "pad1": 0,
+    "auto_save_interval_ticks": 10000000,
     "pad2": 0
   },
   "bio": {
