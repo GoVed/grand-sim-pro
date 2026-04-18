@@ -16,7 +16,7 @@ use crate::shared::SharedData;
 use crate::gpu_engine::GpuEngine;
 use crate::agent::Person;
 
-pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
+pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_headless: bool) {
     thread::spawn(move || {
         let mut last_fetch_time = Instant::now();
         let mut last_auto_save_tick = 0;
@@ -63,8 +63,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
 
             if !is_paused {
                 gpu.update_config(&config);
-                // Dispatch compute. If we're not fetching this frame, we can do more ticks to boost performance.
-                let batch_size = if !is_worker_active { ticks_per_loop * 2 } else { ticks_per_loop };
+                // Dispatch compute. In headless mode, we batch more aggressively to minimize API overhead
+                let batch_size = if is_headless { ticks_per_loop * 4 } else if !is_worker_active { ticks_per_loop * 2 } else { ticks_per_loop };
                 gpu.compute_ticks(batch_size);
                 
                 ticks_this_second += batch_size as u64;
@@ -77,8 +77,9 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                 }
 
                 // Async Fetch & Process
-                // We only sync with CPU every 64ms (~15 FPS for genetics/sorting) to maximize GPU air-time
-                if !is_worker_active && last_fetch_time.elapsed().as_millis() >= 64 { 
+                // Headless doesn't need frequent UI updates, so we sync much less often
+                let sync_interval = if is_headless { 1000 } else { 64 };
+                if !is_worker_active && last_fetch_time.elapsed().as_millis() >= sync_interval { 
                     let (states, genetics) = gpu.fetch_agents();
                     let _ = worker_tx.send((states, genetics, config));
                     is_worker_active = true;
@@ -103,9 +104,6 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                         data.cumulative_deaths += new_deaths;
                         
                         gpu.update_agents(&data.sim.states, &data.sim.genetics);
-                        
-                        // Note: total_ticks and cumulative_ticks are incremented by the batch_size above
-                        // But we only do it inside the lock for consistency.
                     }
                     is_worker_active = false;
                 }
@@ -114,7 +112,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
                     data.total_ticks += batch_size as u64;
                     data.cumulative_ticks += batch_size as u64;
 
-                    // Telemetry (OPTIMIZED: NO FULL CLONE)
+                    // Telemetry (Seamless & Backgrounded)
                     let telemetry_interval = data.config.telemetry.export_interval_ticks as u64;
                     if data.config.telemetry.enabled != 0 && data.cumulative_ticks >= data.last_telemetry_tick + telemetry_interval {
                         let cfg_c = data.config.clone();
@@ -180,7 +178,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>) {
             }
 
             if is_paused { thread::sleep(Duration::from_millis(16)); }
-            else { thread::sleep(Duration::from_millis(1)); }
+            else if !is_headless { thread::sleep(Duration::from_millis(1)); }
         }
     });
 }
