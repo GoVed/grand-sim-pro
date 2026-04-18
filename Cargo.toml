@@ -15,6 +15,7 @@ bytemuck = { version = "1.19", features = ["derive", "min_const_generics"] }
 pollster = "0.3"
 bincode = "1.3.3"
 flate2 = "1.1.9"
+zstd = { version = "0.13.3", features = ["zstdmt"] }
 
 [features]
 ui_testing = []

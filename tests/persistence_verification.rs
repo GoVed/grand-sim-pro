@@ -2,9 +2,6 @@ use world_sim::simulation::SimulationManager;
 use world_sim::config::SimConfig;
 use world_sim::shared::{SharedData, FullState};
 use std::io::Read;
-use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 
 #[test]
 fn test_persistence_roundtrip() {
@@ -35,16 +32,16 @@ fn test_persistence_roundtrip() {
 
     let original_state = FullState { shared };
 
-    // Serialize to Bincode + Gzip
+    // Serialize to Bincode + Zstd
     let mut buffer = Vec::new();
     {
-        let mut encoder = GzEncoder::new(&mut buffer, Compression::default());
+        let mut encoder = zstd::Encoder::new(&mut buffer, 3).expect("Failed to create Zstd encoder");
         bincode::serialize_into(&mut encoder, &original_state).expect("Failed to serialize");
         encoder.finish().expect("Failed to finish compression");
     }
 
-    // Deserialize from Bincode + Gzip
-    let mut decoder = GzDecoder::new(&buffer[..]);
+    // Deserialize from Bincode + Zstd
+    let mut decoder = zstd::Decoder::new(&buffer[..]).expect("Failed to create Zstd decoder");
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data).expect("Failed to decompress");
     

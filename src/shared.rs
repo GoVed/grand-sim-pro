@@ -65,9 +65,6 @@ pub struct ProgressReport {
     pub progress: f32, // 0.0 to 1.0
 }
 
-use flate2::write::GzEncoder;
-use flate2::read::GzDecoder;
-use flate2::Compression;
 use std::sync::mpsc::Sender;
 use std::io::{Read, Write};
 
@@ -127,11 +124,15 @@ pub async fn save_everything(shared: &SharedData, name: &str, is_last_run: bool,
     let base_path = if is_last_run { format!("{}", name) } else { format!("saves/{}", name) };
     let _ = std::fs::create_dir_all(&base_path);
     
-    // Save state using Bincode + Gzip
+    // Save state using Bincode + Zstd (Multithreaded)
     let state = FullState { shared: shared.clone() };
-    if let Ok(file) = std::fs::File::create(format!("{}/state.bin.gz", base_path)) {
+    if let Ok(file) = std::fs::File::create(format!("{}/state.bin.zst", base_path)) {
         let uncompressed_size = bincode::serialized_size(&state).unwrap_or(0);
-        let mut encoder = GzEncoder::new(file, Compression::default());
+        
+        let mut encoder = zstd::Encoder::new(file, 3).expect("Failed to create Zstd encoder");
+        // Use all available cores for compression
+        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as u32;
+        encoder.multithread(cores).expect("Failed to enable Zstd multithreading");
         
         if let Some(ref tx) = progress {
             let mut writer = ProgressWriter {
@@ -139,12 +140,12 @@ pub async fn save_everything(shared: &SharedData, name: &str, is_last_run: bool,
                 total: uncompressed_size,
                 written: 0,
                 tx: tx.clone(),
-                msg: "Compressing & Saving State...".to_string(),
+                msg: "Compressing (Parallel) & Saving State...".to_string(),
                 base: 0.1,
                 scale: 0.6,
             };
             let _ = bincode::serialize_into(&mut writer, &state);
-            let _ = writer.inner.finish(); // Finish the GzEncoder
+            let _ = writer.inner.finish(); // Finish the Zstd Encoder
         } else {
             let _ = bincode::serialize_into(&mut encoder, &state);
             let _ = encoder.finish();
@@ -189,22 +190,23 @@ pub fn load_everything(path: &std::path::Path, progress: Sender<ProgressReport>)
     };
 
     report("Opening Save File...", 0.05);
-    let bin_path = path.join("state.bin.gz");
+    let zst_path = path.join("state.bin.zst");
+    let gz_path = path.join("state.bin.gz");
     let json_path = path.join("state.json");
     
-    if bin_path.exists() {
-        if let Ok(file) = std::fs::File::open(&bin_path) {
+    if zst_path.exists() {
+        if let Ok(file) = std::fs::File::open(&zst_path) {
             let compressed_size = file.metadata().map(|m| m.len()).unwrap_or(0);
             let reader = ProgressReader {
                 inner: file,
                 total: compressed_size,
                 read: 0,
                 tx: progress.clone(),
-                msg: "Decompressing Binary State...".to_string(),
+                msg: "Decompressing Binary (Parallel) State...".to_string(),
                 base: 0.1,
                 scale: 0.7,
             };
-            let mut decoder = GzDecoder::new(reader);
+            let mut decoder = zstd::Decoder::new(reader).expect("Failed to create Zstd decoder");
             match bincode::deserialize_from(&mut decoder) {
                 Ok(state) => {
                     report("Restoring Telemetry...", 0.9);
@@ -214,6 +216,24 @@ pub fn load_everything(path: &std::path::Path, progress: Sender<ProgressReport>)
                 }
                 Err(e) => {
                     report(&format!("Binary Load Error: {}", e), 0.0);
+                    return None;
+                }
+            }
+        }
+    } else if gz_path.exists() {
+        // Fallback for Gzip if anyone has old saves
+        report("Decompressing Legacy Gzip State...", 0.1);
+        if let Ok(file) = std::fs::File::open(&gz_path) {
+            let mut decoder = flate2::read::GzDecoder::new(file);
+            match bincode::deserialize_from(&mut decoder) {
+                Ok(state) => {
+                    report("Restoring Telemetry...", 0.9);
+                    let _ = std::fs::copy(path.join("telemetry.csv"), "telemetry.csv");
+                    report("Done!", 1.0);
+                    return Some(state);
+                }
+                Err(e) => {
+                    report(&format!("Gzip Load Error: {}", e), 0.0);
                     return None;
                 }
             }
