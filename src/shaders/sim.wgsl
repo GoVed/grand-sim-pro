@@ -5,6 +5,10 @@ var<workgroup> lds_pop: array<f32, 256>;
 var<workgroup> lds_base_x: u32;
 var<workgroup> lds_base_y: u32;
 
+fn is_nan(x: f32) -> bool {
+    return x != x;
+}
+
 fn fast_tanh(x: f32) -> f32 {
     let x2 = x * x;
     return x * (27.0 + x2) / (27.0 + 9.0 * x2);
@@ -230,9 +234,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         let w_base = h1 * 8u;
         for (var k = 0u; k < 8u; k = k + 1u) {
             let in_idx = genetics[g_idx].w1_indices[w_base + k];
-            sum = sum + inputs[in_idx] * genetics[g_idx].w1_weights[w_base + k];
+            let val = inputs[in_idx];
+            let weight = genetics[g_idx].w1_weights[w_base + k];
+            if (!is_nan(val) && !is_nan(weight)) {
+                sum = sum + val * weight;
+            }
         }
-        hidden1[h1] = fast_tanh(sum);
+        hidden1[h1] = tanh(clamp(sum, -10.0, 10.0));
     }
 
     var hidden2 = array<f32, 128>();
@@ -240,18 +248,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         var sum = 0.0;
         let h2_base = h2;
         for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
-            sum = sum + hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2_base];
+            let weight = genetics[g_idx].w2[h1 * 128u + h2_base];
+            if (!is_nan(weight)) {
+                sum = sum + hidden1[h1] * weight;
+            }
         }
-        hidden2[h2] = fast_tanh(sum);
+        hidden2[h2] = tanh(clamp(sum, -10.0, 10.0));
     }
 
     var outputs = array<f32, 56>(); 
     for (var o = 0u; o < 56u; o = o + 1u) {
         var sum = 0.0;
         for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
-            sum = sum + hidden2[h2] * genetics[g_idx].w3[h2 * 56u + o];
+            let weight = genetics[g_idx].w3[h2 * 56u + o];
+            if (!is_nan(weight)) {
+                sum = sum + hidden2[h2] * weight;
+            }
         }
-        outputs[o] = fast_tanh(sum);
+        outputs[o] = tanh(clamp(sum, -10.0, 10.0));
     }
 
     // --- Action Processing ---
