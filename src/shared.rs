@@ -67,6 +67,52 @@ use flate2::write::GzEncoder;
 use flate2::read::GzDecoder;
 use flate2::Compression;
 use std::sync::mpsc::Sender;
+use std::io::{Read, Write};
+
+struct ProgressWriter<W: Write> {
+    inner: W,
+    total: u64,
+    written: u64,
+    tx: Sender<ProgressReport>,
+    msg: String,
+    base: f32,
+    scale: f32,
+}
+
+impl<W: Write> Write for ProgressWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.written += n as u64;
+        if self.total > 0 {
+            let p = self.base + (self.written as f32 / self.total as f32) * self.scale;
+            let _ = self.tx.send(ProgressReport { message: self.msg.clone(), progress: p.min(self.base + self.scale) });
+        }
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> { self.inner.flush() }
+}
+
+struct ProgressReader<R: Read> {
+    inner: R,
+    total: u64,
+    read: u64,
+    tx: Sender<ProgressReport>,
+    msg: String,
+    base: f32,
+    scale: f32,
+}
+
+impl<R: Read> Read for ProgressReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.read += n as u64;
+        if self.total > 0 {
+            let p = self.base + (self.read as f32 / self.total as f32) * self.scale;
+            let _ = self.tx.send(ProgressReport { message: self.msg.clone(), progress: p.min(self.base + self.scale) });
+        }
+        Ok(n)
+    }
+}
 
 pub async fn save_everything(shared: &SharedData, name: &str, is_last_run: bool, progress: Option<Sender<ProgressReport>>) {
     let report = |msg: &str, p: f32| {
@@ -75,28 +121,40 @@ pub async fn save_everything(shared: &SharedData, name: &str, is_last_run: bool,
         }
     };
 
-    report("Preparing Save...", 0.1);
+    report("Preparing Save...", 0.05);
     let base_path = if is_last_run { format!("{}", name) } else { format!("saves/{}", name) };
     let _ = std::fs::create_dir_all(&base_path);
     
     // Save state using Bincode + Gzip
-    report("Compressing State...", 0.3);
     let state = FullState { shared: shared.clone() };
-    let file = std::fs::File::create(format!("{}/state.bin.gz", base_path));
-    if let Ok(file) = file {
+    if let Ok(file) = std::fs::File::create(format!("{}/state.bin.gz", base_path)) {
+        let uncompressed_size = bincode::serialized_size(&state).unwrap_or(0);
         let mut encoder = GzEncoder::new(file, Compression::default());
-        let _ = bincode::serialize_into(&mut encoder, &state);
-        let _ = encoder.finish();
+        
+        if let Some(ref tx) = progress {
+            let mut writer = ProgressWriter {
+                inner: encoder,
+                total: uncompressed_size,
+                written: 0,
+                tx: tx.clone(),
+                msg: "Compressing & Saving State...".to_string(),
+                base: 0.1,
+                scale: 0.6,
+            };
+            let _ = bincode::serialize_into(&mut writer, &state);
+            let _ = writer.inner.finish(); // Finish the GzEncoder
+        } else {
+            let _ = bincode::serialize_into(&mut encoder, &state);
+            let _ = encoder.finish();
+        }
     }
     
-    report("Copying Telemetry...", 0.7);
-    // Save telemetry if it exists
+    report("Copying Telemetry...", 0.75);
     if std::path::Path::new("telemetry.csv").exists() {
         let _ = std::fs::copy("telemetry.csv", format!("{}/telemetry.csv", base_path));
     }
     
-    report("Extracting Top Brains...", 0.8);
-    // Save weights
+    report("Extracting Top Brains...", 0.85);
     let weights_path = format!("{}/weights", base_path);
     let _ = std::fs::create_dir_all(&weights_path);
     let mut living_indices: Vec<_> = shared.sim.states.iter().enumerate()
@@ -128,17 +186,26 @@ pub fn load_everything(path: &std::path::Path, progress: Sender<ProgressReport>)
         let _ = progress.send(ProgressReport { message: msg.to_string(), progress: p });
     };
 
-    report("Opening Save File...", 0.1);
+    report("Opening Save File...", 0.05);
     let bin_path = path.join("state.bin.gz");
     let json_path = path.join("state.json");
     
     if bin_path.exists() {
-        report("Decompressing Binary State...", 0.3);
-        if let Ok(file) = std::fs::File::open(bin_path) {
-            let decoder = GzDecoder::new(file);
-            match bincode::deserialize_from(decoder) {
+        if let Ok(file) = std::fs::File::open(&bin_path) {
+            let compressed_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+            let reader = ProgressReader {
+                inner: file,
+                total: compressed_size,
+                read: 0,
+                tx: progress.clone(),
+                msg: "Decompressing Binary State...".to_string(),
+                base: 0.1,
+                scale: 0.7,
+            };
+            let mut decoder = GzDecoder::new(reader);
+            match bincode::deserialize_from(&mut decoder) {
                 Ok(state) => {
-                    report("Restoring Telemetry...", 0.8);
+                    report("Restoring Telemetry...", 0.9);
                     let _ = std::fs::copy(path.join("telemetry.csv"), "telemetry.csv");
                     report("Done!", 1.0);
                     return Some(state);
@@ -154,7 +221,7 @@ pub fn load_everything(path: &std::path::Path, progress: Sender<ProgressReport>)
         if let Ok(data) = std::fs::read_to_string(json_path) {
             match serde_json::from_str::<FullState>(&data) {
                 Ok(state) => {
-                    report("Restoring Telemetry...", 0.8);
+                    report("Restoring Telemetry...", 0.9);
                     let _ = std::fs::copy(path.join("telemetry.csv"), "telemetry.csv");
                     report("Done!", 1.0);
                     return Some(state);
