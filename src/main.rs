@@ -193,14 +193,13 @@ async fn main() {
             fs.shared
         } else {
             let sim = SimulationManager::new(config.world.map_width, config.world.map_height, ::rand::thread_rng().r#gen(), config.sim.agent_count, &config, founders);
-                SharedData {
-                    sim, config: config.clone(), last_saved_config: config.clone(),
-                    is_paused: false, restart_message_active: false,
-                    ticks_per_loop: 5, total_ticks: 0,
-                    cumulative_ticks: 0, last_telemetry_tick: 0,
-                    last_compute_time_micros: 0,
-                    ticks_per_second: 0.0, generation_survival_times: Vec::new(),
-                }
+            SharedData {
+                sim, config: config.clone(), last_saved_config: config.clone(),
+                is_paused: false, restart_message_active: false,
+                ticks_per_loop: 5, total_ticks: 0, cumulative_ticks: 0, last_telemetry_tick: 0,
+                last_compute_time_micros: 0,
+                ticks_per_second: 0.0, generation_survival_times: Vec::new(),
+            }
         };
         let _ = final_tx.send(shared);
     });
@@ -253,6 +252,9 @@ async fn main() {
     let (save_prog_tx, save_prog_rx) = std::sync::mpsc::channel::<ProgressReport>();
 
     let mut metrics = (0, 0.0f32, 0.0f32, 0usize, 0u64, false, false, Vec::new());
+    let mut gen_graph_scroll = 0.0f32;
+    let mut gen_graph_zoom = 1.0f32;
+    let mut gen_graph_avg_period = 25usize;
 
     loop {
         if saving_ui_report.is_some() {
@@ -277,7 +279,7 @@ async fn main() {
                 let mut living: Vec<_> = data.sim.states.iter().enumerate().filter(|(_, s)| s.health > 0.0).collect();
                 living.sort_by(|(_, a), (_, b)| (b.wealth + b.food).partial_cmp(&(a.wealth + a.food)).unwrap());
                 for i in 0..living.len().min(data.config.sim.founder_count as usize) {
-                    let (idx, s) = living[i];
+                    let (_, s) = living[i];
                     let p = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
                     let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), serde_json::to_string_pretty(&p.extract_weights()).unwrap());
                 }
@@ -303,60 +305,23 @@ async fn main() {
         let (mx, my) = mouse_position();
         let left_clicked = is_mouse_button_pressed(MouseButton::Left);
         
-        if !show_inspector && !show_config_panel {
-            if mouse_wheel_y > 0.0 { zoom *= 1.1; } else if mouse_wheel_y < 0.0 { zoom *= 0.9; }
-            if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() {
-                offset_x += (mx - last_mouse.0) / zoom; offset_y -= (my - last_mouse.1) / zoom;
-            }
-        }
-        last_mouse = (mx, my);
-
         if let Ok(mut data) = shared_data.try_lock() {
-            if data.config.sim.visual_mode != match current_visual_mode {
+            data.config.sim.visual_mode = match current_visual_mode {
                 VisualMode::Default => 0, VisualMode::Resources => 1, VisualMode::Age => 2, VisualMode::Gender => 3,
                 VisualMode::Pregnancy => 4, VisualMode::MarketWealth => 5, VisualMode::MarketFood => 6, VisualMode::AskPrice => 7,
                 VisualMode::BidPrice => 8, VisualMode::Infrastructure => 9, VisualMode::Temperature => 10, VisualMode::DayNight => 11,
                 VisualMode::Tribes => 12, VisualMode::Water => 13,
-            } {
-                data.config.sim.visual_mode = match current_visual_mode {
-                    VisualMode::Default => 0, VisualMode::Resources => 1, VisualMode::Age => 2, VisualMode::Gender => 3,
-                    VisualMode::Pregnancy => 4, VisualMode::MarketWealth => 5, VisualMode::MarketFood => 6, VisualMode::AskPrice => 7,
-                    VisualMode::BidPrice => 8, VisualMode::Infrastructure => 9, VisualMode::Temperature => 10, VisualMode::DayNight => 11,
-                    VisualMode::Tribes => 12, VisualMode::Water => 13,
-                };
-            }
-            
-            metrics = (
-                data.sim.states.iter().filter(|s| s.health > 0.0).count(),
-                data.last_compute_time_micros as f32 / 1000.0,
-                data.ticks_per_second, data.ticks_per_loop, data.total_ticks,
-                data.is_paused, data.restart_message_active, data.generation_survival_times.clone()
-            );
-
+            };
+            metrics = (data.sim.states.iter().filter(|s| s.health > 0.0).count(), data.last_compute_time_micros as f32 / 1000.0, data.ticks_per_second, data.ticks_per_loop, data.total_ticks, data.is_paused, data.restart_message_active, data.generation_survival_times.clone());
             local_agent_coords.clear();
-            local_agent_coords.extend(data.sim.states.iter().map(|s| AgentRenderData {
-                x: s.x, y: s.y, health: s.health, food: s.food, age: s.age, wealth: s.wealth, gender: s.gender, is_pregnant: s.is_pregnant,
-                pheno_r: s.pheno_r, pheno_g: s.pheno_g, pheno_b: s.pheno_b
-            }));
-
+            local_agent_coords.extend(data.sim.states.iter().map(|s| AgentRenderData { x: s.x, y: s.y, health: s.health, food: s.food, age: s.age, wealth: s.wealth, gender: s.gender, is_pregnant: s.is_pregnant, pheno_r: s.pheno_r, pheno_g: s.pheno_g, pheno_b: s.pheno_b }));
             if show_inspector {
                 if inspector_agents.len() != metrics.0 {
                     inspector_agents.clear();
-                    for (i, s) in data.sim.states.iter().enumerate() {
-                        if s.health > 0.0 { inspector_agents.push((i, Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })); }
-                    }
+                    for (i, s) in data.sim.states.iter().enumerate() { if s.health > 0.0 { inspector_agents.push((i, Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] })); } }
                     ui::apply_sort(&mut inspector_agents, sort_col, sort_desc);
-                } else {
-                    for i in 0..inspector_agents.len() {
-                        let s = &data.sim.states[inspector_agents[i].0];
-                        inspector_agents[i].1 = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
-                    }
-                }
-                if let Some(ref mut sel) = selected_agent {
-                    if let Some(s) = data.sim.states.iter().find(|s| s.id == sel.state.id) {
-                        if s.health > 0.0 { sel.state = *s; } else { selected_agent = None; }
-                    }
-                }
+                } else { for i in 0..inspector_agents.len() { let s = &data.sim.states[inspector_agents[i].0]; inspector_agents[i].1 = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] }; } }
+                if let Some(ref mut sel) = selected_agent { if let Some(s) = data.sim.states.iter().find(|s| s.id == sel.state.id) { if s.health > 0.0 { sel.state = *s; } else { selected_agent = None; } } }
             }
             if let Some(fid) = followed_agent_id {
                 if let Some(s) = data.sim.states.iter().find(|s| s.id == fid) {
@@ -374,35 +339,30 @@ async fn main() {
         });
         let render_data = gpu.fetch_render(loaded_config.world.map_width, loaded_config.world.map_height);
         image.bytes.copy_from_slice(&render_data); texture.update(&image); draw_texture(&texture, 0.0, 0.0, WHITE);
-
         for a in &local_agent_coords {
             if a.health <= 0.0 { continue; }
-            let radius = 1.0 + (a.age / loaded_config.bio.puberty_age).min(1.0) * 1.0;
-            let color = match current_visual_mode {
-                VisualMode::Age => { let r = (a.age / loaded_config.bio.max_age).clamp(0.0, 1.0); Color::new(r, 1.0-r, 1.0, 1.0) },
-                VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) },
-                VisualMode::Tribes => Color::new(a.pheno_r*0.5+0.5, a.pheno_g*0.5+0.5, a.pheno_b*0.5+0.5, 1.0),
-                _ => WHITE,
-            };
-            draw_circle(a.x, a.y, radius, color);
+            let r = 1.0 + (a.age / loaded_config.bio.puberty_age).min(1.0);
+            let c = match current_visual_mode { VisualMode::Age => { let r = (a.age / loaded_config.bio.max_age).clamp(0.0, 1.0); Color::new(r, 1.0-r, 1.0, 1.0) }, VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) }, VisualMode::Tribes => Color::new(a.pheno_r*0.5+0.5, a.pheno_g*0.5+0.5, a.pheno_b*0.5+0.5, 1.0), _ => WHITE };
+            draw_circle(a.x, a.y, r, c);
         }
 
         set_default_camera();
-        ui::draw_metrics(
-            metrics.0, metrics.1, metrics.2, metrics.3, metrics.4, loaded_config.world.tick_to_mins, 
-            get_fps(), get_fps() as f32, get_fps() as f32, current_visual_mode, 
-            show_inspector, show_generation_graph, show_config_panel, metrics.5, metrics.6
-        );
+        let mut graph_consumed = false;
+        ui::draw_metrics(metrics.0, metrics.1, metrics.2, metrics.3, metrics.4, loaded_config.world.tick_to_mins, get_fps(), get_fps() as f32, get_fps() as f32, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, metrics.5, metrics.6);
         if show_visuals_panel { ui::draw_visuals_panel(mx, my, left_clicked, &mut current_visual_mode); }
-        if show_generation_graph { ui::draw_generation_graph(&metrics.7, loaded_config.world.tick_to_mins); }
-        if show_inspector {
-            ui::draw_inspector(mx, my, left_clicked, mouse_wheel_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins);
-        }
+        if show_generation_graph { graph_consumed = ui::draw_generation_graph(&metrics.7, loaded_config.world.tick_to_mins, mx, my, mouse_wheel_y, &mut gen_graph_scroll, &mut gen_graph_zoom, &mut gen_graph_avg_period); }
+        if show_inspector { ui::draw_inspector(mx, my, left_clicked, mouse_wheel_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins); }
         if show_config_panel {
             let mut c = loaded_config; let last = loaded_config; let mut changed = false; let mut save_cfg = false;
             ui::draw_config_panel(mx, my, left_clicked, is_mouse_button_down(MouseButton::Left), get_frame_time(), &mut c, &last, &mut config_scroll, &mut config_search_query, &mut changed, &mut save_cfg, &mut active_config_button, &mut config_button_hold_time);
             if changed { let mut d = shared_data.lock().unwrap(); d.config = c; loaded_config = c; }
         }
+
+        if !show_inspector && !show_config_panel && !graph_consumed {
+            if mouse_wheel_y > 0.0 { zoom *= 1.1; } else if mouse_wheel_y < 0.0 { zoom *= 0.9; }
+            if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() { offset_x += (mx - last_mouse.0) / zoom; offset_y -= (my - last_mouse.1) / zoom; }
+        }
+        last_mouse = (mx, my);
 
         if is_key_pressed(KeyCode::Escape) { break; }
         next_frame().await;

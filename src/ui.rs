@@ -370,37 +370,128 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &Person, followed_i
     if left_clicked && ins_btn.contains(vec2(mx, my)) { *show_inspector = true; }
 }
 
-pub fn draw_generation_graph(times: &[u64], tick_to_mins: f32) {
-    if times.is_empty() { return; }
-    let panel_w = 400.0;
-    let panel_h = 300.0;
+pub fn draw_generation_graph(times: &[u64], tick_to_mins: f32, mx: f32, my: f32, wheel: f32, scroll_x: &mut f32, zoom: &mut f32, avg_period: &mut usize) -> bool {
+    if times.is_empty() { return false; }
+    let panel_w = screen_width() * 0.8;
+    let panel_h = 380.0;
     let panel_x = screen_width() / 2.0 - panel_w / 2.0;
     let panel_y = screen_height() / 2.0 - panel_h / 2.0;
+    let panel_rect = Rect::new(panel_x, panel_y, panel_w, panel_h);
+    let mouse_on_panel = panel_rect.contains(vec2(mx, my));
+    
+    // Track mouse delta correctly
+    let prev_mx = mx_prev();
+    let delta_x = mx - prev_mx;
+
     draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.05, 0.05, 0.05, 0.95));
     draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, Color::new(0.0, 1.0, 0.8, 1.0));
-    draw_text("Generation Survival Time", panel_x + 100.0, panel_y + 25.0, 20.0, WHITE);
+    draw_text("Evolutionary Timeline: Survival per Generation", panel_x + 20.0, panel_y + 25.0, 20.0, WHITE);
     
-    let max_ticks = (*times.iter().max().unwrap_or(&1)).max(1);
-    let max_gen = (times.len() - 1).max(1);
+    // Period Selector
+    draw_text(&format!("AVG PERIOD: {}", avg_period), panel_x + panel_w - 180.0, panel_y + 25.0, 16.0, YELLOW);
+    let btn_minus = Rect::new(panel_x + panel_w - 60.0, panel_y + 10.0, 20.0, 20.0);
+    let btn_plus = Rect::new(panel_x + panel_w - 35.0, panel_y + 10.0, 20.0, 20.0);
+    draw_rectangle(btn_minus.x, btn_minus.y, btn_minus.w, btn_minus.h, if btn_minus.contains(vec2(mx, my)) { GRAY } else { DARKGRAY });
+    draw_rectangle(btn_plus.x, btn_plus.y, btn_plus.w, btn_plus.h, if btn_plus.contains(vec2(mx, my)) { GRAY } else { DARKGRAY });
+    draw_text("-", btn_minus.x + 6.0, btn_minus.y + 15.0, 18.0, WHITE);
+    draw_text("+", btn_plus.x + 5.0, btn_plus.y + 15.0, 18.0, WHITE);
+    
+    if is_mouse_button_pressed(MouseButton::Left) {
+        if btn_minus.contains(vec2(mx, my)) { *avg_period = avg_period.saturating_sub(5).max(1); }
+        if btn_plus.contains(vec2(mx, my)) { *avg_period = (*avg_period + 5).min(200); }
+    }
 
-    draw_line(panel_x + 40.0, panel_y + panel_h - 40.0, panel_x + panel_w - 40.0, panel_y + panel_h - 40.0, 1.0, GRAY);
-    draw_line(panel_x + 40.0, panel_y + 40.0, panel_x + 40.0, panel_y + panel_h - 40.0, 1.0, GRAY);
+    draw_text("Scroll: Drag | Mouse Wheel: Zoom | Hover: Inspect", panel_x + 20.0, panel_y + panel_h - 10.0, 14.0, GRAY);
+
+    let graph_rect = Rect::new(panel_x + 50.0, panel_y + 40.0, panel_w - 70.0, panel_h - 110.0);
+    draw_rectangle(graph_rect.x, graph_rect.y, graph_rect.w, graph_rect.h, Color::new(0.0, 0.02, 0.02, 1.0));
     
-    let (max_label, zero, r#gen) = ui_logic::get_graph_axes_labels(max_ticks, tick_to_mins);
-    draw_text(&max_label, panel_x + 5.0, panel_y + 50.0, 14.0, GRAY);
-    draw_text(&zero, panel_x + 25.0, panel_y + panel_h - 35.0, 14.0, GRAY);
-    draw_text(&r#gen, panel_x + panel_w - 35.0, panel_y + panel_h - 25.0, 14.0, GRAY);
+    if mouse_on_panel {
+        if wheel > 0.0 { *zoom *= 1.1; }
+        else if wheel < 0.0 { *zoom *= 0.9; }
+        if is_mouse_button_down(MouseButton::Left) && !btn_minus.contains(vec2(mx, my)) && !btn_plus.contains(vec2(mx, my)) {
+             *scroll_x += delta_x; 
+        }
+    }
+    *zoom = zoom.clamp(1.0, 100.0);
+
+    let max_ticks = (*times.iter().max().unwrap_or(&1)).max(1);
+    let view_width = graph_rect.w * *zoom;
+    let max_scroll = (view_width - graph_rect.w).max(0.0);
+    *scroll_x = scroll_x.clamp(-max_scroll, 0.0);
+
+    // Draw Scrollbar Background
+    let sb_rect = Rect::new(graph_rect.x, graph_rect.y + graph_rect.h + 5.0, graph_rect.w, 10.0);
+    draw_rectangle(sb_rect.x, sb_rect.y, sb_rect.w, sb_rect.h, BLACK);
+    if max_scroll > 0.0 {
+        let handle_w = (graph_rect.w / view_width) * sb_rect.w;
+        let handle_x = sb_rect.x + ((-*scroll_x) / max_scroll) * (sb_rect.w - handle_w);
+        draw_rectangle(handle_x, sb_rect.y, handle_w, sb_rect.h, GRAY);
+    }
 
     let mut last_pts: Option<(f32, f32)> = None;
+    let mut last_avg_pts: Option<(f32, f32)> = None;
+    let mut hovered_data: Option<(usize, u64, f32, f32)> = None;
+
     for (i, &time) in times.iter().enumerate() {
-        let px = panel_x + 40.0 + (i as f32 / max_gen as f32) * (panel_w - 80.0);
-        let py = panel_y + panel_h - 40.0 - (time as f32 / max_ticks as f32) * (panel_h - 80.0);
-        draw_circle(px, py, 3.0, YELLOW);
-        if let Some(lp) = last_pts { draw_line(lp.0, lp.1, px, py, 2.0, Color::new(0.0, 1.0, 0.8, 1.0)); }
+        let x_norm = i as f32 / (times.len() as f32).max(1.0);
+        let px = graph_rect.x + x_norm * view_width + *scroll_x;
+        let py = graph_rect.y + graph_rect.h - (time as f32 / max_ticks as f32) * graph_rect.h;
+
+        // Calculate running average
+        let start_idx = i.saturating_sub(*avg_period - 1);
+        let avg_time: f64 = times[start_idx..=i].iter().map(|&t| t as f64).sum::<f64>() / (i - start_idx + 1) as f64;
+        let py_avg = graph_rect.y + graph_rect.h - (avg_time as f32 / max_ticks as f32) * graph_rect.h;
+
+        if px >= graph_rect.x && px <= graph_rect.x + graph_rect.w {
+            if (mx - px).abs() < (5.0 * *zoom).min(10.0) && my >= graph_rect.y && my <= graph_rect.y + graph_rect.h { 
+                hovered_data = Some((i, time, px, py)); 
+            }
+            
+            draw_circle(px, py, 2.0, if hovered_data.as_ref().map_or(false, |h| h.0 == i) { YELLOW } else { Color::new(0.0, 0.8, 0.6, 0.4) });
+            if let Some(lp) = last_pts {
+                if lp.0 >= graph_rect.x && lp.0 <= graph_rect.x + graph_rect.w {
+                    draw_line(lp.0, lp.1, px, py, 1.0, Color::new(0.0, 1.0, 0.8, 0.3));
+                }
+            }
+            
+            if let Some(la) = last_avg_pts {
+                if la.0 >= graph_rect.x && la.0 <= graph_rect.x + graph_rect.w {
+                    draw_line(la.0, la.1, px, py_avg, 2.5, Color::new(1.0, 0.5, 0.0, 0.9));
+                }
+            }
+        }
         last_pts = Some((px, py));
+        last_avg_pts = Some((px, py_avg));
     }
+
+    draw_line(graph_rect.x, graph_rect.y, graph_rect.x, graph_rect.y + graph_rect.h, 2.0, GRAY);
+    draw_line(graph_rect.x, graph_rect.y + graph_rect.h, graph_rect.x + graph_rect.w, graph_rect.y + graph_rect.h, 2.0, GRAY);
+    
+    let (max_label, _, _) = ui_logic::get_graph_axes_labels(max_ticks, tick_to_mins);
+    draw_text(&max_label, graph_rect.x - 45.0, graph_rect.y + 10.0, 14.0, GRAY);
+    draw_text("0", graph_rect.x - 15.0, graph_rect.y + graph_rect.h, 14.0, GRAY);
+
+    if let Some((r#gen, time, px, py)) = hovered_data {
+        draw_circle(px, py, 5.0, YELLOW);
+        let info = format!("Gen {}: {}", r#gen, format_time(time, tick_to_mins));
+        let dims = measure_text(&info, None, 16, 1.0);
+        let tx = (px + 10.0).min(screen_width() - dims.width - 10.0);
+        draw_rectangle(tx - 5.0, py - 25.0, dims.width + 10.0, 25.0, Color::new(0.0, 0.1, 0.1, 0.9));
+        draw_text(&info, tx, py - 8.0, 16.0, WHITE);
+    }
+    
+    mouse_on_panel
 }
 
+// Helper for panning
+fn mx_prev() -> f32 {
+    static mut LAST_MX: f32 = 0.0;
+    let cur = mouse_position().0;
+    let old = unsafe { LAST_MX };
+    unsafe { LAST_MX = cur; }
+    old
+}
 pub fn draw_config_panel(
     mx: f32, my: f32, left_clicked: bool, _is_mouse_down: bool, _frame_time: f32,
     config: &mut crate::config::SimConfig,
