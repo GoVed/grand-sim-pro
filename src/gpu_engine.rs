@@ -16,8 +16,10 @@ pub struct GpuEngine {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
+    world_pipeline: wgpu::ComputePipeline,
     render_pipeline: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
+    world_bind_group: wgpu::BindGroup,
     render_bind_group: wgpu::BindGroup,
     agent_state_buffer: wgpu::Buffer,
     genetics_buffer: wgpu::Buffer,
@@ -30,6 +32,8 @@ pub struct GpuEngine {
     config_buffer: wgpu::Buffer,
     height_buffer: wgpu::Buffer,
     agent_count: u32,
+    map_width: u32,
+    map_height: u32,
     staging_lock: Mutex<()>,
 }
 
@@ -118,10 +122,11 @@ impl GpuEngine {
             });
 
             let shader_src = format!(
-                "{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}",
                 include_str!("shaders/types.wgsl"),
                 include_str!("shaders/bindings.wgsl"),
                 include_str!("shaders/sim.wgsl"),
+                include_str!("shaders/world.wgsl"),
                 include_str!("shaders/render.wgsl")
             );
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -131,6 +136,11 @@ impl GpuEngine {
             
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Sim Pipeline"), layout: None, module: &shader, entry_point: "main",
+                compilation_options: Default::default(), cache: None,
+            });
+
+            let world_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("World Pipeline"), layout: None, module: &shader, entry_point: "world_main",
                 compilation_options: Default::default(), cache: None,
             });
             
@@ -150,6 +160,15 @@ impl GpuEngine {
                 ],
             });
 
+            let world_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("World Bind Group"), layout: &world_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 1, resource: height_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: cell_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: config_buffer.as_entire_binding() },
+                ],
+            });
+
             let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Render Bind Group"), layout: &render_pipeline.get_bind_group_layout(0),
                 entries: &[
@@ -161,10 +180,12 @@ impl GpuEngine {
             });
 
             Self { 
-                device, queue, pipeline, render_pipeline, bind_group, render_bind_group, 
+                device, queue, pipeline, world_pipeline, render_pipeline, bind_group, world_bind_group, render_bind_group, 
                 agent_state_buffer, genetics_buffer, staging_state_buffer, staging_genetics_buffer, 
                 staging_cell_buffer, cell_buffer, render_buffer, staging_render_buffer, 
                 config_buffer, height_buffer, agent_count: states.len() as u32,
+                map_width: config.world.map_width,
+                map_height: config.world.map_height,
                 staging_lock: Mutex::new(()),
             }
         })
@@ -185,10 +206,17 @@ impl GpuEngine {
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
             {
                 let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-                cpass.set_pipeline(&self.pipeline);
-                cpass.set_bind_group(0, &self.bind_group, &[]);
                 for _ in 0..current_batch {
+                    // 1. Agent Simulation
+                    cpass.set_pipeline(&self.pipeline);
+                    cpass.set_bind_group(0, &self.bind_group, &[]);
                     cpass.dispatch_workgroups((self.agent_count as f32 / 64.0).ceil() as u32, 1, 1);
+                    
+                    // 2. World Environment Update (Once per tick)
+                    cpass.set_pipeline(&self.world_pipeline);
+                    cpass.set_bind_group(0, &self.world_bind_group, &[]);
+                    let map_size = self.map_width * self.map_height;
+                    cpass.dispatch_workgroups((map_size as f32 / 64.0).ceil() as u32, 1, 1);
                 }
             }
             self.queue.submit(Some(encoder.finish()));
