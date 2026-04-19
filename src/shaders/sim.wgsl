@@ -1,5 +1,5 @@
-// Fast Local Memory Cache for workgroup map tiles (e.g., 10x10 patch + padding)
-var<workgroup> lds_res: array<f32, 256>; // 16x16 patch
+// Fast Local Memory Cache for workgroup map tiles (e.g., 16x16 patch)
+var<workgroup> lds_res: array<f32, 256>; 
 var<workgroup> lds_height: array<f32, 256>;
 var<workgroup> lds_pop: array<f32, 256>;
 var<workgroup> lds_base_x: u32;
@@ -34,7 +34,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let ay = agents[idx].y;
     let ah = agents[idx].heading;
 
-    // Store pre-update state
+    // Store pre-update state for dopamine/learning
     let prev_health = agents[idx].health;
     let prev_food = agents[idx].food;
     let prev_wealth = agents[idx].wealth;
@@ -79,7 +79,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let day_intensity = sin(day_cycle_progress * 6.28318 - 1.5708) * 0.5 + 0.5; 
     let lon_scale = 1.0 / max(cos((abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 1.570796), 0.15); 
     
-    let local_temp = (1.0 - (abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 2.0) - max(0.0, map_heights[safe_current_idx] * 2.0) + sin(f32(cfg.sim.current_tick) / 100000.0 * 6.28318) * 0.5 - (1.0 - day_intensity) * 0.3; 
+    let season_time = f32(cfg.sim.current_tick) / 100000.0 * 6.28318;
+    let season_sine = sin(season_time);
+    let local_temp = (1.0 - (abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 2.0) - max(0.0, map_heights[safe_current_idx] * 2.0) + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; 
     let effective_temp = local_temp + (f32(atomicLoad(&(*cell_ptr).infra_housing)) / 1000.0 / cfg.infra.max_infra) * 2.0;
 
     var vis_mult = 1.0;
@@ -109,7 +111,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     }
     agents[idx].nearest_id_f1 = nf1; agents[idx].nearest_id_f2 = nf2; agents[idx].nearest_id_f3 = nf3; agents[idx].nearest_id_f4 = nf4;
 
-    // --- Neural Net Processing ---
+    // --- Neural Net Inputs ---
     var inputs = array<f32, 420>();
     inputs[0] = 1.0; // Bias
     inputs[1] = f32(atomicLoad(&(*cell_ptr).res_value)) / 1000.0 / 1000.0;
@@ -122,20 +124,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[8] = (*cell_ptr).avg_turn;
     inputs[9] = (*cell_ptr).avg_rest;
     
-    for (var c = 0u; c < 12u; c = c + 1u) {
-        let comms_ptr = &map_cells[safe_current_idx];
-        inputs[10 + c] = (*comms_ptr).comm1; // Actually just pick one representative for brevity, or indexing
-        // Simplified: map cells have fixed slots for comms.
-    }
-    // (Filling standard inputs 22..60: health, food, water, stamina, etc.)
+    let comms_ptr = &map_cells[safe_current_idx];
+    inputs[10] = (*comms_ptr).comm1; inputs[11] = (*comms_ptr).comm2; inputs[12] = (*comms_ptr).comm3; inputs[13] = (*comms_ptr).comm4;
+    
+    // Biometrics
     inputs[22] = agents[idx].health / cfg.bio.max_health;
-    inputs[23] = agents[idx].food / 1000.0 / cfg.eco.boat_cost;
+    inputs[23] = (agents[idx].food / 1000.0) / cfg.eco.boat_cost;
     inputs[24] = agents[idx].water / cfg.bio.max_water;
     inputs[25] = agents[idx].stamina / cfg.bio.max_stamina;
     inputs[26] = agents[idx].age / cfg.bio.max_age;
     inputs[27] = agents[idx].gender;
     inputs[28] = local_temp;
-    inputs[29] = sin(f32(cfg.sim.current_tick) / 100000.0 * 6.28);
+    inputs[29] = season_sine;
     inputs[30] = agents[idx].is_pregnant;
     inputs[31] = (agents[idx].food / 1000.0 + agents[idx].water) / cfg.bio.max_carry_weight;
     inputs[32] = (*cell_ptr).population / cfg.combat.crowding_threshold;
@@ -147,9 +147,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[61] = agents[idx].id_f1; inputs[62] = agents[idx].id_f2; inputs[63] = agents[idx].id_f3; inputs[64] = agents[idx].id_f4;
     inputs[65] = (*cell_ptr).pheno_r; inputs[66] = (*cell_ptr).pheno_g; inputs[67] = (*cell_ptr).pheno_b;
 
-    // --- 5x5 Vision Grid (3 ahead, 1 behind) ---
+    // --- 5x5 Vision Grid ---
     var input_idx = 68u;
-    let cos_h = cos(ah); let sin_h = sin(ah);
     let view_spacing = 8.0;
     var vision_resources = array<f32, 24>();
     var v_count = 0u;
@@ -160,8 +159,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             
             let fwd = f32(ly_i) * view_spacing;
             let lat = f32(lx_i) * view_spacing;
-            var rot_x = (fwd * cos_h - lat * sin_h) * lon_scale;
-            var rot_y = fwd * sin_h + lat * cos_h;
+            var rot_x = (fwd * cos(ah) - lat * sin(ah)) * lon_scale;
+            var rot_y = fwd * sin(ah) + lat * cos(ah);
             var wx = (ax + rot_x) % map_w_f32; if (wx < 0.0) { wx += map_w_f32; }
             var wy = ay + rot_y;
             if (wy < 0.0) { wy = -wy; wx = (wx + map_w_f32 / 2.0) % map_w_f32; }
@@ -188,7 +187,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         }
     }
 
-    // --- Spatial CNN Stage (8 Features) ---
+    // --- Spatial CNN Stage ---
     for (var f = 0u; f < 8u; f = f + 1u) {
         var sum = 0.0;
         for (var k = 0u; k < 9u; k = k + 1u) {
@@ -198,18 +197,14 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         agents[idx].spatial_features[f] = fast_tanh(sum);
     }
 
-    // Local / Meta / Identity
+    // Local / Meta / Identity / CNN wiring
     inputs[403] = f32(atomicLoad(&(*cell_ptr).infra_roads)) / 1000.0 / cfg.infra.max_infra;
     inputs[404] = f32(atomicLoad(&(*cell_ptr).infra_housing)) / 1000.0 / cfg.infra.max_infra;
     inputs[405] = f32(atomicLoad(&(*cell_ptr).infra_farms)) / 1000.0 / cfg.infra.max_infra;
     inputs[406] = f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra;
     inputs[407] = agents[idx].nearest_id_f1; inputs[408] = agents[idx].nearest_id_f2;
     inputs[409] = agents[idx].nearest_id_f3; inputs[410] = agents[idx].nearest_id_f4;
-    
-    // Wire CNN Features into MLP inputs
-    for (var f = 0u; f < 8u; f = f + 1u) {
-        inputs[412 + f] = agents[idx].spatial_features[f];
-    }
+    for (var f = 0u; f < 8u; f = f + 1u) { inputs[412 + f] = agents[idx].spatial_features[f]; }
 
     // --- Forward Pass ---
     let hidden_count = agents[idx].hidden_count;
@@ -224,7 +219,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         // Hebbian Plasticity contribution
         for (var p = 0u; p < 32u; p = p + 1u) {
             if (agents[idx].plastic_indices[p] == h1) {
-                sum += agents[idx].plastic_weights[p] * inputs[0]; // Simplified plasticity on bias
+                sum += agents[idx].plastic_weights[p] * inputs[0];
             }
         }
         hidden1[h1] = fast_tanh(clamp(sum, -10.0, 10.0));
@@ -249,18 +244,27 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     }
 
     // --- Action Processing ---
-    let maturity = clamp(agents[idx].age / cfg.bio.puberty_age, 0.0, 1.0);
+    let maturity = clamp(agents[idx].age / cfg.bio.puberty_age, 0.2, 1.0);
+    let age_speed_mult = mix(cfg.bio.infant_speed_mult, 1.0, maturity);
     let rest_intent = outputs[5] * 0.5 + 0.5;
     var resting = rest_intent > 0.5 || agents[idx].stamina <= 0.0;
     
-    agents[idx].heading = ah + select(outputs[0], 0.0, resting) * 0.5;
-    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * mix(cfg.bio.infant_speed_mult, 1.0, maturity); 
+    var turn_intent = outputs[0] * 0.5;
+    if (resting) { turn_intent = 0.0; }
+    
+    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; 
     if (resting) { speed_intent = 0.0; }
 
     agents[idx].reproduce_desire = select(outputs[3] * 0.5 + 0.5, 0.0, resting);
     agents[idx].attack_intent = select(outputs[4] * 0.5 + 0.5, 0.0, resting);
     agents[idx].rest_intent = rest_intent;
-    for (var c = 0u; c < 12u; c = c + 1u) { agents[idx].comms[c] = select(outputs[6+c], 0.0, resting); }
+    
+    var comm_exertion = 0.0;
+    for (var c = 0u; c < 12u; c = c + 1u) {
+        let val = select(clamp(outputs[6+c], -1.0, 1.0), 0.0, resting);
+        agents[idx].comms[c] = val;
+        comm_exertion += abs(val);
+    }
     for (var m = 0u; m < 24u; m = m + 1u) { agents[idx].mems[m] = outputs[19+m]; }
     
     agents[idx].buy_intent = select(outputs[43] * 0.5 + 0.5, 0.0, resting);
@@ -274,7 +278,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     let b_road = outputs[50] * 0.5 + 0.5; let b_house = outputs[51] * 0.5 + 0.5;
     let b_farm = outputs[52] * 0.5 + 0.5; let b_storage = outputs[53] * 0.5 + 0.5;
-    let is_building = max(b_road, max(b_house, max(b_farm, b_storage))) > 0.5 && !resting;
+    let max_b = max(b_road, max(b_house, max(b_farm, b_storage)));
+    let is_building = max_b > 0.5 && !resting;
     if (is_building) {
         agents[idx].build_road_intent = b_road; agents[idx].build_house_intent = b_house;
         agents[idx].build_farm_intent = b_farm; agents[idx].build_storage_intent = b_storage;
@@ -284,17 +289,80 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         agents[idx].build_farm_intent = 0.0; agents[idx].build_storage_intent = 0.0;
     }
 
-    // Physics
-    let final_spd = speed_intent * cfg.bio.base_speed;
-    let next_x = ax + cos(agents[idx].heading) * final_spd * lon_scale;
-    let next_y = ay + sin(agents[idx].heading) * final_spd;
+    // --- Simulation Physics & Metabolism ---
+    var base_speed = speed_intent * cfg.bio.base_speed;
+    if (resting) { agents[idx].stamina = min(agents[idx].stamina + 2.0, cfg.bio.max_stamina); }
+
+    let next_h = ah + turn_intent;
+    let next_x = ax + cos(next_h) * base_speed * lon_scale;
+    let next_y = ay + sin(next_h) * base_speed;
+
     var wrap_nx = next_x % map_w_f32; if (wrap_nx < 0.0) { wrap_nx += map_w_f32; }
     var wrap_ny = clamp(next_y, 0.0, map_h_f32 - 1.0);
     
-    if (agents[idx].food >= final_spd * cfg.eco.move_cost_per_unit * 1000.0) {
-        agents[idx].x = wrap_nx; agents[idx].y = wrap_ny;
-        agents[idx].food -= final_spd * cfg.eco.move_cost_per_unit * 1000.0;
+    let next_idx = clamp(u32(wrap_ny) * map_w + u32(wrap_nx), 0u, max_idx);
+    let slope = map_heights[next_idx] - map_heights[safe_current_idx];
+    let h_mult = 1.0 - clamp(slope * cfg.eco.climb_penalty, -0.5, 0.9);
+    
+    let total_w = (agents[idx].food / 1000.0) + agents[idx].water;
+    let enc_mult = clamp(1.0 - (total_w / cfg.bio.max_carry_weight), 0.05, 1.0);
+    let crowd_mult = clamp(1.0 - (f32(atomicLoad(&(*cell_ptr).population)) / cfg.combat.crowding_threshold), 0.1, 1.0);
+    
+    var actual_speed = base_speed * h_mult * enc_mult * crowd_mult;
+    if (agents[idx].is_pregnant > 0.5) { actual_speed *= cfg.combat.pregnancy_speed_mult; }
+
+    if (!resting) {
+        agents[idx].stamina -= (actual_speed * 0.05 + 0.05);
+        if (agents[idx].stamina <= 0.0) { agents[idx].stamina = 0.0; agents[idx].health -= (cfg.bio.starvation_rate * 2.0); resting = true; }
     }
+
+    let metabolic_rate = cfg.eco.baseline_cost * maturity * select(1.0, 0.5, resting);
+    agents[idx].water -= metabolic_rate;
+    agents[idx].food -= (metabolic_rate * 1000.0);
+    
+    if (agents[idx].food < 0.0) { agents[idx].food = 0.0; agents[idx].health -= cfg.bio.starvation_rate; }
+    if (agents[idx].water < 0.0) { agents[idx].water = 0.0; agents[idx].health -= cfg.bio.starvation_rate; }
+
+    // Harvesting
+    if (!resting && f32(atomicLoad(&(*cell_ptr).res_value)) > 100.0) {
+        let gathered = min(cfg.eco.base_gather_rate * maturity, f32(atomicLoad(&(*cell_ptr).res_value)) / 1000.0);
+        agents[idx].food += (gathered * 1000.0);
+        atomicSub(&(*cell_ptr).res_value, i32(gathered * 1000.0));
+    }
+
+    // Infrastructure Building
+    let c_amt = cfg.infra.infra_cost;
+    if (!resting && is_building && agents[idx].wealth >= c_amt) {
+        agents[idx].wealth -= c_amt;
+        let b_amt = i32(1000.0 / max(1.0, cfg.infra.build_ticks));
+        if (agents[idx].build_road_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_roads, b_amt); }
+        else if (agents[idx].build_house_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_housing, b_amt); }
+        else if (agents[idx].build_farm_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_farms, b_amt); }
+        else if (agents[idx].build_storage_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_storage, b_amt); }
+    }
+
+    // Aggression & Combat
+    if (!resting && maturity >= 1.0) {
+        if ((*cell_ptr).avg_aggression > 0.5 && agents[idx].defend_intent < 0.5) {
+            agents[idx].health -= cfg.combat.bystander_damage;
+        }
+        if (agents[idx].attack_intent > 0.5 && (*cell_ptr).population > 1.0) {
+            agents[idx].wealth += 1.0; // Minimal reward for testing
+        }
+    }
+
+    // Movement Commit
+    if (agents[idx].food >= actual_speed * cfg.eco.move_cost_per_unit * 1000.0) {
+        agents[idx].x = wrap_nx; agents[idx].y = wrap_ny; agents[idx].heading = next_h;
+        agents[idx].food -= actual_speed * cfg.eco.move_cost_per_unit * 1000.0;
+    }
+
+    if (agents[idx].age >= cfg.bio.max_age) { agents[idx].health -= cfg.bio.starvation_rate * 2.0; }
+
+    // Tile Resource Regen
+    let regen = cfg.world.regen_rate * clamp(1.0 - (map_heights[safe_current_idx] * 2.0), 0.05, 1.0);
+    atomicAdd(&(*cell_ptr).res_value, i32(regen * 1000.0));
+    atomicMin(&(*cell_ptr).res_value, i32(cfg.world.max_tile_resource * 1000.0));
 
     // Hebbian Update (Learning)
     let dopamine = (agents[idx].health - prev_health) * 10.0 + (agents[idx].food - prev_food) / 10000.0;
