@@ -22,6 +22,26 @@ fn get_id_feature(id: u32, slot: u32) -> f32 {
 }
 
 @compute @workgroup_size(64)
+fn clear_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let idx = global_id.x;
+    if (idx >= arrayLength(&agents)) { return; }
+    if (agents[idx].health <= 0.0) { return; }
+    
+    let ax = agents[idx].x;
+    let ay = agents[idx].y;
+    let map_w = cfg.world.map_width;
+    let map_h = cfg.world.map_height;
+    
+    var wrap_px = ax % f32(map_w); if (wrap_px < 0.0) { wrap_px += f32(map_w); }
+    var wrap_py = clamp(ay, 0.0, f32(map_h) - 1.0);
+    
+    let cell_idx = clamp(u32(wrap_py) * map_w + u32(wrap_px), 0u, map_w * map_h - 1u);
+    
+    atomicStore(&map_cells[cell_idx].population, 0);
+    atomicStore(&map_cells[cell_idx].adult_count, 0);
+}
+
+@compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32) {
     let idx = global_id.x;
     if (idx >= arrayLength(&agents)) { return; }
