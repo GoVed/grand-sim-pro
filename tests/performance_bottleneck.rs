@@ -11,7 +11,7 @@ fn test_bottleneck_analysis() {
     config.sim.agent_count = 10000;
     
     let states = vec![world_sim::agent::AgentState { id: 0, ..Default::default() }; config.sim.agent_count as usize];
-    let genetics = vec![world_sim::agent::Genetics { w1_weights: [0.0; world_sim::agent::W1_SIZE], w1_indices: [0; world_sim::agent::W1_SIZE], w2: [0.0; world_sim::agent::W2_SIZE], w3: [0.0; world_sim::agent::W3_SIZE] }; config.sim.agent_count as usize];
+    let genetics = vec![world_sim::agent::Genetics { w1_weights: [0.0; world_sim::agent::W1_SIZE], w1_indices: [0; world_sim::agent::W1_SIZE], w2: [0.0; world_sim::agent::W2_SIZE], w3: [0.0; world_sim::agent::W3_SIZE], cnn_kernels: [0.0; 72] }; config.sim.agent_count as usize];
     let heights = vec![0.0f32; (config.world.map_width * config.world.map_height) as usize];
     let cells = vec![world_sim::environment::CellState { res_value: 0, ..Default::default() }; (config.world.map_width * config.world.map_height) as usize];
     

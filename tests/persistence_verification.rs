@@ -68,6 +68,7 @@ fn test_genetic_array_persistence() {
         w1_indices: [0; W1_SIZE],
         w2: [0.0; W2_SIZE],
         w3: [0.0; W3_SIZE],
+        cnn_kernels: [0.0; 72],
     };
     
     // Set some non-zero values

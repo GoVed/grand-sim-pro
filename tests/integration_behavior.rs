@@ -53,7 +53,7 @@ fn test_agent_behavior_integration() {
     gpu.compute_ticks(1);
     
     // 3. Verify Results
-    let (after_states, _) = gpu.fetch_agents();
+    let after_states = gpu.fetch_agents();
     let a0 = &after_states[0];
     
     println!("Agent 0: Final Pos ({}, {})", a0.x, a0.y);
@@ -98,7 +98,7 @@ fn test_agent_behavior_integration() {
     // This previously might have hung if command buffer was too large
     gpu.compute_ticks(500);
 
-    let (after, _) = gpu.fetch_agents();
+    let after = gpu.fetch_agents();
     assert_eq!(after.len(), 100);
     }
     #[test]

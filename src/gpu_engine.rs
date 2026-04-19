@@ -24,7 +24,6 @@ pub struct GpuEngine {
     agent_state_buffer: wgpu::Buffer,
     genetics_buffer: wgpu::Buffer,
     staging_state_buffer: wgpu::Buffer,
-    staging_genetics_buffer: wgpu::Buffer,
     staging_cell_buffer: wgpu::Buffer,
     cell_buffer: wgpu::Buffer,
     render_buffer: wgpu::Buffer,
@@ -68,13 +67,6 @@ impl GpuEngine {
             let staging_state_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Staging State Buffer"),
                 size: (states.len() * std::mem::size_of::<crate::agent::AgentState>()) as wgpu::BufferAddress,
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-
-            let staging_genetics_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Staging Genetics Buffer"),
-                size: (genetics.len() * std::mem::size_of::<crate::agent::Genetics>()) as wgpu::BufferAddress,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -179,10 +171,10 @@ impl GpuEngine {
                 ],
             });
 
-            Self { 
-                device, queue, pipeline, world_pipeline, render_pipeline, bind_group, world_bind_group, render_bind_group, 
-                agent_state_buffer, genetics_buffer, staging_state_buffer, staging_genetics_buffer, 
-                staging_cell_buffer, cell_buffer, render_buffer, staging_render_buffer, 
+            Self {
+                device, queue, pipeline, world_pipeline, render_pipeline, bind_group, world_bind_group, render_bind_group,
+                agent_state_buffer, genetics_buffer, staging_state_buffer,
+                staging_cell_buffer, cell_buffer, render_buffer, staging_render_buffer,
                 config_buffer, height_buffer, agent_count: states.len() as u32,
                 map_width: config.world.map_width,
                 map_height: config.world.map_height,
@@ -191,7 +183,11 @@ impl GpuEngine {
         })
     }
 
-    pub fn compute_ticks(&self, ticks: usize) {
+    pub fn wait_idle(&self) {
+        self.device.poll(wgpu::Maintain::Wait);
+    }
+
+    pub fn compute_ticks(&self, ticks: u32) {
         if ticks == 0 { return; }
         
         // Chunk dispatches to prevent GPU hangs/TDR (Timeout Detection and Recovery)
@@ -246,42 +242,31 @@ impl GpuEngine {
         self.queue.write_buffer(&self.cell_buffer, 0, bytemuck::cast_slice(cells));
     }
 
-    pub fn fetch_agents(&self) -> (Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>) {
+    pub fn fetch_agents(&self) -> Vec<crate::agent::AgentState> {
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         encoder.copy_buffer_to_buffer(&self.agent_state_buffer, 0, &self.staging_state_buffer, 0, self.staging_state_buffer.size());
-        encoder.copy_buffer_to_buffer(&self.genetics_buffer, 0, &self.staging_genetics_buffer, 0, self.staging_genetics_buffer.size());
         self.queue.submit(Some(encoder.finish()));
 
         let state_slice = self.staging_state_buffer.slice(..);
-        let genetics_slice = self.staging_genetics_buffer.slice(..);
-        
+
         let (tx_s, rx_s) = std::sync::mpsc::channel();
-        let (tx_g, rx_g) = std::sync::mpsc::channel();
-        
+
         state_slice.map_async(wgpu::MapMode::Read, move |v: Result<(), wgpu::BufferAsyncError>| tx_s.send(v).unwrap());
-        genetics_slice.map_async(wgpu::MapMode::Read, move |v: Result<(), wgpu::BufferAsyncError>| tx_g.send(v).unwrap());
-        
+
         self.device.poll(wgpu::Maintain::Wait);
         rx_s.recv().unwrap().unwrap();
-        rx_g.recv().unwrap().unwrap();
 
         let state_data = state_slice.get_mapped_range();
-        let genetics_data = genetics_slice.get_mapped_range();
-        
-        let states: &[crate::agent::AgentState] = bytemuck::cast_slice(&state_data);
-        let genetics: &[crate::agent::Genetics] = bytemuck::cast_slice(&genetics_data);
-        
-        let states_vec = states.to_vec();
-        let genetics_vec = genetics.to_vec();
-        
-        drop(state_data);
-        drop(genetics_data);
-        self.staging_state_buffer.unmap();
-        self.staging_genetics_buffer.unmap();
-        
-        (states_vec, genetics_vec)
-    }
 
+        let states: &[crate::agent::AgentState] = bytemuck::cast_slice(&state_data);
+
+        let states_vec = states.to_vec();
+
+        drop(state_data);
+        self.staging_state_buffer.unmap();
+
+        states_vec
+    }
     pub fn fetch_cells(&self) -> Vec<crate::environment::CellState> {
         let _guard = self.staging_lock.lock().unwrap();
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
