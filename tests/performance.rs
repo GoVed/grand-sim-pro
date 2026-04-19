@@ -40,12 +40,16 @@ fn test_stress_performance() {
     println!("GPU Stress Init: {:?}", start_init.elapsed());
 
     // Test 1: High-Density GPU Compute
-    let start_compute = Instant::now();
+    let start_submit = Instant::now();
     gpu.compute_ticks(100);
+    let submit_time = start_submit.elapsed();
+    
     gpu.wait_idle(); // Wait for compute to finish
-    let compute_time = start_compute.elapsed();
-    println!("Compute 100 ticks (Stress): {:?}", compute_time);
-    println!("Theoretical TPS: {:.0}", 100.0 / compute_time.as_secs_f32());
+    let compute_time = start_submit.elapsed();
+    
+    println!("Compute 100 ticks (Submission): {:?}", submit_time);
+    println!("Compute 100 ticks (Total Execution): {:?}", compute_time);
+    println!("Theoretical TPS (Execution): {:.0}", 100.0 / compute_time.as_secs_f32());
 
     // Test 2: Bus Bandwidth (Agent Sync)
     let start_fetch = Instant::now();
