@@ -26,14 +26,19 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
 
         // Background worker state
         let mut is_worker_active = false;
-        let (worker_tx, worker_rx) = std::sync::mpsc::channel::<(Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>, crate::config::SimConfig)>();
+        let (worker_tx, worker_rx) = std::sync::mpsc::channel::<crate::config::SimConfig>();
         let (result_tx, result_rx) = std::sync::mpsc::channel::<(Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>, u64)>();
 
-        // Spawn background worker for heavy CPU tasks (Spatial Sorting)
+        // Spawn background worker for heavy tasks (GPU Fetch + Spatial Sorting)
+        let gpu_worker = gpu.clone();
         thread::spawn(move || {
-            while let Ok((mut states, genetics, config)) = worker_rx.recv() {
+            while let Ok(config) = worker_rx.recv() {
                 let start_worker = Instant::now();
                 
+                // 1. Fetch from GPU (Heavy)
+                let (mut states, genetics) = gpu_worker.fetch_agents();
+                
+                // 2. Spatial Sorting (Heavy CPU)
                 use rayon::prelude::*;
                 let map_w = config.world.map_width as usize;
                 let map_h = config.world.map_height as usize;
@@ -57,57 +62,42 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
 
         loop {
             let (is_paused, ticks_per_loop, config) = {
-                let data = sim_thread_data.lock().unwrap();
-                (data.is_paused, data.ticks_per_loop, data.config)
+                if let Ok(data) = sim_thread_data.lock() {
+                    (data.is_paused, data.ticks_per_loop, data.config)
+                } else {
+                    (true, 1, crate::config::SimConfig::default())
+                }
             };
 
             if !is_paused {
                 gpu.update_config(&config);
                 
-                // 1. Dispatch GPU Ticks
+                // 1. Dispatch GPU Ticks (Pure Fire-and-Forget for maximum TPS)
                 let batch_size = if is_headless {
-                    if !is_worker_active { ticks_per_loop * 10 } else { 0 }
+                    ticks_per_loop * 5 
                 } else {
-                    if !is_worker_active { ticks_per_loop * 2 } else { ticks_per_loop }
+                    ticks_per_loop
                 };
 
-                if batch_size > 0 {
-                    gpu.compute_ticks(batch_size);
-                    ticks_this_second += batch_size as u64;
-                    
-                    // Update shared counters immediately so API/UI see progress
-                    if let Ok(mut data) = sim_thread_data.try_lock() {
-                        data.total_ticks += batch_size as u64;
-                        data.cumulative_ticks += batch_size as u64;
-                        data.config.sim.current_tick += batch_size as u32;
-                    }
-
-                    // In headless mode, if we just ran a batch, we MUST sync now to avoid stale sorting
-                    if is_headless && !is_worker_active {
-                        let (states, genetics) = gpu.fetch_agents();
-                        let _ = worker_tx.send((states, genetics, config));
-                        is_worker_active = true;
-                    }
+                gpu.compute_ticks(batch_size);
+                ticks_this_second += batch_size as u64;
+                
+                // Update shared counters (Non-blocking)
+                if let Ok(mut data) = sim_thread_data.try_lock() {
+                    data.total_ticks += batch_size as u64;
+                    data.cumulative_ticks += batch_size as u64;
+                    data.config.sim.current_tick += batch_size as u32;
                 }
 
-                // 2. Performance Tracking
-                if last_perf_calc_time.elapsed().as_secs() >= 1 {
-                    if let Ok(mut data) = sim_thread_data.lock() {
-                        data.ticks_per_second = ticks_this_second as f32 / last_perf_calc_time.elapsed().as_secs_f32();
-                    }
-                    ticks_this_second = 0;
-                    last_perf_calc_time = Instant::now();
-                }
-
-                // 3. UI Mode Periodic Sync
-                if !is_headless && !is_worker_active && last_fetch_time.elapsed().as_millis() >= 64 { 
-                    let (states, genetics) = gpu.fetch_agents();
-                    let _ = worker_tx.send((states, genetics, config));
+                // 2. Trigger Worker if not busy
+                let sync_interval = if is_headless { 500 } else { 64 }; // ms
+                if !is_worker_active && last_fetch_time.elapsed().as_millis() >= sync_interval {
+                    let _ = worker_tx.send(config);
                     is_worker_active = true;
                     last_fetch_time = Instant::now();
                 }
 
-                // 4. Process Worker Results
+                // 3. Process Worker Results (Non-blocking)
                 if let Ok((states, genetics, worker_micros)) = result_rx.try_recv() {
                     if let Ok(mut data) = sim_thread_data.lock() {
                         let prev_births = data.sim.total_births;
@@ -124,7 +114,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                         
                         gpu.update_agents(&data.sim.states, &data.sim.genetics);
 
-                        // TELEMETRY TRIGGER (Inside result block to ensure we have fresh GPU data)
+                        // Telemetry trigger
                         let telemetry_interval = data.config.telemetry.export_interval_ticks as u64;
                         if data.config.telemetry.enabled != 0 && data.cumulative_ticks >= data.last_telemetry_tick + telemetry_interval {
                             let config_clone = data.config.clone();
@@ -142,22 +132,20 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                             });
                             data.last_telemetry_tick = data.cumulative_ticks;
                         }
-
-                        // Debug Check
-                        if data.cumulative_ticks % 1000 == 0 {
-                            let living: Vec<_> = data.sim.states.iter().filter(|s| s.health > 0.0).collect();
-                            if !living.is_empty() {
-                                let mut sum_aggr = 0.0; let mut sum_repro = 0.0;
-                                for s in &living { sum_aggr += s.attack_intent; sum_repro += s.reproduce_desire; }
-                                println!("T:{} | Pop:{} | Aggr:{:.4} Repro:{:.4}", 
-                                    data.cumulative_ticks, living.len(), sum_aggr / living.len() as f32, sum_repro / living.len() as f32);
-                            }
-                        }
                     }
                     is_worker_active = false;
                 }
+
+                // 4. Performance Tracking
+                if last_perf_calc_time.elapsed().as_secs() >= 1 {
+                    if let Ok(mut data) = sim_thread_data.lock() {
+                        data.ticks_per_second = ticks_this_second as f32 / last_perf_calc_time.elapsed().as_secs_f32();
+                    }
+                    ticks_this_second = 0;
+                    last_perf_calc_time = Instant::now();
+                }
                 
-                // 5. Background Maintenance (Restart and Save)
+                // 5. Background Maintenance
                 if let Ok(mut data) = sim_thread_data.try_lock() {
                      // Auto-Restart
                     let survivors_count = data.sim.states.iter().filter(|s| s.health > 0.0).count();
