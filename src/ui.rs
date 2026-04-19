@@ -113,6 +113,70 @@ pub fn draw_influence_map(a: &Person, x: f32, y: f32, w: f32, h: f32, limit: usi
     }
 }
 
+pub fn draw_agent_profile_panel(a: &Person, tick_to_mins: f32) {
+    let panel_w = 550.0;
+    let panel_h = screen_height() - 40.0;
+    let panel_x = screen_width() - panel_w - 20.0;
+    let panel_y = 20.0;
+
+    draw_rectangle(panel_x, panel_y, panel_w, panel_h, Color::new(0.0, 0.02, 0.02, 0.98));
+    draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, YELLOW);
+
+    let mut py = panel_y + 30.0;
+    draw_text(&format!("NEURAL PROFILE: AGENT #{}", a.state.id), panel_x + 20.0, py, 24.0, YELLOW);
+    py += 40.0;
+
+    draw_text("BEHAVIORAL SIMULATION (Situational Probing)", panel_x + 20.0, py, 18.0, GRAY); py += 30.0;
+
+    let profile = ui_logic::calculate_behavioral_profile(a);
+    for sit in profile {
+        draw_text(sit.name, panel_x + 20.0, py, 16.0, WHITE);
+        let bar_x = panel_x + 180.0;
+        let props = [ 
+            ("CBT", sit.combat, RED), 
+            ("ALT", sit.altruism, GREEN), 
+            ("IND", sit.industry, BLUE), 
+            ("TRD", sit.trade, Color::new(1.0, 0.8, 0.0, 1.0)), 
+            ("AGL", sit.agility, MAGENTA) 
+        ];
+        let mut bx = bar_x;
+        for (label, val, color) in props {
+            let h: f32 = (val * 40.0).clamp(2.0, 40.0);
+            draw_rectangle(bx, py - h + 15.0, 60.0, h, color);
+            draw_text(label, bx + 2.0, py + 28.0, 10.0, GRAY);
+            bx += 65.0;
+        }
+        py += 60.0;
+    }
+
+    py += 10.0;
+    draw_text("BIOMETRICS:", panel_x + 20.0, py, 16.0, GRAY); py += 20.0;
+    draw_text(&format!("Age: {} | Sex: {}", format_time(a.state.age as u64, tick_to_mins), if a.state.gender > 0.5 { "Male" } else { "Female" }), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
+    draw_text(&format!("Health: {:.1} | Stamina: {:.1}", a.state.health, a.state.stamina), panel_x + 20.0, py, 16.0, WHITE); py += 20.0;
+    draw_text(&format!("Wealth: ${:.2} | Food: {:.0}g", a.state.wealth, a.state.food), panel_x + 20.0, py, 16.0, WHITE); py += 35.0;
+
+    draw_text("WORKING MEMORY:", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    let mem_cell_w = 20.0;
+    let mem_cell_h = 10.0;
+    for m in 0..24 {
+        let val = a.state.mems[m];
+        let color = if val > 0.0 { Color::new(0.0, 0.8, 1.0, (val * 0.8 + 0.2).min(1.0)) } else { Color::new(1.0, 0.4, 0.0, (val.abs() * 0.8 + 0.2).min(1.0)) };
+        draw_rectangle(panel_x + 20.0 + m as f32 * (mem_cell_w + 2.0), py, mem_cell_w, mem_cell_h, color);
+    }
+    py += 25.0;
+
+    draw_text("VOCAL SIGNALING:", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    let comm_cell_w = 42.0;
+    for c in 0..12 {
+        let val = a.state.comms[c];
+        let color = if val > 0.0 { Color::new(0.0, 1.0, 0.5, (val * 0.8 + 0.2).min(1.0)) } else { Color::new(1.0, 0.0, 0.2, (val.abs() * 0.8 + 0.2).min(1.0)) };
+        draw_rectangle(panel_x + 20.0 + c as f32 * (comm_cell_w + 2.0), py, comm_cell_w, mem_cell_h, color);
+    }
+    py += 40.0;
+
+    draw_influence_map(a, panel_x + 120.0, py + 20.0, 300.0, panel_h - (py - panel_y) - 60.0, 40);
+}
+
 pub fn draw_inspector(mx: f32, my: f32, left_clicked: bool, wheel: f32, agents: &mut Vec<(usize, Person)>, sort_col: &mut SortCol, sort_desc: &mut bool, scroll: &mut usize, selected: &mut Option<Person>, followed_id: &mut Option<u32>, show: &mut bool, _tick_to_mins: f32, is_live_mode: &mut bool) {
     let layout = ui_logic::calculate_inspector_layout(screen_width(), screen_height());
     draw_rectangle(layout.x, layout.y, layout.w, layout.h, Color::new(0.0, 0.05, 0.05, 0.95));
@@ -176,14 +240,8 @@ pub fn draw_inspector(mx: f32, my: f32, left_clicked: bool, wheel: f32, agents: 
             *followed_id = Some(a.state.id); 
             if !*is_live_mode {
                 *is_live_mode = true;
-                // Note: Speed restoration is handled in main.rs loop by watching is_live_mode changes if possible, 
-                // but since we pass is_live_mode as &mut, we can only signal main.rs.
-                // To be safe, we'll let main.rs handle the state transition detection.
             }
         }
-
-        by += 50.0;
-        draw_influence_map(a, details_x + 100.0, by + 20.0, 250.0, 320.0, 25);
     }
 }
 

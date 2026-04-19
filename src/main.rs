@@ -382,6 +382,11 @@ async fn main() {
             if show_inspector { 
                 ui::draw_inspector(mx, my, left_clicked, mw_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins, &mut is_live_mode); 
             }
+            if let Some(ref a) = selected_agent {
+                if !is_live_mode {
+                    ui::draw_agent_profile_panel(a, loaded_config.world.tick_to_mins);
+                }
+            }
             if let Some(a) = &followed_agent { 
                 if (!show_inspector || is_live_mode) && !is_live_mode { // Draw tracker if inspector is closed, but NOT in live mode to avoid overlap
                     ui::draw_tracker(mx, my, left_clicked, a, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins, &mut is_live_mode); 

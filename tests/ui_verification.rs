@@ -132,3 +132,16 @@ fn test_ui_panel_visibility_rules() {
     let should_draw_tracker = (!show_inspector || is_live_mode) && !is_live_mode;
     assert!(should_draw_tracker);
 }
+
+#[test]
+fn test_agent_profile_visibility_logic() {
+    let is_live_mode = true;
+    let has_selected_agent = true;
+    // Should NOT show profile if in live mode (overlap)
+    let show_profile = has_selected_agent && !is_live_mode;
+    assert!(!show_profile);
+    
+    let is_live_mode = false;
+    let show_profile = has_selected_agent && !is_live_mode;
+    assert!(show_profile);
+}
