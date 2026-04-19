@@ -110,7 +110,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     agents[idx].nearest_id_f1 = nf1; agents[idx].nearest_id_f2 = nf2; agents[idx].nearest_id_f3 = nf3; agents[idx].nearest_id_f4 = nf4;
 
     // --- Neural Net Processing ---
-    var inputs = array<f32, 412>();
+    var inputs = array<f32, 420>();
     inputs[0] = 1.0; // Bias
     inputs[1] = f32(atomicLoad(&(*cell_ptr).res_value)) / 1000.0 / 1000.0;
     inputs[2] = (*cell_ptr).population;
@@ -205,6 +205,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[406] = f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra;
     inputs[407] = agents[idx].nearest_id_f1; inputs[408] = agents[idx].nearest_id_f2;
     inputs[409] = agents[idx].nearest_id_f3; inputs[410] = agents[idx].nearest_id_f4;
+    
+    // Wire CNN Features into MLP inputs
+    for (var f = 0u; f < 8u; f = f + 1u) {
+        inputs[412 + f] = agents[idx].spatial_features[f];
+    }
 
     // --- Forward Pass ---
     let hidden_count = agents[idx].hidden_count;

@@ -12,7 +12,7 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-pub const NUM_INPUTS: usize = 412; 
+pub const NUM_INPUTS: usize = 420; 
 pub const NUM_HIDDEN_MAX: usize = 128;
 pub const NUM_OUTPUTS: usize = 56; 
 pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; 
@@ -29,6 +29,7 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "ID Feat 1", "ID Feat 2", "ID Feat 3", "ID Feat 4",
     "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
     // --- 5x5 Vision Grid (24 cells * 14 features = 336 inputs) ---
+    // ... [Rest of labels are generated or mapped here] ...
     // Row 1: 3 Ahead
     "V3A L2 Res", "V3A L2 Elev", "V3A L2 Pop", "V3A L2 C1", "V3A L2 C2", "V3A L2 C3", "V3A L2 C4", "V3A L2 PR", "V3A L2 PG", "V3A L2 PB", "V3A L2 Rd", "V3A L2 Hs", "V3A L2 Fm", "V3A L2 St",
     "V3A L1 Res", "V3A L1 Elev", "V3A L1 Pop", "V3A L1 C1", "V3A L1 C2", "V3A L1 C3", "V3A L1 C4", "V3A L1 PR", "V3A L1 PG", "V3A L1 PB", "V3A L1 Rd", "V3A L1 Hs", "V3A L1 Fm", "V3A L1 St",
@@ -60,7 +61,10 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "V1B R2 Res", "V1B R2 Elev", "V1B R2 Pop", "V1B R2 C1", "V1B R2 C2", "V1B R2 C3", "V1B R2 C4", "V1B R2 PR", "V1B R2 PG", "V1B R2 PB", "V1B R2 Rd", "V1B R2 Hs", "V1B R2 Fm", "V1B R2 St",
     // Infrastructure Logic (Local)
     "Loc Road", "Loc House", "Loc Farm", "Loc Storage",
-    "Target F1", "Target F2", "Target F3", "Target F4"
+    // Identity Classes
+    "Target F1", "Target F2", "Target F3", "Target F4",
+    // CNN Spatial Features (New Wiring)
+    "CNN S1", "CNN S2", "CNN S3", "CNN S4", "CNN S5", "CNN S6", "CNN S7", "CNN S8"
 ];
 
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
