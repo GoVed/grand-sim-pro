@@ -171,11 +171,18 @@ pub struct Person {
     pub genetics: Genetics,
 }
 
+pub fn get_id_feature(id: u32, slot: u32) -> f32 {
+    let h = (id ^ (id >> 16)).wrapping_mul(0x45d9f3b) ^ (slot.wrapping_mul(0x85ebca6b));
+    let h2 = (h ^ (h >> 16)).wrapping_mul(0x45d9f3b);
+    let res = h2 ^ (h2 >> 16);
+    (res % 2000) as f32 / 1000.0 - 1.0
+}
+
 impl Person {
     pub fn new(x: f32, y: f32, genetics_index: u32, config: &crate::config::SimConfig) -> Self {
-        let hidden_count = 32; // Increased starting complexity
-
         let mut rng = rand::thread_rng();
+        let id = rng.r#gen::<u32>();
+        let hidden_count = 32; // Increased starting complexity
         
         let w1_limit = (6.0 / (8.0 + hidden_count as f32)).sqrt(); 
         let w2_limit = (6.0 / (hidden_count as f32 + hidden_count as f32)).sqrt();
@@ -237,14 +244,14 @@ impl Person {
                 pheno_g: (rng.r#gen::<f32>() * 2.0) - 1.0,
                 pheno_b: (rng.r#gen::<f32>() * 2.0) - 1.0,
                 emergency_intent: 0.0,
-                id_f1: 0.0, id_f2: 0.0, id_f3: 0.0, id_f4: 0.0,
-                nearest_id_f1: 0.0, nearest_id_f2: 0.0, nearest_id_f3: 0.0, nearest_id_f4: 0.0,
+                id_f1: get_id_feature(id, 1), id_f2: get_id_feature(id, 2), id_f3: get_id_feature(id, 3), id_f4: get_id_feature(id, 4),
+                nearest_id_f1: -1.0, nearest_id_f2: 0.0, nearest_id_f3: 0.0, nearest_id_f4: 0.0,
                 food: 50000.0, 
                 water: config.bio.max_water,
                 stamina: 100.0,
                 health: 100.0,
                 age: rng.r#gen::<f32>() * config.bio.max_age * 0.5,
-                id: rng.r#gen::<u32>(),
+                id,
                 gestation_timer: 0.0,
                 is_pregnant: 0.0,
                 _pad_identity: 0.0,
@@ -295,9 +302,13 @@ impl Person {
         child.state.build_storage_intent = 0.0;
         child.state.destroy_infra_intent = 0.0;
         child.state.emergency_intent = 0.0;
-        child.state.id_f1 = 0.0; child.state.id_f2 = 0.0; child.state.id_f3 = 0.0; child.state.id_f4 = 0.0;
+        let child_id = rng.r#gen::<u32>();
+        child.state.id = child_id;
+        child.state.id_f1 = get_id_feature(child_id, 1); 
+        child.state.id_f2 = get_id_feature(child_id, 2); 
+        child.state.id_f3 = get_id_feature(child_id, 3); 
+        child.state.id_f4 = get_id_feature(child_id, 4);
         child.state.nearest_id_f1 = -1.0; child.state.nearest_id_f2 = 0.0; child.state.nearest_id_f3 = 0.0; child.state.nearest_id_f4 = 0.0;
-        child.state.id = rng.r#gen::<u32>();
         child.state.gestation_timer = 0.0;
         child.state.is_pregnant = 0.0;
         child.state._pad_identity = 0.0;
@@ -379,9 +390,13 @@ impl Person {
         child.state.build_storage_intent = 0.0;
         child.state.destroy_infra_intent = 0.0;
         child.state.emergency_intent = 0.0;
-        child.state.id_f1 = 0.0; child.state.id_f2 = 0.0; child.state.id_f3 = 0.0; child.state.id_f4 = 0.0;
+        let child_id = rng.r#gen::<u32>();
+        child.state.id = child_id;
+        child.state.id_f1 = get_id_feature(child_id, 1); 
+        child.state.id_f2 = get_id_feature(child_id, 2); 
+        child.state.id_f3 = get_id_feature(child_id, 3); 
+        child.state.id_f4 = get_id_feature(child_id, 4);
         child.state.nearest_id_f1 = -1.0; child.state.nearest_id_f2 = 0.0; child.state.nearest_id_f3 = 0.0; child.state.nearest_id_f4 = 0.0;
-        child.state.id = rng.r#gen::<u32>();
         child.state.gestation_timer = 0.0;
         child.state.is_pregnant = 0.0;
         child.state._pad_identity = 0.0;

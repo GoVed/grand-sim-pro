@@ -169,3 +169,20 @@ fn test_identity_labels_registration() {
     assert_eq!(INPUT_LABELS[NUM_INPUTS - 4], "Target F1");
     assert_eq!(INPUT_LABELS[NUM_INPUTS - 1], "Target F4");
 }
+
+#[test]
+fn test_deterministic_identity_initialization() {
+    let config = SimConfig::default();
+    let p = Person::new(0.0, 0.0, 0, &config);
+    
+    // Features should be in -1.0..1.0 range and non-zero (statistically)
+    assert!(p.state.id_f1 >= -1.0 && p.state.id_f1 <= 1.0);
+    assert!(p.state.id_f2 >= -1.0 && p.state.id_f2 <= 1.0);
+    
+    // Verify against helper function directly
+    use world_sim::agent::get_id_feature;
+    assert_eq!(p.state.id_f1, get_id_feature(p.state.id, 1));
+    assert_eq!(p.state.id_f2, get_id_feature(p.state.id, 2));
+    assert_eq!(p.state.id_f3, get_id_feature(p.state.id, 3));
+    assert_eq!(p.state.id_f4, get_id_feature(p.state.id, 4));
+}
