@@ -17,7 +17,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize, PartialEq, Debug, Default)]
 pub struct CellState {
     pub res_value: i32,      // Fixed-point (val * 1000) for GPU atomics
-    pub population: f32,     // Leaves a trace when agents step here
+    pub population: i32,     // Atomic i32 on GPU
     pub avg_speed: f32,      // Running average of agent speeds
     pub avg_share: f32,      // Running average of sharing output
     pub avg_reproduce: f32,  // Running average of reproduce desire
@@ -106,7 +106,7 @@ impl Environment {
                 
                 map_cells.push(CellState {
                     res_value: (base_res * 1000.0) as i32,
-                    population: 0.0,
+                    population: 0,
                     avg_speed: 0.0,
                     avg_share: 0.0,
                     avg_reproduce: 0.0,

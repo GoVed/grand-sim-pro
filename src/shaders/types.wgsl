@@ -170,7 +170,7 @@ struct SimConfig {
 
 struct CellState {
     res_value: atomic<i32>,
-    population: f32,
+    population: atomic<i32>,
     avg_speed: f32,
     avg_share: f32,
     avg_reproduce: f32,

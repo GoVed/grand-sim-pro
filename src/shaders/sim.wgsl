@@ -65,7 +65,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 
         lds_res[l_idx] = f32(atomicLoad(&map_cells[cell_idx].res_value)) / 1000.0;
         lds_height[l_idx] = map_heights[cell_idx];
-        lds_pop[l_idx] = map_cells[cell_idx].population;
+        lds_pop[l_idx] = f32(atomicLoad(&map_cells[cell_idx].population));
     }
     workgroupBarrier(); 
 
@@ -81,7 +81,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     let season_time = f32(cfg.sim.current_tick) / 100000.0 * 6.28318;
     let season_sine = sin(season_time);
-    let local_temp = (1.0 - (abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0)) * 2.0) - max(0.0, map_heights[safe_current_idx] * 2.0) + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; 
+    let dist_from_equator = abs(ay - map_h_f32 / 2.0) / (map_h_f32 / 2.0);
+    let base_temp = (1.0 - dist_from_equator * 2.0) - max(0.0, map_heights[safe_current_idx] * 2.0);
+    let local_temp = base_temp + season_sine * 0.5 - (1.0 - day_intensity) * 0.3; 
     let effective_temp = local_temp + (f32(atomicLoad(&(*cell_ptr).infra_housing)) / 1000.0 / cfg.infra.max_infra) * 2.0;
 
     var vis_mult = 1.0;
@@ -115,7 +117,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var inputs = array<f32, 420>();
     inputs[0] = 1.0; // Bias
     inputs[1] = f32(atomicLoad(&(*cell_ptr).res_value)) / 1000.0 / 1000.0;
-    inputs[2] = (*cell_ptr).population;
+    inputs[2] = f32(atomicLoad(&(*cell_ptr).population));
     inputs[3] = (*cell_ptr).avg_speed;
     inputs[4] = (*cell_ptr).avg_share;
     inputs[5] = (*cell_ptr).avg_reproduce;
@@ -124,12 +126,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[8] = (*cell_ptr).avg_turn;
     inputs[9] = (*cell_ptr).avg_rest;
     
-    // Comms (standard slots)
-    inputs[10] = (*cell_ptr).comm1; inputs[11] = (*cell_ptr).comm2; inputs[12] = (*cell_ptr).comm3; inputs[13] = (*cell_ptr).comm4;
+    let comms_ptr = &map_cells[safe_current_idx];
+    inputs[10] = (*comms_ptr).comm1; inputs[11] = (*comms_ptr).comm2; inputs[12] = (*comms_ptr).comm3; inputs[13] = (*comms_ptr).comm4;
     
     // Biometrics
     inputs[22] = agents[idx].health / cfg.bio.max_health;
-    inputs[23] = (agents[idx].food / 1000.0) / cfg.eco.boat_cost;
+    inputs[23] = clamp((agents[idx].food / 1000.0) / cfg.eco.boat_cost, 0.0, 2.0); 
     inputs[24] = agents[idx].water / cfg.bio.max_water;
     inputs[25] = agents[idx].stamina / cfg.bio.max_stamina;
     inputs[26] = agents[idx].age / cfg.bio.max_age;
@@ -137,8 +139,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[28] = local_temp;
     inputs[29] = season_sine;
     inputs[30] = agents[idx].is_pregnant;
-    inputs[31] = (agents[idx].food / 1000.0 + agents[idx].water) / cfg.bio.max_carry_weight;
-    inputs[32] = (*cell_ptr).population / cfg.combat.crowding_threshold;
+    inputs[31] = clamp(((agents[idx].food / 1000.0) + agents[idx].water) / cfg.bio.max_carry_weight, 0.0, 2.0);
+    inputs[32] = f32(atomicLoad(&(*cell_ptr).population)) / cfg.combat.crowding_threshold;
     for (var m = 0u; m < 24u; m = m + 1u) { inputs[33 + m] = agents[idx].mems[m]; }
     inputs[57] = agents[idx].wealth / cfg.eco.boat_cost;
     inputs[58] = (*cell_ptr).avg_ask / 10.0;
@@ -172,7 +174,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             let s_res = f32(atomicLoad(&(*s_cell).res_value)) / 1000.0;
             inputs[input_idx] = s_res * vision_multiplier;
             inputs[input_idx+1u] = map_heights[s_idx];
-            inputs[input_idx+2u] = (*s_cell).population * vision_multiplier;
+            inputs[input_idx+2u] = f32(atomicLoad(&(*s_cell).population)) * vision_multiplier;
             inputs[input_idx+3u] = (*s_cell).comm1; inputs[input_idx+4u] = (*s_cell).comm2;
             inputs[input_idx+5u] = (*s_cell).comm3; inputs[input_idx+6u] = (*s_cell).comm4;
             inputs[input_idx+7u] = (*s_cell).pheno_r; inputs[input_idx+8u] = (*s_cell).pheno_g; inputs[input_idx+9u] = (*s_cell).pheno_b;
@@ -247,11 +249,28 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     // --- Action Processing ---
     let maturity = clamp(agents[idx].age / cfg.bio.puberty_age, 0.2, 1.0);
     let age_speed_mult = mix(cfg.bio.infant_speed_mult, 1.0, maturity);
+    let age_stamina_mult = mix(cfg.bio.infant_stamina_mult, 1.0, maturity);
+    
     let rest_intent = outputs[5] * 0.5 + 0.5;
     var resting = rest_intent > 0.5 || agents[idx].stamina <= 0.0;
     
     let turn_intent = outputs[0] * 0.5;
-    let speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; 
+    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; 
+    
+    // Infant protection: babies only move if an adult is nearby
+    if (maturity < 1.0) {
+        var adult_nearby = false;
+        let cx = u32(ax); let cy = u32(ay);
+        for (var dy = -1i; dy <= 1; dy = dy + 1) {
+            for (var dx = -1i; dx <= 1; dx = dx + 1) {
+                let s_idx = (u32(i32(cy) + dy) % map_h) * map_w + (u32(i32(cx) + dx) % map_w);
+                if (atomicLoad(&map_cells[s_idx].adult_count) > 0) { adult_nearby = true; break; }
+            }
+            if (adult_nearby) { break; }
+        }
+        if (!adult_nearby) { speed_intent = 0.0; }
+    }
+    if (resting) { speed_intent = 0.0; }
 
     agents[idx].reproduce_desire = select(outputs[3] * 0.5 + 0.5, 0.0, resting);
     agents[idx].attack_intent = select(outputs[4] * 0.5 + 0.5, 0.0, resting);
@@ -277,7 +296,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let b_road = outputs[50] * 0.5 + 0.5; let b_house = outputs[51] * 0.5 + 0.5;
     let b_farm = outputs[52] * 0.5 + 0.5; let b_storage = outputs[53] * 0.5 + 0.5;
     let max_b = max(b_road, max(b_house, max(b_farm, b_storage)));
-    let is_building = max_b > 0.5 && !resting;
+    let is_building = max_b > 0.5 && max_b > speed_intent && !resting;
     if (is_building) {
         agents[idx].build_road_intent = b_road; agents[idx].build_house_intent = b_house;
         agents[idx].build_farm_intent = b_farm; agents[idx].build_storage_intent = b_storage;
@@ -294,10 +313,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     let total_w = (agents[idx].food / 1000.0) + agents[idx].water;
     let enc_mult = clamp(1.0 - (total_w / cfg.bio.max_carry_weight), 0.05, 1.0);
-    let crowd_mult = clamp(1.0 - ((*cell_ptr).population / cfg.combat.crowding_threshold), 0.1, 1.0);
+    let crowd_mult = clamp(1.0 - (f32(atomicLoad(&(*cell_ptr).population)) / cfg.combat.crowding_threshold), 0.1, 1.0);
+    let road_mult = 1.0 + (f32(atomicLoad(&(*cell_ptr).infra_roads)) / 1000.0 / cfg.infra.max_infra) * cfg.infra.road_speed_bonus; 
     
-    var actual_speed = base_speed * enc_mult * crowd_mult;
-    if (agents[idx].is_pregnant > 0.5) { actual_speed *= cfg.combat.pregnancy_speed_mult; }
+    var actual_speed = base_speed * enc_mult * crowd_mult * road_mult;
 
     // Position Prediction for slope
     let pred_x = ax + cos(current_h) * actual_speed * lon_scale;
@@ -314,29 +333,37 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var wrap_nx = next_x % map_w_f32; if (wrap_nx < 0.0) { wrap_nx += map_w_f32; }
     var wrap_ny = clamp(next_y, 0.0, map_h_f32 - 1.0);
 
+    var preg_m = 1.0;
+    if (agents[idx].is_pregnant > 0.5) { actual_speed *= cfg.combat.pregnancy_speed_mult; preg_m = cfg.combat.pregnancy_cost_mult; }
+
     if (!resting) {
-        agents[idx].stamina -= (actual_speed * 0.05 + 0.05);
+        agents[idx].stamina -= ((actual_speed * 0.05 + 0.05) * (2.0 - age_stamina_mult));
         if (agents[idx].stamina <= 0.0) { agents[idx].stamina = 0.0; agents[idx].health -= (cfg.bio.starvation_rate * 2.0); }
     }
 
-    let metabolic_rate = cfg.eco.baseline_cost * maturity * select(1.0, 0.5, resting);
+    let metabolic_rate = cfg.eco.baseline_cost * maturity * select(1.0, 0.5, resting) * preg_m * select(1.0, cfg.combat.defend_cost_mult, agents[idx].defend_intent > 0.5 && !resting);
     agents[idx].water -= metabolic_rate;
-    agents[idx].food -= (metabolic_rate * 1000.0);
+    agents[idx].food -= (metabolic_rate * 1000.0) + (max(0.0, -effective_temp) * 100.0);
     
+    let storage_m = 1.0 - clamp((f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra) * cfg.infra.storage_rot_reduction, 0.0, cfg.infra.storage_rot_reduction); 
+    agents[idx].food -= (agents[idx].food * cfg.eco.base_spoilage_rate * max(0.1, 1.0 + local_temp) * storage_m);
+
     if (agents[idx].food < 0.0) { agents[idx].food = 0.0; agents[idx].health -= cfg.bio.starvation_rate; }
     if (agents[idx].water < 0.0) { agents[idx].water = 0.0; agents[idx].health -= cfg.bio.starvation_rate; }
 
-    // Harvesting
+    // Harvesting & Coastal Water
     if (!resting && f32(atomicLoad(&(*cell_ptr).res_value)) > 100.0) {
         let gathered = min(cfg.eco.base_gather_rate * maturity, f32(atomicLoad(&(*cell_ptr).res_value)) / 1000.0);
         agents[idx].food += (gathered * 1000.0);
         atomicSub(&(*cell_ptr).res_value, i32(gathered * 1000.0));
     }
+    if (map_heights[safe_current_idx] <= 0.05 && agents[idx].water < cfg.bio.max_water) {
+        agents[idx].water = min(agents[idx].water + cfg.eco.water_transfer_amount, cfg.bio.max_water);
+    }
 
     // Infrastructure Building
-    let c_amt = cfg.infra.infra_cost;
-    if (!resting && is_building && agents[idx].wealth >= c_amt) {
-        agents[idx].wealth -= c_amt;
+    if (!resting && is_building && agents[idx].wealth >= cfg.infra.infra_cost) {
+        agents[idx].wealth -= cfg.infra.infra_cost;
         let b_amt = i32(1000.0 / max(1.0, cfg.infra.build_ticks));
         if (agents[idx].build_road_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_roads, b_amt); }
         else if (agents[idx].build_house_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_housing, b_amt); }
@@ -344,13 +371,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         else if (agents[idx].build_storage_intent > 0.5) { atomicAdd(&(*cell_ptr).infra_storage, b_amt); }
     }
 
+    // Trading (Food Market)
+    let local_avg_ask = (*cell_ptr).avg_ask;
+    let local_avg_bid = (*cell_ptr).avg_bid;
+    if (agents[idx].buy_intent > 0.5 && agents[idx].wealth >= local_avg_ask && f32(atomicLoad(&(*cell_ptr).market_food)) >= 1000.0) {
+        agents[idx].wealth -= local_avg_ask; agents[idx].food += 1000.0;
+        atomicAdd(&(*cell_ptr).market_wealth, i32(local_avg_ask * 1000.0)); atomicSub(&(*cell_ptr).market_food, 1000);
+    } else if (agents[idx].sell_intent > 0.5 && agents[idx].food >= 1000.0 && f32(atomicLoad(&(*cell_ptr).market_wealth)) >= local_avg_bid * 1000.0) {
+        agents[idx].food -= 1000.0; agents[idx].wealth += local_avg_bid;
+        atomicAdd(&(*cell_ptr).market_food, 1000); atomicSub(&(*cell_ptr).market_wealth, i32(local_avg_bid * 1000.0));
+    }
+
     // Aggression & Combat
     if (!resting && maturity >= 1.0) {
         if ((*cell_ptr).avg_aggression > 0.5 && agents[idx].defend_intent < 0.5) {
             agents[idx].health -= cfg.combat.bystander_damage;
         }
-        if (agents[idx].attack_intent > 0.5 && (*cell_ptr).population > 1.0) {
-            agents[idx].wealth += 1.0; 
+        if (agents[idx].attack_intent > 0.5 && f32(atomicLoad(&(*cell_ptr).population)) > 1.0) {
+            agents[idx].wealth += cfg.combat.steal_amount; 
         }
     }
 
@@ -362,10 +400,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
 
     if (agents[idx].age >= cfg.bio.max_age) { agents[idx].health -= cfg.bio.starvation_rate * 2.0; }
 
-    // Tile Resource Regen
-    let regen = cfg.world.regen_rate * clamp(1.0 - (map_heights[safe_current_idx] * 2.0), 0.05, 1.0);
-    atomicAdd(&(*cell_ptr).res_value, i32(regen * 1000.0));
-    atomicMin(&(*cell_ptr).res_value, i32(cfg.world.max_tile_resource * 1000.0));
+    // Cell Trace & Population
+    if (agents[idx].age >= cfg.bio.puberty_age) { atomicAdd(&(*cell_ptr).adult_count, 1); }
+    atomicAdd(&(*cell_ptr).population, 1);
+    (*cell_ptr).avg_speed = mix((*cell_ptr).avg_speed, speed_intent, 0.1);
+    (*cell_ptr).avg_aggression = mix((*cell_ptr).avg_aggression, agents[idx].attack_intent, 0.1);
 
     // Hebbian Update (Learning)
     let dopamine = (agents[idx].health - prev_health) * 10.0 + (agents[idx].food - prev_food) / 10000.0;
