@@ -454,6 +454,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         (*cell_ptr).population = local_population * 0.99 + 1.0;
         (*cell_ptr).avg_speed = mix(local_avg_speed, speed_intent, 0.1);
         (*cell_ptr).pheno_r = mix((*cell_ptr).pheno_r, agents[idx].pheno_r, 0.1);
+        (*cell_ptr).pheno_g = mix((*cell_ptr).pheno_g, agents[idx].pheno_g, 0.1);
+        (*cell_ptr).pheno_b = mix((*cell_ptr).pheno_b, agents[idx].pheno_b, 0.1);
     }
 
     if (agents[idx].food >= final_spd * cfg.eco.move_cost_per_unit * 1000.0) {

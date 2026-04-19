@@ -25,7 +25,7 @@ pub fn format_time(ticks: u64, tick_to_mins: f32) -> String {
     }
 }
 
-#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize, Debug)]
 pub enum VisualMode { Default, Resources, Age, Gender, Pregnancy, MarketWealth, MarketFood, AskPrice, BidPrice, Infrastructure, DayNight, Temperature, Tribes, Water }
 
 #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
