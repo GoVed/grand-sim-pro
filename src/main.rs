@@ -8,7 +8,6 @@
  * See the LICENSE file in the project root for full license details.
  */
 
-use world_sim::agent;
 use world_sim::agent::Person;
 use world_sim::simulation;
 use world_sim::gpu_engine;
@@ -30,42 +29,21 @@ use clap::{Parser, ValueEnum};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Run in headless mode (no UI)
-    #[arg(long)]
-    headless: bool,
-
-    /// Port for the Research API
-    #[arg(long, default_value_t = 3000)]
-    api_port: u16,
-
-    /// Initial simulation speed (ticks per loop)
-    #[arg(long, default_value_t = 50)]
-    speed: usize,
-
-    /// Initial start mode
-    #[arg(long, value_enum, default_value_t = StartMode::New)]
-    mode: StartMode,
-
-    /// Path to save file (if mode is save-file)
-    #[arg(long)]
-    save: Option<String>,
-
-    /// Auto-exit after N cumulative ticks
-    #[arg(long)]
-    max_ticks: Option<u64>,
-
-    /// Run a visual verification test by capturing screenshots of all modes
-    #[arg(long)]
-    screenshot_test: bool,
+    #[arg(long)] headless: bool,
+    #[arg(long, default_value_t = 3000)] api_port: u16,
+    #[arg(long, default_value_t = 50)] speed: usize,
+    #[arg(long, value_enum, default_value_t = StartMode::New)] mode: StartMode,
+    #[arg(long)] save: Option<String>,
+    #[arg(long)] max_ticks: Option<u64>,
+    #[arg(long)] screenshot_test: bool,
+    #[arg(long)] ui_iteration_test: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum StartMode { Founders, SaveFile, LastRun, New }
 
 fn load_config() -> config::SimConfig {
-    if let Ok(data) = std::fs::read_to_string("sim_config.json") {
-        if let Ok(cfg) = serde_json::from_str(&data) { return cfg; }
-    }
+    if let Ok(data) = std::fs::read_to_string("sim_config.json") { if let Ok(cfg) = serde_json::from_str(&data) { return cfg; } }
     let default_cfg = config::SimConfig::default();
     let _ = std::fs::write("sim_config.json", serde_json::to_string_pretty(&default_cfg).unwrap());
     default_cfg
@@ -73,30 +51,21 @@ fn load_config() -> config::SimConfig {
 
 fn window_conf() -> Conf {
     let cfg = load_config();
-    Conf {
-        window_title: "World Sim (Native)".to_owned(),
-        window_width: cfg.world.display_width as i32,
-        window_height: cfg.world.display_height as i32,
-        ..Default::default()
-    }
+    Conf { window_title: "World Sim (Native)".to_owned(), window_width: cfg.world.display_width as i32, window_height: cfg.world.display_height as i32, fullscreen: true, ..Default::default() }
 }
 
 fn list_saves() -> Vec<String> {
     let mut saves = Vec::new();
     if let Ok(entries) = std::fs::read_dir("saves") {
         for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                if let Some(name) = entry.file_name().to_str() { saves.push(name.to_string()); }
-            }
+            if entry.path().is_dir() { if let Some(name) = entry.file_name().to_str() { saves.push(name.to_string()); } }
         }
     }
-    saves.sort(); saves.reverse();
-    saves
+    saves.sort(); saves.reverse(); saves
 }
 
 fn draw_progress_bar(report: &ProgressReport) {
-    let w = 400.0; let h = 30.0;
-    let x = screen_width() / 2.0 - w / 2.0; let y = screen_height() / 2.0 + 50.0;
+    let w = 400.0; let h = 30.0; let x = screen_width() / 2.0 - w / 2.0; let y = screen_height() / 2.0 + 50.0;
     draw_rectangle(x - 5.0, y - 5.0, w + 10.0, h + 10.0, DARKGRAY);
     draw_rectangle(x, y, w, h, BLACK);
     draw_rectangle(x, y, w * report.progress, h, Color::new(0.0, 0.8, 0.6, 1.0));
@@ -108,14 +77,20 @@ fn draw_progress_bar(report: &ProgressReport) {
 #[macroquad::main(window_conf)]
 async fn main() {
     let args = Cli::parse();
-    let mut loaded_config = load_config();
-    let mut start_choice = if args.screenshot_test { Some(StartChoice::New) } else { None };
+    let mut loaded_config = if args.ui_iteration_test {
+        let mut c = load_config();
+        c.world.map_width = 100; c.world.map_height = 100;
+        c.sim.agent_count = 100;
+        c
+    } else { load_config() };
+    
+    let mut start_choice = if args.screenshot_test || args.ui_iteration_test { Some(StartChoice::New) } else { None };
     let mut selected_save_path = None;
 
     if args.headless {
         start_choice = Some(match args.mode { StartMode::Founders => StartChoice::Founders, StartMode::SaveFile => StartChoice::SaveFile, StartMode::LastRun => StartChoice::LastRun, StartMode::New => StartChoice::New });
         if let Some(s) = args.save { selected_save_path = Some(std::path::PathBuf::from(s)); }
-    } else {
+    } else if start_choice.is_none() {
         #[derive(Clone, Copy, PartialEq)] enum MenuState { Main, SelectSave, Loading }
         let mut menu_state = MenuState::Main;
         while start_choice.is_none() {
@@ -138,8 +113,7 @@ async fn main() {
                 }
                 MenuState::SelectSave => {
                     draw_text("SELECT SAVE FILE", screen_width()/2.0 - 150.0, 80.0, 40.0, Color::new(0.0, 1.0, 1.0, 1.0));
-                    let saves = list_saves();
-                    let mut y = 150.0;
+                    let saves = list_saves(); let mut y = 150.0;
                     for save_name in saves {
                         let rect = Rect::new(screen_width()/2.0 - 200.0, y, 400.0, 35.0);
                         let hover = rect.contains(vec2(mouse_position().0, mouse_position().1));
@@ -218,16 +192,23 @@ async fn main() {
         let mut current_visual_mode = VisualMode::Default;
         let mut show_visuals_panel = false; let mut show_inspector = false; let mut show_generation_graph = false;
         let mut sort_col = SortCol::Food; let mut sort_desc = true; let mut inspector_scroll: usize = 0;
-        let mut selected_agent: Option<crate::agent::Person> = None;
-        let mut inspector_agents: Vec<(usize, crate::agent::Person)> = Vec::new();
+        let mut selected_agent: Option<Person> = None;
+        let mut inspector_agents: Vec<(usize, Person)> = Vec::new();
         let mut show_config_panel = false; let mut config_scroll = 0.0; let mut config_search_query = String::new();
-        let mut active_config_button: Option<String> = None; let mut config_button_hold_time: f32 = 0.0;
+        let mut active_config_button: Option<String> = None;
         let mut followed_agent_id: Option<u32> = None; let mut followed_agent: Option<Person> = None;
+        let mut is_live_mode = false; let mut live_ticks_timer = 0;
+        let mut pre_live_speed = loaded_config.sim.agent_count as usize / 10;
+        let mut pre_live_paused = false;
+        let mut last_live_mode = false;
+
+        let mut is_quitting = false;
         let mut saving_ui_report: Option<ProgressReport> = None;
         let (save_prog_tx, save_prog_rx) = std::sync::mpsc::channel::<ProgressReport>();
         let mut metrics = (0, 0.0f32, 0.0f32, 0usize, 0u64, false, false, Vec::new());
         let mut gen_graph_scroll = 0.0f32; let mut gen_graph_zoom = 1.0f32; let mut gen_graph_avg_period = 25usize;
-        let mut screenshot_phase = 0; let mut screenshot_timer = 0;
+        
+        let mut iter_test_phase = 0; let mut iter_test_timer = 0;
         let modes = [VisualMode::Default, VisualMode::Resources, VisualMode::Age, VisualMode::Gender, VisualMode::Pregnancy, VisualMode::MarketWealth, VisualMode::MarketFood, VisualMode::AskPrice, VisualMode::BidPrice, VisualMode::Infrastructure, VisualMode::Temperature, VisualMode::DayNight, VisualMode::Tribes, VisualMode::Water];
 
         loop {
@@ -236,9 +217,65 @@ async fn main() {
                 while let Ok(r) = save_prog_rx.try_recv() { if r.progress >= 1.0 { saving_ui_report = None; break; } saving_ui_report = Some(r); }
                 if let Some(ref r) = saving_ui_report { draw_progress_bar(r); next_frame().await; continue; }
             }
-            if args.screenshot_test { current_visual_mode = modes[screenshot_phase]; screenshot_timer += 1; }
+            
+            // Automation for UI Iteration Test
+            if args.ui_iteration_test {
+                iter_test_timer += 1;
+                match iter_test_phase {
+                    0 => if iter_test_timer > 120 { // Capture Main View
+                        let _ = std::fs::create_dir_all("test_screenshots/iteration");
+                        get_screen_data().export_png("test_screenshots/iteration/01_main_view.png");
+                        // Find agent to follow
+                        if let Ok(data) = shared_data.lock() { if let Some(s) = data.sim.states.iter().find(|s| s.health > 0.0) { followed_agent_id = Some(s.id); } }
+                        iter_test_phase = 1; iter_test_timer = 0;
+                    }
+                    1 => if iter_test_timer > 60 { // Capture Follow View
+                        get_screen_data().export_png("test_screenshots/iteration/02_follow_view.png");
+                        is_live_mode = true; iter_test_phase = 2; iter_test_timer = 0;
+                    }
+                    2 => if iter_test_timer > 60 { // Capture Live POV
+                        get_screen_data().export_png("test_screenshots/iteration/03_live_pov.png");
+                        show_inspector = true; iter_test_phase = 3; iter_test_timer = 0;
+                    }
+                    3 => if iter_test_timer > 60 { // Capture Inspector
+                        get_screen_data().export_png("test_screenshots/iteration/04_inspector.png");
+                        show_config_panel = true; iter_test_phase = 4; iter_test_timer = 0;
+                    }
+                    4 => if iter_test_timer > 60 { // Finish
+                        get_screen_data().export_png("test_screenshots/iteration/05_final_config.png");
+                        println!("UI Iteration Test Complete.");
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            if args.screenshot_test { 
+                current_visual_mode = modes[(iter_test_timer / 60) as usize % modes.len()]; 
+                if iter_test_timer > 60 * modes.len() as i32 { break; }
+                iter_test_timer += 1;
+            }
             if is_key_pressed(KeyCode::C) { show_config_panel = !show_config_panel; while get_char_pressed().is_some() {} }
-            if !show_config_panel {
+            if is_key_pressed(KeyCode::L) && followed_agent_id.is_some() { 
+                if !is_live_mode {
+                    // Entering live mode
+                    let d = shared_data.lock().unwrap();
+                    pre_live_speed = d.ticks_per_loop;
+                    pre_live_paused = d.is_paused;
+                    is_live_mode = true;
+                } else {
+                    // Exiting live mode
+                    let mut d = shared_data.lock().unwrap();
+                    d.ticks_per_loop = pre_live_speed;
+                    d.is_paused = pre_live_paused;
+                    is_live_mode = false;
+                }
+            }
+            if is_key_pressed(KeyCode::Q) {
+                if is_quitting { break; } // Second 'q' to quit
+                is_quitting = true;
+            }
+            if !show_config_panel && !is_quitting {
                 if is_key_pressed(KeyCode::Space) { let mut d = shared_data.lock().unwrap(); d.is_paused = !d.is_paused; }
                 if is_key_pressed(KeyCode::S) { 
                     let data = shared_data.lock().unwrap(); let _ = std::fs::create_dir_all("saved_agents_weights");
@@ -260,7 +297,30 @@ async fn main() {
                 if is_key_pressed(KeyCode::G) { show_generation_graph = !show_generation_graph; }
                 if is_key_pressed(KeyCode::Up) { let mut d = shared_data.lock().unwrap(); d.ticks_per_loop = (d.ticks_per_loop as f32 * 1.2).max(d.ticks_per_loop as f32 + 1.0) as usize; }
                 if is_key_pressed(KeyCode::Down) { let mut d = shared_data.lock().unwrap(); d.ticks_per_loop = (d.ticks_per_loop as f32 / 1.2).max(1.0) as usize; }
-                if is_key_pressed(KeyCode::Tab) { show_inspector = !show_inspector; selected_agent = None; }
+            }
+            if is_key_pressed(KeyCode::Tab) { show_inspector = !show_inspector; selected_agent = None; }
+
+            // Detect state change to restore ticks when exiting live mode via buttons
+            if is_live_mode != last_live_mode {
+                if is_live_mode {
+                    // Just entered
+                    let d = shared_data.lock().unwrap();
+                    pre_live_speed = d.ticks_per_loop;
+                    pre_live_paused = d.is_paused;
+                } else {
+                    // Just exited
+                    let mut d = shared_data.lock().unwrap();
+                    d.ticks_per_loop = pre_live_speed;
+                    d.is_paused = pre_live_paused;
+                }
+                last_live_mode = is_live_mode;
+            }
+
+            if is_live_mode {
+                live_ticks_timer += 1;
+                let mut d = shared_data.lock().unwrap();
+                if live_ticks_timer >= 7 { d.ticks_per_loop = 1; d.is_paused = false; live_ticks_timer = 0; } else { d.is_paused = true; }
+                if followed_agent_id.is_none() { is_live_mode = false; }
             }
             let (_mw_x, mw_y) = mouse_wheel(); let (mx, my) = mouse_position(); let left_clicked = is_mouse_button_pressed(MouseButton::Left);
             if let Ok(mut data) = shared_data.try_lock() {
@@ -284,36 +344,60 @@ async fn main() {
                 } else { followed_agent = None; }
             }
             clear_background(BLACK);
-            set_camera(&Camera2D { target: vec2(loaded_config.world.map_width as f32 / 2.0 - offset_x, loaded_config.world.map_height as f32 / 2.0 - offset_y), zoom: vec2(zoom / (screen_width() / 2.0), -zoom / (screen_height() / 2.0)), ..Default::default() });
+            let cam_rect = if is_live_mode { Rect::new(screen_width() - 310.0, 10.0, 300.0, 300.0) } else { Rect::new(0.0, 0.0, screen_width(), screen_height()) };
+            let (c_target, c_zoom) = if is_live_mode {
+                if let Some(ref a) = followed_agent { (vec2(a.state.x, a.state.y), vec2(1.0 / 25.0, -1.0 / 25.0)) }
+                else { (vec2(loaded_config.world.map_width as f32 / 2.0 - offset_x, loaded_config.world.map_height as f32 / 2.0 - offset_y), vec2(zoom / (screen_width() / 2.0), -zoom / (screen_height() / 2.0))) }
+            } else { (vec2(loaded_config.world.map_width as f32 / 2.0 - offset_x, loaded_config.world.map_height as f32 / 2.0 - offset_y), vec2(zoom / (screen_width() / 2.0), -zoom / (screen_height() / 2.0))) };
+            
+            set_camera(&Camera2D { render_target: None, viewport: Some((cam_rect.x as i32, cam_rect.y as i32, cam_rect.w as i32, cam_rect.h as i32)), target: c_target, zoom: c_zoom, ..Default::default() });
             let render_data = gpu.fetch_render(loaded_config.world.map_width, loaded_config.world.map_height);
             image.bytes.copy_from_slice(&render_data); texture.update(&image); draw_texture(&texture, 0.0, 0.0, WHITE);
-            for a in &local_agent_coords {
+            for (i, a) in local_agent_coords.iter().enumerate() {
                 if a.health <= 0.0 { continue; }
                 let r = 1.0 + (a.age / loaded_config.bio.puberty_age).min(1.0);
                 let c = match current_visual_mode { VisualMode::Age => { let r = (a.age / loaded_config.bio.max_age).clamp(0.0, 1.0); Color::new(r, 1.0-r, 1.0, 1.0) }, VisualMode::Gender => if a.gender > 0.5 { Color::new(0.2, 0.6, 1.0, 1.0) } else { Color::new(1.0, 0.4, 0.7, 1.0) }, VisualMode::Tribes => Color::new(a.pheno_r*0.5+0.5, a.pheno_g*0.5+0.5, a.pheno_b*0.5+0.5, 1.0), _ => WHITE };
                 draw_circle(a.x, a.y, r, c);
+                
+                // Highlight followed agent
+                if let Some(fid) = followed_agent_id {
+                    if let Ok(data) = shared_data.try_lock() {
+                        if data.sim.states[i].id == fid {
+                            draw_circle_lines(a.x, a.y, r + 2.0, 1.0, YELLOW);
+                        }
+                    }
+                }
             }
             set_default_camera();
+            if is_live_mode { if let Some(ref a) = followed_agent { if let Ok(data) = shared_data.lock() { ui::draw_live_pov(a, &data.sim, &loaded_config); } } }
             let mut graph_consumed = false;
             ui::draw_metrics(metrics.0, metrics.1, metrics.2, metrics.3, metrics.4, loaded_config.world.tick_to_mins, get_fps(), get_fps() as f32, get_fps() as f32, current_visual_mode, show_inspector, show_generation_graph, show_config_panel, metrics.5, metrics.6);
             if show_visuals_panel { ui::draw_visuals_panel(mx, my, left_clicked, &mut current_visual_mode); }
             if show_generation_graph { graph_consumed = ui::draw_generation_graph(&metrics.7, loaded_config.world.tick_to_mins, mx, my, mw_y, &mut gen_graph_scroll, &mut gen_graph_zoom, &mut gen_graph_avg_period); }
-            if show_inspector { ui::draw_inspector(mx, my, left_clicked, mw_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins); }
-            else if let Some(a) = &followed_agent { ui::draw_tracker(mx, my, left_clicked, a, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins); }
             if show_config_panel {
                 let mut c = loaded_config; let mut changed = false; let mut save_cfg = false;
-                ui::draw_config_panel(mx, my, left_clicked, is_mouse_button_down(MouseButton::Left), get_frame_time(), &mut c, &loaded_config, &mut config_scroll, &mut config_search_query, &mut changed, &mut save_cfg, &mut active_config_button, &mut config_button_hold_time);
+                ui::draw_config_panel(mx, my, left_clicked, is_mouse_button_down(MouseButton::Left), get_frame_time(), &mut c, &loaded_config, &mut config_scroll, &mut config_search_query, &mut changed, &mut save_cfg, &mut active_config_button);
                 if changed { let mut d = shared_data.lock().unwrap(); d.config = c; loaded_config = c; }
+            }
+            if show_inspector { 
+                ui::draw_inspector(mx, my, left_clicked, mw_y, &mut inspector_agents, &mut sort_col, &mut sort_desc, &mut inspector_scroll, &mut selected_agent, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins, &mut is_live_mode); 
+            }
+            if let Some(a) = &followed_agent { 
+                if (!show_inspector || is_live_mode) && !is_live_mode { // Draw tracker if inspector is closed, but NOT in live mode to avoid overlap
+                    ui::draw_tracker(mx, my, left_clicked, a, &mut followed_agent_id, &mut show_inspector, loaded_config.world.tick_to_mins, &mut is_live_mode); 
+                }
             }
             if !show_inspector && !show_config_panel && !graph_consumed {
                 if mw_y > 0.0 { zoom *= 1.1; } else if mw_y < 0.0 { zoom *= 0.9; }
                 if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() { offset_x += (mx - last_mouse.0) / zoom; offset_y -= (my - last_mouse.1) / zoom; }
             }
-            if args.screenshot_test && screenshot_timer > 60 {
-                let data = get_screen_data(); let path = format!("test_screenshots/visual_{:?}.png", current_visual_mode);
-                let _ = std::fs::create_dir_all("test_screenshots"); data.export_png(&path); println!("Captured: {}", path);
-                screenshot_phase += 1; screenshot_timer = 0; if screenshot_phase >= modes.len() { println!("Screenshot test complete."); break; }
+
+            if is_quitting {
+                let mut should_exit = false;
+                ui::draw_quit_confirmation(mx, my, left_clicked, &mut is_quitting, &mut should_exit);
+                if should_exit { break; }
             }
+
             last_mouse = (mx, my); if is_key_pressed(KeyCode::Escape) { break; } next_frame().await;
         }
     }

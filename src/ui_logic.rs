@@ -58,6 +58,56 @@ pub fn calculate_behavioral_profile(a: &Person) -> Vec<BehavioralSituation> {
     }).collect()
 }
 
+/// Pure logic for updating a config value based on its key.
+pub fn update_config_value(config: &mut crate::config::SimConfig, key: &str, direction: f32) {
+    let step = 0.01;
+    let step_large = 1.0;
+    
+    match key {
+        "world.regen_rate" => config.world.regen_rate = (config.world.regen_rate + step * direction).max(0.0),
+        "world.max_tile_resource" => config.world.max_tile_resource = (config.world.max_tile_resource + step_large * direction).max(1.0),
+        "world.max_tile_water" => config.world.max_tile_water = (config.world.max_tile_water + step_large * direction).max(1.0),
+        "world.tick_to_mins" => config.world.tick_to_mins = (config.world.tick_to_mins + 0.1 * direction).max(0.1),
+        
+        "sim.agent_count" => config.sim.agent_count = (config.sim.agent_count as i32 + (direction * 10.0) as i32).max(1) as u32,
+        "sim.spawn_group_size" => config.sim.spawn_group_size = (config.sim.spawn_group_size as i32 + direction as i32).max(1) as u32,
+        "sim.founder_count" => config.sim.founder_count = (config.sim.founder_count as i32 + direction as i32).max(1) as u32,
+        "sim.auto_save_interval_ticks" => config.sim.auto_save_interval_ticks = (config.sim.auto_save_interval_ticks as i32 + (direction * 100.0) as i32).max(0) as u32,
+
+        "bio.base_speed" => config.bio.base_speed = (config.bio.base_speed + 0.05 * direction).max(0.0),
+        "bio.max_age" => config.bio.max_age = (config.bio.max_age + 100.0 * direction).max(100.0),
+        "bio.max_health" => config.bio.max_health = (config.bio.max_health + 1.0 * direction).max(1.0),
+        "bio.max_stamina" => config.bio.max_stamina = (config.bio.max_stamina + 1.0 * direction).max(1.0),
+        "bio.max_water" => config.bio.max_water = (config.bio.max_water + 1.0 * direction).max(1.0),
+        "bio.puberty_age" => config.bio.puberty_age = (config.bio.puberty_age + 10.0 * direction).max(1.0),
+        "bio.gestation_period" => config.bio.gestation_period = (config.bio.gestation_period + 1.0 * direction).max(1.0),
+        "bio.starvation_rate" => config.bio.starvation_rate = (config.bio.starvation_rate + 0.001 * direction).max(0.0),
+
+        "eco.baseline_cost" => config.eco.baseline_cost = (config.eco.baseline_cost + 0.001 * direction).max(0.0),
+        "eco.reproduction_cost" => config.eco.reproduction_cost = (config.eco.reproduction_cost + 1.0 * direction).max(0.0),
+        "eco.boat_cost" => config.eco.boat_cost = (config.eco.boat_cost + 1.0 * direction).max(0.0),
+        "eco.water_transfer_amount" => config.eco.water_transfer_amount = (config.eco.water_transfer_amount + 0.1 * direction).max(0.0),
+        "eco.base_spoilage_rate" => config.eco.base_spoilage_rate = (config.eco.base_spoilage_rate + 0.0001 * direction).max(0.0),
+
+        "genetics.mutation_rate" => config.genetics.mutation_rate = (config.genetics.mutation_rate + 0.005 * direction).clamp(0.0, 1.0),
+        "genetics.mutation_strength" => config.genetics.mutation_strength = (config.genetics.mutation_strength + 0.005 * direction).max(0.0),
+        "genetics.random_spawn_percentage" => config.genetics.random_spawn_percentage = (config.genetics.random_spawn_percentage + 0.01 * direction).clamp(0.0, 1.0),
+
+        "infra.infra_cost" => config.infra.infra_cost = (config.infra.infra_cost + 1.0 * direction).max(0.0),
+        "infra.road_speed_bonus" => config.infra.road_speed_bonus = (config.infra.road_speed_bonus + 0.05 * direction).max(0.0),
+        "infra.housing_rest_bonus" => config.infra.housing_rest_bonus = (config.infra.housing_rest_bonus + 0.05 * direction).max(0.0),
+        "infra.storage_rot_reduction" => config.infra.storage_rot_reduction = (config.infra.storage_rot_reduction + 0.05 * direction).clamp(0.0, 1.0),
+
+        "combat.attacker_damage" => config.combat.attacker_damage = (config.combat.attacker_damage + 0.1 * direction).max(0.0),
+        "combat.steal_amount" => config.combat.steal_amount = (config.combat.steal_amount + 1.0 * direction).max(0.0),
+
+        "telemetry.enabled" => config.telemetry.enabled = if direction > 0.0 { 1 } else { 0 },
+        "telemetry.export_interval_ticks" => config.telemetry.export_interval_ticks = (config.telemetry.export_interval_ticks as i32 + (direction * 10.0) as i32).max(1) as u32,
+        
+        _ => {}
+    }
+}
+
 pub struct ConfigItemInfo {
     pub label: String,
     pub is_changed: bool,
@@ -146,8 +196,9 @@ pub struct PanelLayout {
     pub x: f32, pub y: f32, pub w: f32, pub h: f32,
 }
 
-pub fn calculate_inspector_layout(_screen_w: f32, screen_h: f32) -> PanelLayout {
-    PanelLayout { x: 10.0, y: 20.0, w: 600.0, h: screen_h - 40.0 }
+pub fn calculate_inspector_layout(screen_w: f32, screen_h: f32) -> PanelLayout {
+    let w = (screen_w * 0.3125).clamp(600.0, 1000.0);
+    PanelLayout { x: 10.0, y: 20.0, w, h: screen_h - 40.0 }
 }
 
 pub fn calculate_config_layout(screen_w: f32, screen_h: f32) -> PanelLayout {
