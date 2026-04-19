@@ -306,7 +306,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     let total_w = (agents[idx].food / 1000.0) + agents[idx].water;
     let enc_mult = clamp(1.0 - (total_w / cfg.bio.max_carry_weight), 0.05, 1.0);
-    let crowd_mult = clamp(1.0 - (f32(atomicLoad(&(*cell_ptr).population)) / cfg.combat.crowding_threshold), 0.1, 1.0);
+    let crowd_mult = clamp(1.0 - ((*cell_ptr).population / cfg.combat.crowding_threshold), 0.1, 1.0);
     
     var actual_speed = base_speed * h_mult * enc_mult * crowd_mult;
     if (agents[idx].is_pregnant > 0.5) { actual_speed *= cfg.combat.pregnancy_speed_mult; }
