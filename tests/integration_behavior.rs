@@ -69,7 +69,65 @@ fn test_agent_behavior_integration() {
     assert!(a0.x != 5.0 || a0.y != 5.0, "Physics: Agent 0 should have moved");
     assert!(a0.heading != 0.0, "Physics: Agent 0 should have turned");
     
-    // C. Verify Identity recognition
+    // D. Verify Identity recognition
     assert!(a0.id_f1 != 0.0, "Identity: Self-features should be initialized");
     assert!(a0.nearest_id_f1 != 0.0, "Identity: Should recognize nearby agent");
-}
+    }
+
+    #[test]
+    fn test_founder_logic_initialization() {
+    use world_sim::simulation::SimulationManager;
+    use world_sim::agent::{NUM_INPUTS};
+
+    let mut config = SimConfig::default();
+    config.sim.agent_count = 10;
+    config.genetics.random_spawn_percentage = 0.2; // 2 random, 8 from founders
+
+    // Create a specific "Super-Mover" founder
+    let mut founder = Person::new(0.0, 0.0, 0, &config);
+    // Bias Input 0 to Output 1 (Speed)
+    founder.genetics.w1_weights.fill(0.0);
+    founder.genetics.w1_weights[0] = 5.0; // Strong weight
+    founder.genetics.w1_indices[0] = 0;
+    founder.genetics.w3.fill(0.0);
+    founder.genetics.w3[0 * NUM_OUTPUTS + 1] = 5.0; 
+
+    let founders = vec![founder];
+    let sim = SimulationManager::new(100, 100, 42, 10, &config, founders);
+
+    assert_eq!(sim.states.len(), 10);
+    assert_eq!(sim.genetics.len(), 10);
+
+    // Verify that most agents inherited the strong weight at index 0
+    let mut inherited_count = 0;
+    for g in &sim.genetics {
+        // Check if W1 index 0 points to input 0 and has non-zero weight
+        if g.w1_indices[0] == 0 && g.w1_weights[0].abs() > 1.0 {
+            inherited_count += 1;
+        }
+    }
+
+    // 8 should be descendants of the founder
+    assert!(inherited_count >= 7, "Most agents should have inherited founder traits. Found: {}", inherited_count);
+
+    // Verify NUM_INPUTS is consistent
+    assert_eq!(NUM_INPUTS, 420);
+    }
+
+    #[test]
+    fn test_cnn_kernel_inheritance() {
+    let config = SimConfig::default();
+    let mut parent = Person::new(0.0, 0.0, 0, &config);
+
+    // Set unique kernels for parent
+    for (i, val) in parent.genetics.cnn_kernels.iter_mut().enumerate() {
+        *val = i as f32 * 0.1;
+    }
+
+    let child = parent.clone_as_descendant(1.0, 1.0, 1, 0.0, 0.0, &config); // 0 mutation
+
+    // Child should have identical kernels
+    for i in 0..72 {
+        assert_eq!(child.genetics.cnn_kernels[i], parent.genetics.cnn_kernels[i], "CNN Kernel {} should be inherited", i);
+    }
+    }

@@ -124,8 +124,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[8] = (*cell_ptr).avg_turn;
     inputs[9] = (*cell_ptr).avg_rest;
     
-    let comms_ptr = &map_cells[safe_current_idx];
-    inputs[10] = (*comms_ptr).comm1; inputs[11] = (*comms_ptr).comm2; inputs[12] = (*comms_ptr).comm3; inputs[13] = (*comms_ptr).comm4;
+    // Comms (standard slots)
+    inputs[10] = (*cell_ptr).comm1; inputs[11] = (*cell_ptr).comm2; inputs[12] = (*cell_ptr).comm3; inputs[13] = (*cell_ptr).comm4;
     
     // Biometrics
     inputs[22] = agents[idx].health / cfg.bio.max_health;
@@ -190,8 +190,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     // --- Spatial CNN Stage ---
     for (var f = 0u; f < 8u; f = f + 1u) {
         var sum = 0.0;
+        let k_base = f * 9u;
         for (var k = 0u; k < 9u; k = k + 1u) {
-            let k_val = get_id_feature(g_idx + f, k); 
+            let k_val = genetics[g_idx].cnn_kernels[k_base + k]; 
             sum += vision_resources[(f + k) % 24u] * k_val;
         }
         agents[idx].spatial_features[f] = fast_tanh(sum);
@@ -249,11 +250,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let rest_intent = outputs[5] * 0.5 + 0.5;
     var resting = rest_intent > 0.5 || agents[idx].stamina <= 0.0;
     
-    var turn_intent = outputs[0] * 0.5;
-    if (resting) { turn_intent = 0.0; }
-    
-    var speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; 
-    if (resting) { speed_intent = 0.0; }
+    let turn_intent = outputs[0] * 0.5;
+    let speed_intent = clamp(outputs[1] * 0.5 + 0.5, 0.0, 1.0) * age_speed_mult; 
 
     agents[idx].reproduce_desire = select(outputs[3] * 0.5 + 0.5, 0.0, resting);
     agents[idx].attack_intent = select(outputs[4] * 0.5 + 0.5, 0.0, resting);
@@ -283,37 +281,42 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (is_building) {
         agents[idx].build_road_intent = b_road; agents[idx].build_house_intent = b_house;
         agents[idx].build_farm_intent = b_farm; agents[idx].build_storage_intent = b_storage;
-        speed_intent = 0.0;
     } else {
         agents[idx].build_road_intent = 0.0; agents[idx].build_house_intent = 0.0;
         agents[idx].build_farm_intent = 0.0; agents[idx].build_storage_intent = 0.0;
     }
 
     // --- Simulation Physics & Metabolism ---
-    var base_speed = speed_intent * cfg.bio.base_speed;
+    var base_speed = select(speed_intent * cfg.bio.base_speed, 0.0, resting || is_building);
     if (resting) { agents[idx].stamina = min(agents[idx].stamina + 2.0, cfg.bio.max_stamina); }
 
-    let next_h = ah + turn_intent;
-    let next_x = ax + cos(next_h) * base_speed * lon_scale;
-    let next_y = ay + sin(next_h) * base_speed;
-
-    var wrap_nx = next_x % map_w_f32; if (wrap_nx < 0.0) { wrap_nx += map_w_f32; }
-    var wrap_ny = clamp(next_y, 0.0, map_h_f32 - 1.0);
-    
-    let next_idx = clamp(u32(wrap_ny) * map_w + u32(wrap_nx), 0u, max_idx);
-    let slope = map_heights[next_idx] - map_heights[safe_current_idx];
-    let h_mult = 1.0 - clamp(slope * cfg.eco.climb_penalty, -0.5, 0.9);
+    let current_h = ah + select(turn_intent, 0.0, resting || is_building);
     
     let total_w = (agents[idx].food / 1000.0) + agents[idx].water;
     let enc_mult = clamp(1.0 - (total_w / cfg.bio.max_carry_weight), 0.05, 1.0);
     let crowd_mult = clamp(1.0 - ((*cell_ptr).population / cfg.combat.crowding_threshold), 0.1, 1.0);
     
-    var actual_speed = base_speed * h_mult * enc_mult * crowd_mult;
+    var actual_speed = base_speed * enc_mult * crowd_mult;
     if (agents[idx].is_pregnant > 0.5) { actual_speed *= cfg.combat.pregnancy_speed_mult; }
+
+    // Position Prediction for slope
+    let pred_x = ax + cos(current_h) * actual_speed * lon_scale;
+    let pred_y = ay + sin(current_h) * actual_speed;
+    var wrap_px = pred_x % map_w_f32; if (wrap_px < 0.0) { wrap_px += map_w_f32; }
+    var wrap_py = clamp(pred_y, 0.0, map_h_f32 - 1.0);
+    let pred_idx = clamp(u32(wrap_py) * map_w + u32(wrap_px), 0u, max_idx);
+    let slope = map_heights[pred_idx] - map_heights[safe_current_idx];
+    let h_mult = 1.0 - clamp(slope * cfg.eco.climb_penalty, -0.5, 0.9);
+    
+    actual_speed *= h_mult;
+    let next_x = ax + cos(current_h) * actual_speed * lon_scale;
+    let next_y = ay + sin(current_h) * actual_speed;
+    var wrap_nx = next_x % map_w_f32; if (wrap_nx < 0.0) { wrap_nx += map_w_f32; }
+    var wrap_ny = clamp(next_y, 0.0, map_h_f32 - 1.0);
 
     if (!resting) {
         agents[idx].stamina -= (actual_speed * 0.05 + 0.05);
-        if (agents[idx].stamina <= 0.0) { agents[idx].stamina = 0.0; agents[idx].health -= (cfg.bio.starvation_rate * 2.0); resting = true; }
+        if (agents[idx].stamina <= 0.0) { agents[idx].stamina = 0.0; agents[idx].health -= (cfg.bio.starvation_rate * 2.0); }
     }
 
     let metabolic_rate = cfg.eco.baseline_cost * maturity * select(1.0, 0.5, resting);
@@ -347,13 +350,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             agents[idx].health -= cfg.combat.bystander_damage;
         }
         if (agents[idx].attack_intent > 0.5 && (*cell_ptr).population > 1.0) {
-            agents[idx].wealth += 1.0; // Minimal reward for testing
+            agents[idx].wealth += 1.0; 
         }
     }
 
     // Movement Commit
     if (agents[idx].food >= actual_speed * cfg.eco.move_cost_per_unit * 1000.0) {
-        agents[idx].x = wrap_nx; agents[idx].y = wrap_ny; agents[idx].heading = next_h;
+        agents[idx].x = wrap_nx; agents[idx].y = wrap_ny; agents[idx].heading = current_h;
         agents[idx].food -= actual_speed * cfg.eco.move_cost_per_unit * 1000.0;
     }
 

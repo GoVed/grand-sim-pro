@@ -160,6 +160,7 @@ pub struct Genetics {
     pub w1_indices: [u32; W1_SIZE],
     pub w2: [f32; W2_SIZE],
     pub w3: [f32; W3_SIZE],
+    pub cnn_kernels: [f32; 72], // 8 kernels * 9 weights
 }
 
 #[derive(Serialize, Deserialize)]
@@ -168,6 +169,8 @@ struct GeneticsSerializable {
     w1_indices: Vec<u32>,
     w2: Vec<f32>,
     w3: Vec<f32>,
+    #[serde(default)]
+    cnn_kernels: Vec<f32>,
 }
 
 impl Serialize for Genetics {
@@ -178,6 +181,7 @@ impl Serialize for Genetics {
             w1_indices: self.w1_indices.to_vec(),
             w2: self.w2.to_vec(),
             w3: self.w3.to_vec(),
+            cnn_kernels: self.cnn_kernels.to_vec(),
         }.serialize(serializer)
     }
 }
@@ -191,11 +195,13 @@ impl<'de> Deserialize<'de> for Genetics {
             w1_indices: [0; W1_SIZE],
             w2: [0.0; W2_SIZE],
             w3: [0.0; W3_SIZE],
+            cnn_kernels: [0.0; 72],
         };
         if s.w1_weights.len() == W1_SIZE { res.w1_weights.copy_from_slice(&s.w1_weights); }
         if s.w1_indices.len() == W1_SIZE { res.w1_indices.copy_from_slice(&s.w1_indices); }
         if s.w2.len() == W2_SIZE { res.w2.copy_from_slice(&s.w2); }
         if s.w3.len() == W3_SIZE { res.w3.copy_from_slice(&s.w3); }
+        if s.cnn_kernels.len() == 72 { res.cnn_kernels.copy_from_slice(&s.cnn_kernels); }
         Ok(res)
     }
 }
@@ -299,6 +305,11 @@ impl Person {
                 w1_indices,
                 w2,
                 w3,
+                cnn_kernels: { 
+                    let mut k = [0.0; 72]; 
+                    for x in &mut k { *x = (rng.r#gen::<f32>() * 2.0) - 1.0; } 
+                    k 
+                },
             }
         }
     }
@@ -382,6 +393,10 @@ impl Person {
         let cp_w3 = rng.gen_range(0..W3_SIZE);
         child.genetics.w3[cp_w3..].copy_from_slice(&parent2.genetics.w3[cp_w3..]);
 
+        // Crossover for CNN Kernels
+        let cp_cnn = rng.gen_range(0..72);
+        child.genetics.cnn_kernels[cp_cnn..].copy_from_slice(&parent2.genetics.cnn_kernels[cp_cnn..]);
+
         // Sparse Mutation Sampling (Optimized)
         let num_mut_w1 = (W1_SIZE as f32 * mutation_rate) as usize;
         for _ in 0..num_mut_w1 {
@@ -404,6 +419,13 @@ impl Person {
         for _ in 0..num_mut_w3 {
             let i = rng.gen_range(0..W3_SIZE);
             child.genetics.w3[i] = (child.genetics.w3[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
+        }
+
+        // Mutate CNN Kernels
+        let num_mut_cnn = (72.0 * mutation_rate) as usize;
+        for _ in 0..num_mut_cnn {
+            let i = rng.gen_range(0..72);
+            child.genetics.cnn_kernels[i] = (child.genetics.cnn_kernels[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
 
         child
@@ -490,6 +512,13 @@ impl Person {
         for _ in 0..num_mut_w3 {
             let i = rng.gen_range(0..W3_SIZE);
             child.genetics.w3[i] = (child.genetics.w3[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
+        }
+
+        // Mutate CNN Kernels
+        let num_mut_cnn = (72.0 * mutation_rate) as usize;
+        for _ in 0..num_mut_cnn {
+            let i = rng.gen_range(0..72);
+            child.genetics.cnn_kernels[i] = (child.genetics.cnn_kernels[i] + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-2.0, 2.0);
         }
         child
     }

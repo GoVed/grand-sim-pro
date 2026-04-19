@@ -70,6 +70,7 @@ struct Genetics {
     w1_indices: array<u32, 1024>, // 128 * 8 Fixed-K Sparse indices
     w2: array<f32, 16384>, // 128 * 128
     w3: array<f32, 7168>, // 128 * 56
+    cnn_kernels: array<f32, 72>, // 8 kernels * 9 weights
 }
 
 struct WorldConfig {
