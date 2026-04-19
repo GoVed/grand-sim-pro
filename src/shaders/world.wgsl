@@ -2,13 +2,15 @@
  * Grand Sim Pro: World Environment Update Shader
  */
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(8, 8)
 fn world_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let map_w = cfg.world.map_width;
     let map_h = cfg.world.map_height;
-    let idx = global_id.x;
+    let x = global_id.x;
+    let y = global_id.y;
     
-    if (idx >= map_w * map_h) { return; }
+    if (x >= map_w || y >= map_h) { return; }
+    let idx = y * map_w + x;
     
     let cell_ptr = &map_cells[idx];
     

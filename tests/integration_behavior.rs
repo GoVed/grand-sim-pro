@@ -44,7 +44,7 @@ fn test_agent_behavior_integration() {
     genetics.push(p0.genetics);
     genetics.push(p1.genetics);
     
-    let heights = vec![0.0; 100];
+    let heights = vec![0.5; 100];
     let cells = vec![CellState::default(); 100];
     
     let gpu = GpuEngine::new(&states, &genetics, &heights, &cells, &config);
@@ -74,6 +74,33 @@ fn test_agent_behavior_integration() {
     assert!(a0.nearest_id_f1 != 0.0, "Identity: Should recognize nearby agent");
     }
 
+    #[test]
+    fn test_simulation_stability_many_ticks() {
+    let mut config = SimConfig::default();
+    config.world.map_width = 100; // Realistic size
+    config.world.map_height = 100;
+    config.sim.agent_count = 100;
+
+    let mut states = Vec::new();
+    let mut genetics = Vec::new();
+    for i in 0..100 {
+        let p = Person::new(50.0, 50.0, i, &config);
+        states.push(p.state);
+        genetics.push(p.genetics);
+    }
+
+    let heights = vec![0.0; 10000];
+    let cells = vec![CellState::default(); 10000];
+
+    let gpu = GpuEngine::new(&states, &genetics, &heights, &cells, &config);
+
+    // Test if we can run 500 ticks without a hang
+    // This previously might have hung if command buffer was too large
+    gpu.compute_ticks(500);
+
+    let (after, _) = gpu.fetch_agents();
+    assert_eq!(after.len(), 100);
+    }
     #[test]
     fn test_founder_logic_initialization() {
     use world_sim::simulation::SimulationManager;

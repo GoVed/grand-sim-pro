@@ -215,8 +215,9 @@ impl GpuEngine {
                     // 2. World Environment Update (Once per tick)
                     cpass.set_pipeline(&self.world_pipeline);
                     cpass.set_bind_group(0, &self.world_bind_group, &[]);
-                    let map_size = self.map_width * self.map_height;
-                    cpass.dispatch_workgroups((map_size as f32 / 64.0).ceil() as u32, 1, 1);
+                    // Use 2D dispatch to avoid exceeding 65535 limit on a single dimension
+                    cpass.dispatch_workgroups((self.map_width as f32 / 8.0).ceil() as u32, (self.map_height as f32 / 8.0).ceil() as u32, 1);
+
                 }
             }
             self.queue.submit(Some(encoder.finish()));
