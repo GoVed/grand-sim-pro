@@ -1,9 +1,10 @@
-// Fast Local Memory Cache for workgroup map tiles (e.g., 16x16 patch)
-var<workgroup> lds_res: array<f32, 256>; 
-var<workgroup> lds_height: array<f32, 256>;
-var<workgroup> lds_pop: array<f32, 256>;
-var<workgroup> lds_base_x: u32;
-var<workgroup> lds_base_y: u32;
+// Fast Local Memory Cache for workgroup map tiles (32x32 patch centered on first agent)
+var<workgroup> lds_res: array<f32, 1024>; 
+var<workgroup> lds_height: array<f32, 1024>;
+var<workgroup> lds_pop: array<f32, 1024>;
+var<workgroup> lds_adult: array<f32, 1024>;
+var<workgroup> lds_base_x: i32;
+var<workgroup> lds_base_y: i32;
 
 fn is_nan(x: f32) -> bool {
     return x != x;
@@ -65,27 +66,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let map_h = cfg.world.map_height;
     let map_w_f32 = f32(map_w);
     let map_h_f32 = f32(map_h);
+    let map_w_i32 = i32(map_w);
+    let map_h_i32 = i32(map_h);
     let max_idx = map_w * map_h - 1u;
 
-    // --- Cooperative LDS Map Loading ---
+    // --- Cooperative LDS Map Loading (32x32 patch) ---
     if (local_idx == 0u) {
-        lds_base_x = u32(ax) / 8u * 8u;
-        lds_base_y = u32(ay) / 8u * 8u;
+        lds_base_x = i32(ax) - 16;
+        lds_base_y = i32(ay) - 16;
     }
     workgroupBarrier();
 
-    let l_idx_base = local_idx * 4u;
-    for (var i = 0u; i < 4u; i = i + 1u) {
-        let l_idx = l_idx_base + i;
-        let lx = l_idx % 16u;
-        let ly = l_idx / 16u;
-        let gx = (lds_base_x + lx) % map_w;
-        let gy = clamp(lds_base_y + ly, 0u, map_h - 1u);
-        let cell_idx = gy * map_w + gx;
+    // Each thread in 64-thread group loads 1024/64 = 16 tiles
+    for (var i = 0u; i < 16u; i = i + 1u) {
+        let l_idx = local_idx * 16u + i;
+        let lx = i32(l_idx % 32u);
+        let ly = i32(l_idx / 32u);
+        
+        var gx = (lds_base_x + lx) % map_w_i32;
+        if (gx < 0) { gx += map_w_i32; }
+        let gy = clamp(lds_base_y + ly, 0, map_h_i32 - 1);
+        let cell_idx = u32(gy) * map_w + u32(gx);
 
         lds_res[l_idx] = f32(atomicLoad(&map_cells[cell_idx].res_value)) / 1000.0;
         lds_height[l_idx] = map_heights[cell_idx];
         lds_pop[l_idx] = f32(atomicLoad(&map_cells[cell_idx].population));
+        lds_adult[l_idx] = f32(atomicLoad(&map_cells[cell_idx].adult_count));
     }
     workgroupBarrier(); 
 
@@ -188,20 +194,43 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             if (wy < 0.0) { wy = -wy; wx = (wx + map_w_f32 / 2.0) % map_w_f32; }
             else if (wy >= map_h_f32) { wy = 2.0 * map_h_f32 - 1.0 - wy; wx = (wx + map_w_f32 / 2.0) % map_w_f32; }
 
-            let s_idx = clamp(u32(wy) * map_w + u32(wx), 0u, max_idx);
-            let s_cell = &map_cells[s_idx];
+            let ux = u32(wy);
+            let uy = u32(wx);
             
-            let s_res = f32(atomicLoad(&(*s_cell).res_value)) / 1000.0;
+            var s_res = 0.0;
+            var s_height = 0.0;
+            var s_pop = 0.0;
+
+            // Use LDS if within 32x32 cached patch
+            let rel_x = i32(ux) - lds_base_x;
+            let rel_y = i32(uy) - lds_base_y;
+            if (rel_x >= 0 && rel_x < 32 && rel_y >= 0 && rel_y < 32) {
+                let l_idx = u32(rel_y * 32 + rel_x);
+                s_res = lds_res[l_idx];
+                s_height = lds_height[l_idx];
+                s_pop = lds_pop[l_idx];
+            } else {
+                let s_idx = clamp(ux * map_w + uy, 0u, max_idx);
+                let s_cell = &map_cells[s_idx];
+                s_res = f32(atomicLoad(&(*s_cell).res_value)) / 1000.0;
+                s_height = map_heights[s_idx];
+                s_pop = f32(atomicLoad(&(*s_cell).population));
+            }
+
             inputs[input_idx] = s_res * vision_multiplier;
-            inputs[input_idx+1u] = map_heights[s_idx];
-            inputs[input_idx+2u] = f32(atomicLoad(&(*s_cell).population)) * vision_multiplier;
-            inputs[input_idx+3u] = (*s_cell).comm1; inputs[input_idx+4u] = (*s_cell).comm2;
-            inputs[input_idx+5u] = (*s_cell).comm3; inputs[input_idx+6u] = (*s_cell).comm4;
-            inputs[input_idx+7u] = (*s_cell).pheno_r; inputs[input_idx+8u] = (*s_cell).pheno_g; inputs[input_idx+9u] = (*s_cell).pheno_b;
-            inputs[input_idx+10u] = f32(atomicLoad(&(*s_cell).infra_roads)) / 1000.0;
-            inputs[input_idx+11u] = f32(atomicLoad(&(*s_cell).infra_housing)) / 1000.0;
-            inputs[input_idx+12u] = f32(atomicLoad(&(*s_cell).infra_farms)) / 1000.0;
-            inputs[input_idx+13u] = f32(atomicLoad(&(*s_cell).infra_storage)) / 1000.0;
+            inputs[input_idx+1u] = s_height;
+            inputs[input_idx+2u] = s_pop * vision_multiplier;
+            
+            // Comms/Pheno/Infra still hit global memory as they don't fit in LDS
+            let s_idx_global = clamp(ux * map_w + uy, 0u, max_idx);
+            let s_cell_global = &map_cells[s_idx_global];
+            inputs[input_idx+3u] = (*s_cell_global).comm1; inputs[input_idx+4u] = (*s_cell_global).comm2;
+            inputs[input_idx+5u] = (*s_cell_global).comm3; inputs[input_idx+6u] = (*s_cell_global).comm4;
+            inputs[input_idx+7u] = (*s_cell_global).pheno_r; inputs[input_idx+8u] = (*s_cell_global).pheno_g; inputs[input_idx+9u] = (*s_cell_global).pheno_b;
+            inputs[input_idx+10u] = f32(atomicLoad(&(*s_cell_global).infra_roads)) / 1000.0;
+            inputs[input_idx+11u] = f32(atomicLoad(&(*s_cell_global).infra_housing)) / 1000.0;
+            inputs[input_idx+12u] = f32(atomicLoad(&(*s_cell_global).infra_farms)) / 1000.0;
+            inputs[input_idx+13u] = f32(atomicLoad(&(*s_cell_global).infra_storage)) / 1000.0;
             
             vision_resources[v_count] = s_res;
             v_count++;
@@ -251,8 +280,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var hidden2 = array<f32, 128>();
     for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
         var sum = 0.0;
-        for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 1u) {
+        // Unroll inner loop by 4 for better instruction density
+        for (var h1 = 0u; h1 < hidden_count; h1 = h1 + 4u) {
             sum += hidden1[h1] * genetics[g_idx].w2[h1 * 128u + h2];
+            sum += hidden1[h1 + 1u] * genetics[g_idx].w2[(h1 + 1u) * 128u + h2];
+            sum += hidden1[h1 + 2u] * genetics[g_idx].w2[(h1 + 2u) * 128u + h2];
+            sum += hidden1[h1 + 3u] * genetics[g_idx].w2[(h1 + 3u) * 128u + h2];
         }
         hidden2[h2] = fast_tanh(clamp(sum, -10.0, 10.0));
     }
@@ -260,8 +293,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     var outputs = array<f32, 56>(); 
     for (var o = 0u; o < 56u; o = o + 1u) {
         var sum = 0.0;
-        for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 1u) {
+        for (var h2 = 0u; h2 < hidden_count; h2 = h2 + 4u) {
             sum += hidden2[h2] * genetics[g_idx].w3[h2 * 56u + o];
+            sum += hidden2[h2 + 1u] * genetics[g_idx].w3[(h2 + 1u) * 56u + o];
+            sum += hidden2[h2 + 2u] * genetics[g_idx].w3[(h2 + 2u) * 56u + o];
+            sum += hidden2[h2 + 3u] * genetics[g_idx].w3[(h2 + 3u) * 56u + o];
         }
         outputs[o] = fast_tanh(clamp(sum, -10.0, 10.0));
     }

@@ -18,8 +18,8 @@ echo "Running Stress Performance Tests in release mode..."
 OUTPUT=$(cargo test --release --test performance -- --nocapture 2>&1)
 
 # Extract values from new stress test
-COMPUTE_TIME=$(echo "$OUTPUT" | grep "Compute 100 ticks" | awk '{print $5}')
-TPS=$(echo "$OUTPUT" | grep "Theoretical TPS:" | awk '{print $3}')
+COMPUTE_TIME=$(echo "$OUTPUT" | grep "Compute 100 ticks (Total Execution)" | awk '{print $6}')
+TPS=$(echo "$OUTPUT" | grep "Theoretical TPS (Execution):" | awk '{print $4}')
 FETCH_TIME=$(echo "$OUTPUT" | grep "Agent State Fetch" | awk '{print $5}')
 CELL_TIME=$(echo "$OUTPUT" | grep "Full Map Cell Fetch" | awk '{print $7}')
 SORT_TIME=$(echo "$OUTPUT" | grep "Parallel Spatial Sort" | awk '{print $6}')
