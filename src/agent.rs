@@ -234,8 +234,16 @@ impl Person {
         for h in 0..NUM_HIDDEN_MAX {
             let mut available: Vec<u32> = (0..NUM_INPUTS as u32).collect();
             for k in 0..8 {
-                let idx = rng.gen_range(0..available.len());
-                w1_indices[h * 8 + k] = available.remove(idx);
+                let idx = if k < 3 {
+                    // Force first 3 connections to be internal state for better early survival
+                    // 22: Health, 23: Food, 24: Water, 25: Stamina
+                    22 + k as u32
+                } else {
+                    let rand_idx = rng.gen_range(0..available.len());
+                    available.remove(rand_idx)
+                };
+                
+                w1_indices[h * 8 + k] = idx;
                 // Bias towards small non-zero values to kickstart evolution
                 w1_weights[h * 8 + k] = (rng.r#gen::<f32>() * 2.0 * w1_limit) - w1_limit + 0.01;
             }
