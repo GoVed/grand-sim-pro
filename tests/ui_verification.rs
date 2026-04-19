@@ -168,6 +168,7 @@ fn test_identity_labels_registration() {
     assert_eq!(INPUT_LABELS.len(), NUM_INPUTS);
     assert_eq!(INPUT_LABELS[NUM_INPUTS - 4], "Target F1");
     assert_eq!(INPUT_LABELS[NUM_INPUTS - 1], "Target F4");
+    assert_eq!(NUM_INPUTS, 412);
 }
 
 #[test]
