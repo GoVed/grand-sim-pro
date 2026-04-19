@@ -238,6 +238,7 @@ pub fn draw_inspector(mx: f32, my: f32, left_clicked: bool, wheel: f32, agents: 
         draw_text("LIVE POV", live_btn.x + 25.0, live_btn.y + 20.0, 16.0, WHITE);
         if left_clicked && live_hover { 
             *followed_id = Some(a.state.id); 
+            *show = false; // Close inspector
             if !*is_live_mode {
                 *is_live_mode = true;
             }
@@ -275,6 +276,7 @@ pub fn draw_tracker(mx: f32, my: f32, left_clicked: bool, a: &Person, followed_i
     draw_rectangle(live_btn.x, live_btn.y, live_btn.w, live_btn.h, Color::new(0.8, 0.2, 0.0, 1.0));
     draw_text(if *is_live_mode { "EXIT LIVE POV [L]" } else { "ENTER LIVE POV [L]" }, live_btn.x + 50.0, live_btn.y + 20.0, 14.0, WHITE);
     if left_clicked && live_btn.contains(vec2(mx, my)) { 
+        if !*is_live_mode { *show_inspector = false; } // Close inspector on entry
         *is_live_mode = !*is_live_mode;
     }
 }
