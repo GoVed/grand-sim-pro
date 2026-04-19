@@ -172,7 +172,31 @@ pub fn draw_agent_profile_panel(a: &Person, tick_to_mins: f32) {
         let color = if val > 0.0 { Color::new(0.0, 1.0, 0.5, (val * 0.8 + 0.2).min(1.0)) } else { Color::new(1.0, 0.0, 0.2, (val.abs() * 0.8 + 0.2).min(1.0)) };
         draw_rectangle(panel_x + 20.0 + c as f32 * (comm_cell_w + 2.0), py, comm_cell_w, mem_cell_h, color);
     }
-    py += 40.0;
+    py += 25.0;
+
+    // --- New: Identity Sensing Display ---
+    draw_text("IDENTITY SIGNATURE:", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    let feat_w = 40.0;
+    for i in 0..4 {
+        let val = match i { 0 => a.state.id_f1, 1 => a.state.id_f2, 2 => a.state.id_f3, _ => a.state.id_f4 };
+        let color = if val > 0.0 { Color::new(0.0, 0.8, 1.0, val.abs()) } else { Color::new(1.0, 0.4, 0.0, val.abs()) };
+        draw_rectangle(panel_x + 20.0 + i as f32 * (feat_w + 5.0), py, feat_w, 10.0, color);
+        draw_text(&format!("C{}", i+1), panel_x + 20.0 + i as f32 * (feat_w + 5.0), py + 22.0, 10.0, GRAY);
+    }
+    py += 35.0;
+
+    draw_text("IDENTITY SENSING (Target neighbor):", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    if a.state.nearest_id_f1 != 0.0 || a.state.nearest_id_f2 != 0.0 {
+        for i in 0..4 {
+            let val = match i { 0 => a.state.nearest_id_f1, 1 => a.state.nearest_id_f2, 2 => a.state.nearest_id_f3, _ => a.state.nearest_id_f4 };
+            let color = if val > 0.0 { Color::new(0.0, 1.0, 0.5, val.abs()) } else { Color::new(1.0, 0.0, 0.2, val.abs()) };
+            draw_rectangle(panel_x + 20.0 + i as f32 * (feat_w + 5.0), py, feat_w, 10.0, color);
+        }
+        draw_text("MULTI-VARIABLE SIGNATURE DETECTED", panel_x + 20.0, py + 22.0, 12.0, WHITE);
+    } else {
+        draw_text("NO TARGET IN RANGE", panel_x + 20.0, py + 18.0, 14.0, DARKGRAY);
+    }
+    py += 45.0;
 
     draw_influence_map(a, panel_x + 120.0, py + 20.0, 300.0, panel_h - (py - panel_y) - 60.0, 40);
 }
@@ -225,7 +249,7 @@ pub fn draw_inspector(mx: f32, my: f32, left_clicked: bool, wheel: f32, agents: 
         draw_rectangle(layout.x + 10.0, dy - 10.0, layout.w - 20.0, 440.0, Color::new(0.0, 0.1, 0.1, 1.0));
         draw_text(&format!("SELECTED: AGENT #{} (Genetics: #{})", a.state.id, a.state.genetics_index), details_x, dy + 20.0, 18.0, YELLOW);
         
-        let mut by = dy + 40.0;
+        let by = dy + 40.0;
         let locate_btn = Rect::new(details_x, by, 120.0, 30.0);
         let l_hover = locate_btn.contains(vec2(mx, my));
         draw_rectangle(locate_btn.x, locate_btn.y, locate_btn.w, locate_btn.h, if l_hover { Color::new(0.0, 0.8, 0.7, 1.0) } else { Color::new(0.0, 0.4, 0.3, 1.0) });

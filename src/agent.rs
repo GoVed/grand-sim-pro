@@ -12,7 +12,7 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-pub const NUM_INPUTS: usize = 184; // 160 + 8 (Comm) + 16 (Mem)
+pub const NUM_INPUTS: usize = 188; // 160 + 8 (Comm) + 16 (Mem) + 4 (Identity)
 pub const NUM_HIDDEN_MAX: usize = 128;
 pub const NUM_OUTPUTS: usize = 56; // 32 + 8 (Comm) + 16 (Mem)
 pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
@@ -26,7 +26,7 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Health", "Food", "Water", "Stamina", "Age", "Gender", "Temp", "Season", "Is Preg", "Encumbrance", "Crowding",
     "Mem 1", "Mem 2", "Mem 3", "Mem 4", "Mem 5", "Mem 6", "Mem 7", "Mem 8", "Mem 9", "Mem 10", "Mem 11", "Mem 12", "Mem 13", "Mem 14", "Mem 15", "Mem 16", "Mem 17", "Mem 18", "Mem 19", "Mem 20", "Mem 21", "Mem 22", "Mem 23", "Mem 24",
     "Wealth", "Avg Ask", "Avg Bid", "Daylight",
-    "Own Pheno R", "Own Pheno G", "Own Pheno B",
+    "ID Feat 1", "ID Feat 2", "ID Feat 3", "ID Feat 4",
     "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
     "FL Res", "FL Elev", "FL Pop", "FL C1", "FL C2", "FL C3", "FL C4", "FL PR", "FL PG", "FL PB", "FL Road", "FL House", "FL Farm", "FL Store",
     "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB", "FL Road", "FL House", "FL Farm", "FL Store",
@@ -36,7 +36,8 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "BL Res", "BL Elev", "BL Pop", "BL C1", "BL C2", "BL C3", "BL C4", "BL PR", "BL PG", "BL PB", "BL Road", "BL House", "BL Farm", "BL Store",
     "B Res", "B Elev", "B Pop", "B C1", "B C2", "B C3", "B C4", "B PR", "B PG", "B PB", "B Road", "B House", "B Farm", "B Store",
     "BR Res", "BR Elev", "BR Pop", "BR C1", "BR C2", "BR C3", "BR C4", "BR PR", "BR PG", "BR PB", "BR Road", "BR House", "BR Farm", "BR Store",
-    "Loc Road", "Loc House", "Loc Farm", "Loc Storage", "Pad 1"
+    "Loc Road", "Loc House", "Loc Farm", "Loc Storage",
+    "Target F1", "Target F2", "Target F3", "Target F4"
 ];
 
 pub const OUTPUT_LABELS: [&str; NUM_OUTPUTS] = [
@@ -98,8 +99,14 @@ pub struct AgentState {
     pub pheno_g: f32,
     pub pheno_b: f32,
     pub emergency_intent: f32,
-    pub _pad_agent2: f32,
-    pub _pad_agent3: f32,
+    pub id_f1: f32,  // Identity feature 1 (-1 to 1)
+    pub id_f2: f32,  // Identity feature 2
+    pub id_f3: f32,  // Identity feature 3
+    pub id_f4: f32,  // Identity feature 4
+    pub nearest_id_f1: f32, // Target's Identity feature 1
+    pub nearest_id_f2: f32,
+    pub nearest_id_f3: f32,
+    pub nearest_id_f4: f32,
     pub food: f32,     
     pub water: f32,
     pub stamina: f32,
@@ -108,6 +115,7 @@ pub struct AgentState {
     pub id: u32,       
     pub gestation_timer: f32,
     pub is_pregnant: f32,
+    pub _pad_identity: f32, // Maintains 16-byte alignment (Total 64 f32 slots = 256 bytes)
 }
 
 #[repr(C)]
@@ -229,8 +237,8 @@ impl Person {
                 pheno_g: (rng.r#gen::<f32>() * 2.0) - 1.0,
                 pheno_b: (rng.r#gen::<f32>() * 2.0) - 1.0,
                 emergency_intent: 0.0,
-                _pad_agent2: 0.0,
-                _pad_agent3: 0.0,
+                id_f1: 0.0, id_f2: 0.0, id_f3: 0.0, id_f4: 0.0,
+                nearest_id_f1: 0.0, nearest_id_f2: 0.0, nearest_id_f3: 0.0, nearest_id_f4: 0.0,
                 food: 50000.0, 
                 water: config.bio.max_water,
                 stamina: 100.0,
@@ -239,6 +247,7 @@ impl Person {
                 id: rng.r#gen::<u32>(),
                 gestation_timer: 0.0,
                 is_pregnant: 0.0,
+                _pad_identity: 0.0,
             },
             genetics: Genetics {
                 w1_weights,
@@ -286,11 +295,12 @@ impl Person {
         child.state.build_storage_intent = 0.0;
         child.state.destroy_infra_intent = 0.0;
         child.state.emergency_intent = 0.0;
-        child.state._pad_agent2 = 0.0;
-        child.state._pad_agent3 = 0.0;
+        child.state.id_f1 = 0.0; child.state.id_f2 = 0.0; child.state.id_f3 = 0.0; child.state.id_f4 = 0.0;
+        child.state.nearest_id_f1 = -1.0; child.state.nearest_id_f2 = 0.0; child.state.nearest_id_f3 = 0.0; child.state.nearest_id_f4 = 0.0;
         child.state.id = rng.r#gen::<u32>();
         child.state.gestation_timer = 0.0;
         child.state.is_pregnant = 0.0;
+        child.state._pad_identity = 0.0;
         child.state.heading = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
         
         if rng.r#gen::<f32>() < 0.1 { child.state.pheno_r = (child.state.pheno_r + (rng.r#gen::<f32>() * 0.2) - 0.1).clamp(-1.0, 1.0); }
@@ -369,11 +379,12 @@ impl Person {
         child.state.build_storage_intent = 0.0;
         child.state.destroy_infra_intent = 0.0;
         child.state.emergency_intent = 0.0;
-        child.state._pad_agent2 = 0.0;
-        child.state._pad_agent3 = 0.0;
+        child.state.id_f1 = 0.0; child.state.id_f2 = 0.0; child.state.id_f3 = 0.0; child.state.id_f4 = 0.0;
+        child.state.nearest_id_f1 = -1.0; child.state.nearest_id_f2 = 0.0; child.state.nearest_id_f3 = 0.0; child.state.nearest_id_f4 = 0.0;
         child.state.id = rng.r#gen::<u32>();
         child.state.gestation_timer = 0.0;
         child.state.is_pregnant = 0.0;
+        child.state._pad_identity = 0.0;
         child.state.heading = rng.r#gen::<f32>() * PI * 2.0;
         
         if rng.r#gen::<f32>() < mutation_rate { child.state.pheno_r = (child.state.pheno_r + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }
