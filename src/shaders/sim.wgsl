@@ -204,10 +204,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[183] = 0.0;
     
     // Nearest Identity inputs
-    inputs[184] = agents[idx].nearest_id;
-    inputs[185] = agents[idx].nearest_pheno_r;
-    inputs[186] = agents[idx].nearest_pheno_g;
-    inputs[187] = agents[idx].nearest_pheno_b;
+    inputs[184] = agents[idx].nearest_id_f1;
+    inputs[185] = agents[idx].nearest_id_f2;
+    inputs[186] = agents[idx].nearest_id_f3;
+    inputs[187] = agents[idx].nearest_id_f4;
 
     var input_idx = 67u;
     let cos_h = cos(ah);
