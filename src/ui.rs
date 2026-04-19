@@ -185,6 +185,16 @@ pub fn draw_agent_profile_panel(a: &Person, tick_to_mins: f32) {
     }
     py += 35.0;
 
+    // --- New: Spatial CNN & Plasticity Display ---
+    draw_text("SPATIAL TOPOLOGY (CNN Features):", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    for i in 0..8 {
+        let val = a.state.spatial_features[i];
+        let color = if val > 0.0 { Color::new(0.0, 1.0, 0.2, val.abs().min(1.0)) } else { Color::new(1.0, 0.0, 0.5, val.abs().min(1.0)) };
+        draw_rectangle(panel_x + 20.0 + i as f32 * (feat_w / 1.5 + 5.0), py, feat_w / 1.5, 10.0, color);
+        draw_text(&format!("S{}", i+1), panel_x + 20.0 + i as f32 * (feat_w / 1.5 + 5.0), py + 22.0, 10.0, GRAY);
+    }
+    py += 35.0;
+
     draw_text("IDENTITY SENSING (Target neighbor):", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
     if a.state.nearest_id_f1 != 0.0 || a.state.nearest_id_f2 != 0.0 {
         for i in 0..4 {
@@ -197,6 +207,15 @@ pub fn draw_agent_profile_panel(a: &Person, tick_to_mins: f32) {
         draw_text("NO TARGET IN RANGE", panel_x + 20.0, py + 18.0, 14.0, DARKGRAY);
     }
     py += 45.0;
+
+    draw_text("PERSONAL PLASTICITY (Hebbian Memory):", panel_x + 20.0, py, 14.0, GRAY); py += 15.0;
+    let pw_w = (panel_w - 60.0) / 32.0;
+    for i in 0..32 {
+        let val = a.state.plastic_weights[i];
+        let color = if val > 0.0 { Color::new(0.0, 0.8, 1.0, val.abs()) } else { Color::new(1.0, 0.5, 0.0, val.abs()) };
+        draw_rectangle(panel_x + 20.0 + i as f32 * pw_w, py, pw_w - 1.0, 8.0, color);
+    }
+    py += 25.0;
 
     draw_influence_map(a, panel_x + 120.0, py + 20.0, 300.0, panel_h - (py - panel_y) - 60.0, 40);
 }

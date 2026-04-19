@@ -138,7 +138,15 @@ pub struct AgentState {
     pub id: u32,       
     pub gestation_timer: f32,
     pub is_pregnant: f32,
-    pub _pad_identity: f32, // Maintains 16-byte alignment (Total 64 f32 slots = 256 bytes)
+    
+    // --- Individual Hebbian Memory (Plasticity) ---
+    pub plastic_weights: [f32; 32], // Private weights updated in-lifetime
+    pub plastic_indices: [u32; 32], // Indices these weights apply to (inputs)
+    
+    // CNN Spatial Extraction (Managed by GPU, cached here for visibility if needed)
+    pub spatial_features: [f32; 8],  
+    
+    pub _pad_identity: [f32; 21], // Maintains 16-byte alignment (Total 128 f32 slots = 512 bytes)
 }
 
 #[repr(C)]
@@ -277,7 +285,10 @@ impl Person {
                 id,
                 gestation_timer: 0.0,
                 is_pregnant: 0.0,
-                _pad_identity: 0.0,
+                plastic_weights: { let mut w = [0.0; 32]; for x in &mut w { *x = (rng.r#gen::<f32>() * 0.2) - 0.1; } w },
+                plastic_indices: { let mut idxs = [0; 32]; for x in &mut idxs { *x = rng.gen_range(0..NUM_INPUTS as u32); } idxs },
+                spatial_features: [0.0; 8],
+                _pad_identity: [0.0; 21],
             },
             genetics: Genetics {
                 w1_weights,
@@ -325,6 +336,10 @@ impl Person {
         child.state.build_storage_intent = 0.0;
         child.state.destroy_infra_intent = 0.0;
         child.state.emergency_intent = 0.0;
+        child.state.gestation_timer = 0.0;
+        child.state.is_pregnant = 0.0;
+        
+        // --- Reproduction of Identity & Plasticity ---
         let child_id = rng.r#gen::<u32>();
         child.state.id = child_id;
         child.state.id_f1 = get_id_feature(child_id, 1); 
@@ -332,9 +347,17 @@ impl Person {
         child.state.id_f3 = get_id_feature(child_id, 3); 
         child.state.id_f4 = get_id_feature(child_id, 4);
         child.state.nearest_id_f1 = -1.0; child.state.nearest_id_f2 = 0.0; child.state.nearest_id_f3 = 0.0; child.state.nearest_id_f4 = 0.0;
-        child.state.gestation_timer = 0.0;
-        child.state.is_pregnant = 0.0;
-        child.state._pad_identity = 0.0;
+        
+        // Inherit and mutate plasticity indices (the "wiring" of individual memory)
+        for i in 0..32 {
+            if rng.r#gen::<f32>() < 0.05 { 
+                child.state.plastic_indices[i] = rng.gen_range(0..NUM_INPUTS as u32);
+                child.state.plastic_weights[i] = (rng.r#gen::<f32>() * 0.2) - 0.1;
+            }
+        }
+        child.state.spatial_features = [0.0; 8];
+        child.state._pad_identity = [0.0; 21];
+
         child.state.heading = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
         
         if rng.r#gen::<f32>() < 0.1 { child.state.pheno_r = (child.state.pheno_r + (rng.r#gen::<f32>() * 0.2) - 0.1).clamp(-1.0, 1.0); }
@@ -413,6 +436,10 @@ impl Person {
         child.state.build_storage_intent = 0.0;
         child.state.destroy_infra_intent = 0.0;
         child.state.emergency_intent = 0.0;
+        child.state.gestation_timer = 0.0;
+        child.state.is_pregnant = 0.0;
+        
+        // --- Reproduction of Identity & Plasticity ---
         let child_id = rng.r#gen::<u32>();
         child.state.id = child_id;
         child.state.id_f1 = get_id_feature(child_id, 1); 
@@ -420,9 +447,17 @@ impl Person {
         child.state.id_f3 = get_id_feature(child_id, 3); 
         child.state.id_f4 = get_id_feature(child_id, 4);
         child.state.nearest_id_f1 = -1.0; child.state.nearest_id_f2 = 0.0; child.state.nearest_id_f3 = 0.0; child.state.nearest_id_f4 = 0.0;
-        child.state.gestation_timer = 0.0;
-        child.state.is_pregnant = 0.0;
-        child.state._pad_identity = 0.0;
+        
+        // Inherit and mutate plasticity indices (the "wiring" of individual memory)
+        for i in 0..32 {
+            if rng.r#gen::<f32>() < 0.05 { 
+                child.state.plastic_indices[i] = rng.gen_range(0..NUM_INPUTS as u32);
+                child.state.plastic_weights[i] = (rng.r#gen::<f32>() * 0.2) - 0.1;
+            }
+        }
+        child.state.spatial_features = [0.0; 8];
+        child.state._pad_identity = [0.0; 21];
+
         child.state.heading = rng.r#gen::<f32>() * PI * 2.0;
         
         if rng.r#gen::<f32>() < mutation_rate { child.state.pheno_r = (child.state.pheno_r + (rng.r#gen::<f32>() * 2.0 * mutation_strength) - mutation_strength).clamp(-1.0, 1.0); }

@@ -54,7 +54,15 @@ struct AgentState {
     id: u32,
     gestation_timer: f32,
     is_pregnant: f32,
-    _pad_identity: f32,
+    
+    // --- Individual Hebbian Memory (Plasticity) ---
+    plastic_weights: array<f32, 32>, // Private weights updated in-lifetime
+    plastic_indices: array<u32, 32>, // Indices these weights apply to (inputs)
+    
+    // CNN Spatial Extraction
+    spatial_features: array<f32, 8>,  
+    
+    _pad_identity: array<f32, 21>,
 }
 
 struct Genetics {
