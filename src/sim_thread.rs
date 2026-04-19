@@ -94,7 +94,6 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
 
                 // 2. Trigger Worker if not busy
                 let sync_interval = if is_headless { 100 } else { 64 }; // ms
-                println!("DEBUG: Headless loop: active={}, elapsed={}ms", is_worker_active, last_fetch_time.elapsed().as_millis());
                 if !is_worker_active && last_fetch_time.elapsed().as_millis() >= sync_interval {
                     let _ = worker_tx.send(config);
                     is_worker_active = true;
