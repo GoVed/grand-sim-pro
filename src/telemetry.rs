@@ -166,7 +166,7 @@ mod tests {
         assert!(content.contains("Generation,Tick,Population"));
         assert!(content.contains("0,100,10"));
         // Aggression should be (0+0.1+0.2+0.3+0.4+0.5+0.6+0.7+0.8+0.9)/10 = 0.45
-        assert!(content.contains(",0.4500,"));
+        assert!(content.contains(",0.450000,"));
         
         // Cleanup
         let _ = std::fs::remove_file("test_telemetry.csv");

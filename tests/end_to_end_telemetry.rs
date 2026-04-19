@@ -56,7 +56,10 @@ async fn test_e2e_telemetry_activity() {
     assert!(ticks >= 50, "Simulation did not progress fast enough: {} ticks", ticks);
     
     // Give background telemetry thread a moment to finish writing
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    for _ in 0..20 {
+        if std::path::Path::new("telemetry.csv").exists() { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     
     assert!(std::path::Path::new("telemetry.csv").exists(), "Telemetry file was not created");
 

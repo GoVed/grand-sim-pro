@@ -26,7 +26,7 @@ fn test_stress_performance() {
     let states = vec![AgentState::default(); config.sim.agent_count as usize];
     let genetics = vec![Genetics { 
         w1_weights: [0.0; W1_SIZE], w1_indices: [0; W1_SIZE], 
-        w2: [0.0; W2_SIZE], w3: [0.0; W3_SIZE] 
+        w2: [0.0; W2_SIZE], w3: [0.0; W3_SIZE], cnn_kernels: [0.0; 72]
     }; config.sim.agent_count as usize];
     
     let map_size = (config.world.map_width * config.world.map_height) as usize;
@@ -42,6 +42,7 @@ fn test_stress_performance() {
     // Test 1: High-Density GPU Compute
     let start_compute = Instant::now();
     gpu.compute_ticks(100);
+    gpu.wait_idle(); // Wait for compute to finish
     let compute_time = start_compute.elapsed();
     println!("Compute 100 ticks (Stress): {:?}", compute_time);
     println!("Theoretical TPS: {:.0}", 100.0 / compute_time.as_secs_f32());

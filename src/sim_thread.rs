@@ -27,17 +27,16 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
         // Background worker state
         let mut is_worker_active = false;
         let (worker_tx, worker_rx) = std::sync::mpsc::channel::<crate::config::SimConfig>();
-        let (result_tx, result_rx) = std::sync::mpsc::channel::<(Vec<crate::agent::AgentState>, Vec<crate::agent::Genetics>, u64)>();
+        let (result_tx, result_rx) = std::sync::mpsc::channel::<(Vec<crate::agent::AgentState>, u64)>();
 
         // Spawn background worker for heavy tasks (GPU Fetch + Spatial Sorting)
         let gpu_worker = gpu.clone();
         thread::spawn(move || {
             while let Ok(config) = worker_rx.recv() {
                 let start_worker = Instant::now();
-                
+
                 // 1. Fetch from GPU (Heavy)
-                let (mut states, genetics) = gpu_worker.fetch_agents();
-                
+                let mut states = gpu_worker.fetch_agents();                
                 // 2. Spatial Sorting (Heavy CPU)
                 use rayon::prelude::*;
                 let map_w = config.world.map_width as usize;
@@ -56,7 +55,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                 states = sorted_states;
 
                 let worker_time = start_worker.elapsed().as_micros() as u64;
-                let _ = result_tx.send((states, genetics, worker_time));
+                let _ = result_tx.send((states, worker_time));
             }
         });
 
@@ -79,7 +78,11 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                     ticks_per_loop
                 };
 
-                gpu.compute_ticks(batch_size);
+                gpu.compute_ticks(batch_size as u32);
+                
+                // Throttle CPU to prevent WGPU queue flooding in headless mode
+                if is_headless { gpu.wait_idle(); }
+                
                 ticks_this_second += batch_size as u64;
                 
                 // Update shared counters (Non-blocking)
@@ -90,7 +93,8 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                 }
 
                 // 2. Trigger Worker if not busy
-                let sync_interval = if is_headless { 500 } else { 64 }; // ms
+                let sync_interval = if is_headless { 100 } else { 64 }; // ms
+                println!("DEBUG: Headless loop: active={}, elapsed={}ms", is_worker_active, last_fetch_time.elapsed().as_millis());
                 if !is_worker_active && last_fetch_time.elapsed().as_millis() >= sync_interval {
                     let _ = worker_tx.send(config);
                     is_worker_active = true;
@@ -98,12 +102,11 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                 }
 
                 // 3. Process Worker Results (Non-blocking)
-                if let Ok((states, genetics, worker_micros)) = result_rx.try_recv() {
+                if let Ok((states, worker_micros)) = result_rx.try_recv() {
                     if let Ok(mut data) = sim_thread_data.lock() {
                         let prev_births = data.sim.total_births;
                         let prev_deaths = data.sim.total_deaths;
                         data.sim.states = states;
-                        data.sim.genetics = genetics;
                         data.last_compute_time_micros = worker_micros as u128;
                         data.sim.process_genetics_and_births(&config);
                         
@@ -193,7 +196,7 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
             }
 
             if is_paused { thread::sleep(Duration::from_millis(16)); }
-            else if !is_headless { thread::sleep(Duration::from_millis(1)); }
+            else { thread::sleep(Duration::from_millis(1)); }
         }
     });
 }
