@@ -16,6 +16,7 @@ pub struct GpuEngine {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
+    clear_pipeline: wgpu::ComputePipeline,
     world_pipeline: wgpu::ComputePipeline,
     render_pipeline: wgpu::ComputePipeline,
     bind_group: wgpu::BindGroup,
@@ -33,6 +34,7 @@ pub struct GpuEngine {
     agent_count: u32,
     map_width: u32,
     map_height: u32,
+    internal_tick: Mutex<u32>,
     staging_lock: Mutex<()>,
 }
 
@@ -131,6 +133,17 @@ impl GpuEngine {
                 compilation_options: Default::default(), cache: None,
             });
 
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Shared Layout"),
+                bind_group_layouts: &[&pipeline.get_bind_group_layout(0)],
+                push_constant_ranges: &[],
+            });
+
+            let clear_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Clear Pipeline"), layout: Some(&pipeline_layout), module: &shader, entry_point: "clear_main",
+                compilation_options: Default::default(), cache: None,
+            });
+
             let world_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("World Pipeline"), layout: None, module: &shader, entry_point: "world_main",
                 compilation_options: Default::default(), cache: None,
@@ -172,12 +185,13 @@ impl GpuEngine {
             });
 
             Self {
-                device, queue, pipeline, world_pipeline, render_pipeline, bind_group, world_bind_group, render_bind_group,
+                device, queue, pipeline, clear_pipeline, world_pipeline, render_pipeline, bind_group, world_bind_group, render_bind_group,
                 agent_state_buffer, genetics_buffer, staging_state_buffer,
                 staging_cell_buffer, cell_buffer, render_buffer, staging_render_buffer,
                 config_buffer, height_buffer, agent_count: states.len() as u32,
                 map_width: config.world.map_width,
                 map_height: config.world.map_height,
+                internal_tick: Mutex::new(0),
                 staging_lock: Mutex::new(()),
             }
         })
@@ -195,6 +209,8 @@ impl GpuEngine {
         let max_ticks_per_submission = 250;
         let mut remaining = ticks;
 
+        let mut internal_tick = self.internal_tick.lock().unwrap();
+
         while remaining > 0 {
             let current_batch = remaining.min(max_ticks_per_submission);
             remaining -= current_batch;
@@ -203,17 +219,25 @@ impl GpuEngine {
             {
                 let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
                 for _ in 0..current_batch {
+                    // 0. Clear Population (Fast, Agent Count Threads)
+                    cpass.set_pipeline(&self.clear_pipeline);
+                    cpass.set_bind_group(0, &self.bind_group, &[]);
+                    cpass.dispatch_workgroups((self.agent_count as f32 / 64.0).ceil() as u32, 1, 1);
+
                     // 1. Agent Simulation
                     cpass.set_pipeline(&self.pipeline);
                     cpass.set_bind_group(0, &self.bind_group, &[]);
                     cpass.dispatch_workgroups((self.agent_count as f32 / 64.0).ceil() as u32, 1, 1);
-                    
-                    // 2. World Environment Update (Once per tick)
-                    cpass.set_pipeline(&self.world_pipeline);
-                    cpass.set_bind_group(0, &self.world_bind_group, &[]);
-                    // Use 2D dispatch to avoid exceeding 65535 limit on a single dimension
-                    cpass.dispatch_workgroups((self.map_width as f32 / 8.0).ceil() as u32, (self.map_height as f32 / 8.0).ceil() as u32, 1);
 
+                    // 2. World Environment Update (Slow, Every 100 Ticks)
+                    if *internal_tick % 100 == 0 {
+                        cpass.set_pipeline(&self.world_pipeline);
+                        cpass.set_bind_group(0, &self.world_bind_group, &[]);
+                        // Use 2D dispatch to avoid exceeding 65535 limit on a single dimension
+                        cpass.dispatch_workgroups((self.map_width as f32 / 8.0).ceil() as u32, (self.map_height as f32 / 8.0).ceil() as u32, 1);
+                    }
+
+                    *internal_tick = internal_tick.wrapping_add(1);
                 }
             }
             self.queue.submit(Some(encoder.finish()));
