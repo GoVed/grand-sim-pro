@@ -53,6 +53,10 @@ struct Cli {
     /// Auto-exit after N cumulative ticks
     #[arg(long)]
     max_ticks: Option<u64>,
+
+    /// Run a visual verification test by capturing screenshots of all modes
+    #[arg(long)]
+    screenshot_test: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -101,9 +105,10 @@ fn draw_progress_bar(report: &ProgressReport) {
     draw_rectangle(x - 5.0, y - 5.0, w + 10.0, h + 10.0, DARKGRAY);
     draw_rectangle(x, y, w, h, BLACK);
     draw_rectangle(x, y, w * report.progress, h, Color::new(0.0, 0.8, 0.6, 1.0));
-    let text = &report.message;
-    let dims = measure_text(text, None, 20, 1.0);
-    draw_text(text, screen_width() / 2.0 - dims.width / 2.0, y - 10.0, 20.0, WHITE);
+    
+    let full_text = format!("{}: {:.0}%", report.message, report.progress * 100.0);
+    let dims = measure_text(&full_text, None, 20, 1.0);
+    draw_text(&full_text, screen_width() / 2.0 - dims.width / 2.0, y - 10.0, 20.0, WHITE);
 }
 
 #[macroquad::main(window_conf)]
@@ -113,6 +118,10 @@ async fn main() {
     
     let mut start_choice = None;
     let mut selected_save_path = None;
+
+    if args.screenshot_test {
+        start_choice = Some(StartChoice::New);
+    }
 
     if args.headless {
         start_choice = Some(match args.mode {
@@ -271,26 +280,30 @@ async fn main() {
         let mut metrics = (0, 0.0f32, 0.0f32, 0usize, 0u64, false, false, Vec::new());
         let mut gen_graph_scroll = 0.0f32; let mut gen_graph_zoom = 1.0f32; let mut gen_graph_avg_period = 25usize;
 
+        let mut screenshot_phase = 0;
+        let mut screenshot_timer = 0;
+        let modes = [
+            VisualMode::Default, VisualMode::Resources, VisualMode::Age, VisualMode::Gender,
+            VisualMode::Pregnancy, VisualMode::MarketWealth, VisualMode::MarketFood,
+            VisualMode::AskPrice, VisualMode::BidPrice, VisualMode::Infrastructure,
+            VisualMode::Temperature, VisualMode::DayNight, VisualMode::Tribes, VisualMode::Water
+        ];
+
         loop {
             if saving_ui_report.is_some() {
                 clear_background(BLACK);
                 while let Ok(r) = save_prog_rx.try_recv() { if r.progress >= 1.0 { saving_ui_report = None; break; } saving_ui_report = Some(r); }
                 if let Some(ref r) = saving_ui_report { draw_progress_bar(r); next_frame().await; continue; }
             }
+
+            if args.screenshot_test {
+                current_visual_mode = modes[screenshot_phase];
+                screenshot_timer += 1;
+            }
+
             if is_key_pressed(KeyCode::C) { show_config_panel = !show_config_panel; while get_char_pressed().is_some() {} }
             if !show_config_panel {
                 if is_key_pressed(KeyCode::Space) { let mut d = shared_data.lock().unwrap(); d.is_paused = !d.is_paused; }
-                if is_key_pressed(KeyCode::S) { 
-                    let data = shared_data.lock().unwrap();
-                    let _ = std::fs::create_dir_all("saved_agents_weights");
-                    let mut living: Vec<_> = data.sim.states.iter().enumerate().filter(|(_, s)| s.health > 0.0).collect();
-                    living.sort_by(|(_, a), (_, b)| (b.wealth + b.food).partial_cmp(&(a.wealth + a.food)).unwrap());
-                    for i in 0..living.len().min(data.config.sim.founder_count as usize) {
-                        let (_, s) = living[i];
-                        let p = Person { state: *s, genetics: data.sim.genetics[s.genetics_index as usize] };
-                        let _ = std::fs::write(format!("saved_agents_weights/agent_{}.json", i), serde_json::to_string_pretty(&p.extract_weights()).unwrap());
-                    }
-                }
                 if is_key_pressed(KeyCode::F) {
                     let mut data = shared_data.lock().unwrap(); data.sim.env.map_cells = gpu.fetch_cells();
                     let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
@@ -307,7 +320,12 @@ async fn main() {
             }
             let (_mw_x, mw_y) = mouse_wheel(); let (mx, my) = mouse_position(); let left_clicked = is_mouse_button_pressed(MouseButton::Left);
             if let Ok(mut data) = shared_data.try_lock() {
-                data.config.sim.visual_mode = match current_visual_mode { VisualMode::Age => 2, VisualMode::Gender => 3, VisualMode::Tribes => 12, _ => 0 };
+                data.config.sim.visual_mode = match current_visual_mode {
+                    VisualMode::Default => 0, VisualMode::Resources => 1, VisualMode::Age => 2, VisualMode::Gender => 3,
+                    VisualMode::Pregnancy => 4, VisualMode::MarketWealth => 5, VisualMode::MarketFood => 6, VisualMode::AskPrice => 7,
+                    VisualMode::BidPrice => 8, VisualMode::Infrastructure => 9, VisualMode::Temperature => 10, VisualMode::DayNight => 11,
+                    VisualMode::Tribes => 12, VisualMode::Water => 13,
+                };
                 metrics = (data.sim.states.iter().filter(|s| s.health > 0.0).count(), data.last_compute_time_micros as f32 / 1000.0, data.ticks_per_second, data.ticks_per_loop, data.total_ticks, data.is_paused, data.restart_message_active, data.generation_survival_times.clone());
                 local_agent_coords.clear();
                 local_agent_coords.extend(data.sim.states.iter().map(|s| AgentRenderData { x: s.x, y: s.y, health: s.health, food: s.food, age: s.age, wealth: s.wealth, gender: s.gender, is_pregnant: s.is_pregnant, pheno_r: s.pheno_r, pheno_g: s.pheno_g, pheno_b: s.pheno_b }));
@@ -349,6 +367,18 @@ async fn main() {
                 if mw_y > 0.0 { zoom *= 1.1; } else if mw_y < 0.0 { zoom *= 0.9; }
                 if is_mouse_button_down(MouseButton::Left) && followed_agent_id.is_none() { offset_x += (mx - last_mouse.0) / zoom; offset_y -= (my - last_mouse.1) / zoom; }
             }
+
+            if args.screenshot_test && screenshot_timer > 60 {
+                let data = get_screen_data();
+                let path = format!("test_screenshots/visual_{:?}.png", current_visual_mode);
+                let _ = std::fs::create_dir_all("test_screenshots");
+                data.export_png(&path);
+                println!("Captured: {}", path);
+                screenshot_phase += 1;
+                screenshot_timer = 0;
+                if screenshot_phase >= modes.len() { println!("Screenshot test complete."); break; }
+            }
+
             last_mouse = (mx, my);
             if is_key_pressed(KeyCode::Escape) { break; }
             next_frame().await;

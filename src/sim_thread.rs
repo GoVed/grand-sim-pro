@@ -144,14 +144,13 @@ pub fn spawn(sim_thread_data: Arc<Mutex<SharedData>>, gpu: Arc<GpuEngine>, is_he
                         }
 
                         // Debug Check
-                        if data.cumulative_ticks % 100 == 0 {
+                        if data.cumulative_ticks % 1000 == 0 {
                             let living: Vec<_> = data.sim.states.iter().filter(|s| s.health > 0.0).collect();
                             if !living.is_empty() {
                                 let mut sum_aggr = 0.0; let mut sum_repro = 0.0;
                                 for s in &living { sum_aggr += s.attack_intent; sum_repro += s.reproduce_desire; }
-                                println!("T:{} | Pop:{} | Debug Aggr:{:.6} Repro:{:.6} | Sample[0] Aggr:{:.6} Repro:{:.6}", 
-                                    data.cumulative_ticks, living.len(), sum_aggr / living.len() as f32, sum_repro / living.len() as f32, 
-                                    living[0].attack_intent, living[0].reproduce_desire);
+                                println!("T:{} | Pop:{} | Aggr:{:.4} Repro:{:.4}", 
+                                    data.cumulative_ticks, living.len(), sum_aggr / living.len() as f32, sum_repro / living.len() as f32);
                             }
                         }
                     }
