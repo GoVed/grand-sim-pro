@@ -366,22 +366,35 @@ pub fn draw_live_pov(a: &Person, sim: &crate::simulation::SimulationManager, con
     draw_text("Throttled: 8 TPS | Mode: COGNITIVE PIPELINE | [L] EXIT", panel_x + panel_w - 450.0, panel_y + 30.0, 16.0, YELLOW);
 
     // --- 1. Sensory Perception ---
-    let grid_size = 210.0; let cell_size = grid_size / 3.0;
+    let grid_size = 210.0; let cell_size = grid_size / 5.0;
     let grid_x = panel_x + 40.0; let grid_y = panel_y + 100.0;
-    draw_text("SENSORY GRID", grid_x, grid_y - 20.0, 18.0, WHITE);
+    draw_text("SENSORY GRID (5x5 FOV)", grid_x, grid_y - 20.0, 18.0, WHITE);
     
     let cos_h = a.state.heading.cos(); let sin_h = a.state.heading.sin();
-    for ly in -1..=1 {
-        for lx in -1..=1 {
-            let wx = (a.state.x + ((-ly as f32 * 8.0) * cos_h - (lx as f32 * 8.0) * sin_h)).rem_euclid(config.world.map_width as f32);
-            let wy = (a.state.y + ((-ly as f32 * 8.0) * sin_h + (lx as f32 * 8.0) * cos_h)).clamp(0.0, config.world.map_height as f32 - 1.0);
+    let agent_lat = ((a.state.y - config.world.map_height as f32 / 2.0).abs() / (config.world.map_height as f32 / 2.0)) * 1.570796;
+    let lon_scale = 1.0 / (agent_lat.cos().max(0.15));
+
+    for ly_screen in 0..5 {
+        let ly_fwd = 3.0 - ly_screen as f32; // 3 ahead to 1 behind
+        for lx_screen in 0..5 {
+            let lx_lat = lx_screen as f32 - 2.0; // -2 left to 2 right
+            
+            let fwd = ly_fwd * 8.0;
+            let lat = lx_lat * 8.0;
+            
+            let rot_x = (fwd * cos_h - lat * sin_h) * lon_scale;
+            let rot_y = fwd * sin_h + lat * cos_h;
+
+            let wx = (a.state.x + rot_x).rem_euclid(config.world.map_width as f32);
+            let wy = (a.state.y + rot_y).clamp(0.0, config.world.map_height as f32 - 1.0);
+
             let cell = &sim.env.map_cells[(wy as usize) * config.world.map_width as usize + (wx as usize)];
-            let cx = grid_x + (lx + 1) as f32 * cell_size; let cy = grid_y + (ly + 1) as f32 * cell_size;
+            let cx = grid_x + lx_screen as f32 * cell_size; let cy = grid_y + ly_screen as f32 * cell_size;
             draw_rectangle(cx, cy, cell_size, cell_size, Color::new(cell.pheno_r*0.5+0.5, cell.pheno_g*0.5+0.5, cell.pheno_b*0.5+0.5, 1.0));
             draw_rectangle_lines(cx, cy, cell_size, cell_size, 1.0, Color::new(1.0, 1.0, 1.0, 0.1));
             let res = cell.res_value as f32 / 1000.0;
             if res > 5.0 { draw_circle(cx + cell_size/2.0, cy + cell_size/2.0, (res / config.world.max_tile_resource).sqrt() * (cell_size/2.2), GREEN); }
-            if lx == 0 && ly == 0 { draw_rectangle_lines(cx + 4.0, cy + 4.0, cell_size - 8.0, cell_size - 8.0, 2.0, YELLOW); }
+            if lx_lat == 0.0 && ly_fwd == 0.0 { draw_rectangle_lines(cx + 2.0, cy + 2.0, cell_size - 4.0, cell_size - 4.0, 2.0, YELLOW); }
         }
     }
     
