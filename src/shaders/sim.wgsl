@@ -123,8 +123,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[9] = (*cell_ptr).avg_rest;
     
     for (var c = 0u; c < 12u; c = c + 1u) {
-        let ptr = &map_cells[safe_current_idx];
-        inputs[10 + c] = (*ptr).comm1; // Actually just pick one representative for brevity, or indexing
+        let comms_ptr = &map_cells[safe_current_idx];
+        inputs[10 + c] = (*comms_ptr).comm1; // Actually just pick one representative for brevity, or indexing
         // Simplified: map cells have fixed slots for comms.
     }
     // (Filling standard inputs 22..60: health, food, water, stamina, etc.)

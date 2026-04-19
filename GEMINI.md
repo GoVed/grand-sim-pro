@@ -38,7 +38,7 @@
 
 ## 3. Code Standards
 
-- **Mandatory Documentation Sync:** As an agent, you MUST update `readme.md` and `ARCHITECTURE.md` immediately after implementing new features or making architectural changes. This ensures the documentation never drifts from the current implementation.
+- **Mandatory Documentation Sync:** As an agent, you MUST update `readme.md` and `ARCHITECTURE.md` immediately after implementing new features or making architectural changes. This ensures the documentation never drifts from the current implementation. You MUST also follow the synchronization mandate in `AGENTS.md` for neural network changes.
 - **Sync Codebase Map:** If you modify a file's responsibility or add new modules (e.g., `ui_logic.rs`), you MUST update the table in Section 2 above.
 - **Library First:** Move core logic to the library (`src/lib.rs`) to ensure testability.
 
