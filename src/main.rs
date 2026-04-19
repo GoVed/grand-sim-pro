@@ -263,6 +263,7 @@ async fn main() {
                     pre_live_speed = d.ticks_per_loop;
                     pre_live_paused = d.is_paused;
                     is_live_mode = true;
+                    show_inspector = false; // Close inspector on entry
                 } else {
                     // Exiting live mode
                     let mut d = shared_data.lock().unwrap();

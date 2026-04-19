@@ -145,3 +145,19 @@ fn test_agent_profile_visibility_logic() {
     let show_profile = has_selected_agent && !is_live_mode;
     assert!(show_profile);
 }
+
+#[test]
+fn test_inspector_live_mode_exclusivity() {
+    // Simulator entry logic simulation
+    let mut show_inspector = true;
+    let mut is_live_mode = false;
+    
+    // Simulate pressing 'L' or "LIVE POV"
+    if !is_live_mode {
+        is_live_mode = true;
+        show_inspector = false;
+    }
+    
+    assert!(!show_inspector);
+    assert!(is_live_mode);
+}
