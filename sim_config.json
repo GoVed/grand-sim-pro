@@ -11,7 +11,7 @@
   },
   "sim": {
     "agent_count": 8192,
-    "spawn_group_size": 100,
+    "spawn_group_size": 8,
     "founder_count": 1024,
     "load_saved_agents_on_start": 2,
     "current_tick": 0,
@@ -48,9 +48,9 @@
     "pad2": 0.0
   },
   "genetics": {
-    "mutation_rate": 0.05,
-    "mutation_strength": 0.05,
-    "random_spawn_percentage": 0.1,
+    "mutation_rate": 0.1,
+    "mutation_strength": 0.1,
+    "random_spawn_percentage": 0.01,
     "crossover_rate": 0.5
   },
   "infra": {

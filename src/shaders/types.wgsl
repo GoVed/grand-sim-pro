@@ -38,8 +38,14 @@ struct AgentState {
     pheno_g: f32,
     pheno_b: f32,
     emergency_intent: f32,
-    _pad_agent2: f32,
-    _pad_agent3: f32,
+    id_f1: f32,  // Identity feature 1 (-1 to 1)
+    id_f2: f32,  // Identity feature 2
+    id_f3: f32,  // Identity feature 3
+    id_f4: f32,  // Identity feature 4
+    nearest_id_f1: f32, // Target's Identity feature 1
+    nearest_id_f2: f32,
+    nearest_id_f3: f32,
+    nearest_id_f4: f32,
     food: f32,
     water: f32,
     stamina: f32,
@@ -48,6 +54,7 @@ struct AgentState {
     id: u32,
     gestation_timer: f32,
     is_pregnant: f32,
+    _pad_identity: f32,
 }
 
 struct Genetics {

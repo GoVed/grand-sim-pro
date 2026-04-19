@@ -161,3 +161,11 @@ fn test_inspector_live_mode_exclusivity() {
     assert!(!show_inspector);
     assert!(is_live_mode);
 }
+
+#[test]
+fn test_identity_labels_registration() {
+    use world_sim::agent::{NUM_INPUTS, INPUT_LABELS};
+    assert_eq!(INPUT_LABELS.len(), NUM_INPUTS);
+    assert_eq!(INPUT_LABELS[NUM_INPUTS - 4], "Target F1");
+    assert_eq!(INPUT_LABELS[NUM_INPUTS - 1], "Target F4");
+}

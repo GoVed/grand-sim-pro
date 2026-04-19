@@ -14,6 +14,13 @@ fn fast_tanh(x: f32) -> f32 {
     return x * (27.0 + x2) / (27.0 + 9.0 * x2);
 }
 
+fn get_id_feature(id: u32, slot: u32) -> f32 {
+    let h = (id ^ (id >> 16u) ^ (slot * 0x85ebca6bu)) * 0x45d9f3bu;
+    let h2 = (h ^ (h >> 16u)) * 0x45d9f3bu;
+    let res = h2 ^ (h2 >> 16u);
+    return (f32(res % 2000u) / 1000.0) - 1.0; // Range -1 to 1
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_index) local_idx: u32) {
     let idx = global_id.x;
@@ -104,8 +111,40 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     if (agents[idx].rest_intent > 0.5 || agents[idx].stamina <= 0.0) { vis_mult = 0.1; }
     let vision_multiplier = (0.3 + day_intensity * 0.7) * vis_mult; 
 
+    // --- Identity Features (Self) ---
+    agents[idx].id_f1 = get_id_feature(agents[idx].id, 1u);
+    agents[idx].id_f2 = get_id_feature(agents[idx].id, 2u);
+    agents[idx].id_f3 = get_id_feature(agents[idx].id, 3u);
+    agents[idx].id_f4 = get_id_feature(agents[idx].id, 4u);
+
+    // --- Identity Sensing (Nearest Neighbor) ---
+    var min_dist = 10.0; // Vision range for identity
+    var f1 = 0.0; var f2 = 0.0; var f3 = 0.0; var f4 = 0.0;
+    
+    let scan_range = 16u;
+    let start_scan = select(0u, idx - scan_range, idx > scan_range);
+    let end_scan = min(arrayLength(&agents), idx + scan_range);
+    
+    for (var i = start_scan; i < end_scan; i = i + 1u) {
+        if (i == idx) { continue; }
+        if (agents[i].health <= 0.0) { continue; }
+        let dist = distance(vec2<f32>(agents[i].x, agents[i].y), vec2<f32>(ax, ay));
+        if (dist < min_dist) {
+            min_dist = dist;
+            f1 = get_id_feature(agents[i].id, 1u);
+            f2 = get_id_feature(agents[i].id, 2u);
+            f3 = get_id_feature(agents[i].id, 3u);
+            f4 = get_id_feature(agents[i].id, 4u);
+        }
+    }
+    
+    agents[idx].nearest_id_f1 = f1;
+    agents[idx].nearest_id_f2 = f2;
+    agents[idx].nearest_id_f3 = f3;
+    agents[idx].nearest_id_f4 = f4;
+
     // 1. Neural Net Processing
-    var inputs = array<f32, 184>();
+    var inputs = array<f32, 188>();
     inputs[0] = 1.0;
     inputs[1] = local_res_value / 1000.0;
     inputs[2] = local_population;
@@ -151,18 +190,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[58] = local_avg_ask / 10.0;
     inputs[59] = local_avg_bid / 10.0;
     inputs[60] = day_intensity;
-    inputs[61] = agents[idx].pheno_r;
-    inputs[62] = agents[idx].pheno_g;
-    inputs[63] = agents[idx].pheno_b;
-    inputs[64] = (*cell_ptr).pheno_r;
-    inputs[65] = (*cell_ptr).pheno_g;
-    inputs[66] = (*cell_ptr).pheno_b;
+    inputs[61] = agents[idx].id_f1;
+    inputs[62] = agents[idx].id_f2;
+    inputs[63] = agents[idx].id_f3;
+    inputs[64] = agents[idx].id_f4;
+    inputs[65] = (*cell_ptr).pheno_r;
+    inputs[66] = (*cell_ptr).pheno_g;
     
     inputs[179] = local_infra_roads / cfg.infra.max_infra;
     inputs[180] = local_infra_housing / cfg.infra.max_infra;
     inputs[181] = f32(atomicLoad(&(*cell_ptr).infra_farms)) / 1000.0 / cfg.infra.max_infra;
     inputs[182] = f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra;
     inputs[183] = 0.0;
+    
+    // Nearest Identity inputs
+    inputs[184] = agents[idx].nearest_id;
+    inputs[185] = agents[idx].nearest_pheno_r;
+    inputs[186] = agents[idx].nearest_pheno_g;
+    inputs[187] = agents[idx].nearest_pheno_b;
 
     var input_idx = 67u;
     let cos_h = cos(ah);
