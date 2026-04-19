@@ -187,3 +187,21 @@ fn test_deterministic_identity_initialization() {
     assert_eq!(p.state.id_f3, get_id_feature(p.state.id, 3));
     assert_eq!(p.state.id_f4, get_id_feature(p.state.id, 4));
 }
+
+#[test]
+fn test_cnn_and_plasticity_initialization() {
+    let config = SimConfig::default();
+    let p = Person::new(0.0, 0.0, 0, &config);
+    
+    // Plasticity should be initialized with small random weights
+    assert_eq!(p.state.plastic_weights.len(), 32);
+    assert_eq!(p.state.plastic_indices.len(), 32);
+    
+    // At least some weights should be non-zero
+    let sum_abs: f32 = p.state.plastic_weights.iter().map(|w| w.abs()).sum();
+    assert!(sum_abs > 0.0);
+    
+    // Spatial features should be zeroed (waiting for GPU)
+    assert_eq!(p.state.spatial_features.len(), 8);
+    assert_eq!(p.state.spatial_features[0], 0.0);
+}
