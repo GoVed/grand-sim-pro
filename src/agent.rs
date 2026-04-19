@@ -12,10 +12,10 @@ use std::f32::consts::PI;
 use rand::Rng;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-pub const NUM_INPUTS: usize = 188; // 160 + 8 (Comm) + 16 (Mem) + 4 (Identity)
+pub const NUM_INPUTS: usize = 412; 
 pub const NUM_HIDDEN_MAX: usize = 128;
-pub const NUM_OUTPUTS: usize = 56; // 32 + 8 (Comm) + 16 (Mem)
-pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; // Sparse Fixed-K Connectivity
+pub const NUM_OUTPUTS: usize = 56; 
+pub const W1_SIZE: usize = NUM_HIDDEN_MAX * 8; 
 pub const W2_SIZE: usize = NUM_HIDDEN_MAX * NUM_HIDDEN_MAX;
 pub const W3_SIZE: usize = NUM_HIDDEN_MAX * NUM_OUTPUTS;
 
@@ -28,14 +28,37 @@ pub const INPUT_LABELS: [&str; NUM_INPUTS] = [
     "Wealth", "Avg Ask", "Avg Bid", "Daylight",
     "ID Feat 1", "ID Feat 2", "ID Feat 3", "ID Feat 4",
     "Loc Pheno R", "Loc Pheno G", "Loc Pheno B",
-    "FL Res", "FL Elev", "FL Pop", "FL C1", "FL C2", "FL C3", "FL C4", "FL PR", "FL PG", "FL PB", "FL Road", "FL House", "FL Farm", "FL Store",
-    "F Res", "F Elev", "F Pop", "F C1", "F C2", "F C3", "F C4", "F PR", "F PG", "F PB", "FL Road", "FL House", "FL Farm", "FL Store",
-    "FR Res", "FR Elev", "FR Pop", "FR C1", "FR C2", "FR C3", "FR C4", "FR PR", "FR PG", "FR PB", "FL Road", "FL House", "FL Farm", "FL Store",
-    "L Res", "L Elev", "L Pop", "L C1", "L C2", "L C3", "L C4", "L PR", "L PG", "L PB", "L Road", "L House", "L Farm", "L Store",
-    "R Res", "R Elev", "R Pop", "R C1", "R C2", "R C3", "R C4", "R PR", "R PG", "R PB", "R Road", "R House", "R Farm", "R Store",
-    "BL Res", "BL Elev", "BL Pop", "BL C1", "BL C2", "BL C3", "BL C4", "BL PR", "BL PG", "BL PB", "BL Road", "BL House", "BL Farm", "BL Store",
-    "B Res", "B Elev", "B Pop", "B C1", "B C2", "B C3", "B C4", "B PR", "B PG", "B PB", "B Road", "B House", "B Farm", "B Store",
-    "BR Res", "BR Elev", "BR Pop", "BR C1", "BR C2", "BR C3", "BR C4", "BR PR", "BR PG", "BR PB", "BR Road", "BR House", "BR Farm", "BR Store",
+    // --- 5x5 Vision Grid (24 cells * 14 features = 336 inputs) ---
+    // Row 1: 3 Ahead
+    "V3A L2 Res", "V3A L2 Elev", "V3A L2 Pop", "V3A L2 C1", "V3A L2 C2", "V3A L2 C3", "V3A L2 C4", "V3A L2 PR", "V3A L2 PG", "V3A L2 PB", "V3A L2 Rd", "V3A L2 Hs", "V3A L2 Fm", "V3A L2 St",
+    "V3A L1 Res", "V3A L1 Elev", "V3A L1 Pop", "V3A L1 C1", "V3A L1 C2", "V3A L1 C3", "V3A L1 C4", "V3A L1 PR", "V3A L1 PG", "V3A L1 PB", "V3A L1 Rd", "V3A L1 Hs", "V3A L1 Fm", "V3A L1 St",
+    "V3A F Res",  "V3A F Elev",  "V3A F Pop",  "V3A F C1",  "V3A F C2",  "V3A F C3",  "V3A F C4",  "V3A F PR",  "V3A F PG",  "V3A F PB",  "V3A F Rd",  "V3A F Hs",  "V3A F Fm",  "V3A F St",
+    "V3A R1 Res", "V3A R1 Elev", "V3A R1 Pop", "V3A R1 C1", "V3A R1 C2", "V3A R1 C3", "V3A R1 C4", "V3A R1 PR", "V3A R1 PG", "V3A R1 PB", "V3A R1 Rd", "V3A R1 Hs", "V3A R1 Fm", "V3A R1 St",
+    "V3A R2 Res", "V3A R2 Elev", "V3A R2 Pop", "V3A R2 C1", "V3A R2 C2", "V3A R2 C3", "V3A R2 C4", "V3A R2 PR", "V3A R2 PG", "V3A R2 PB", "V3A R2 Rd", "V3A R2 Hs", "V3A R2 Fm", "V3A R2 St",
+    // Row 2: 2 Ahead
+    "V2A L2 Res", "V2A L2 Elev", "V2A L2 Pop", "V2A L2 C1", "V2A L2 C2", "V2A L2 C3", "V2A L2 C4", "V2A L2 PR", "V2A L2 PG", "V2A L2 PB", "V2A L2 Rd", "V2A L2 Hs", "V2A L2 Fm", "V2A L2 St",
+    "V2A L1 Res", "V2A L1 Elev", "V2A L1 Pop", "V2A L1 C1", "V2A L1 C2", "V2A L1 C3", "V2A L1 C4", "V2A L1 PR", "V2A L1 PG", "V2A L1 PB", "V2A L1 Rd", "V2A L1 Hs", "V2A L1 Fm", "V2A L1 St",
+    "V2A F Res",  "V2A F Elev",  "V2A F Pop",  "V2A F C1",  "V2A F C2",  "V2A F C3",  "V2A F C4",  "V2A F PR",  "V2A F PG",  "V2A F PB",  "V2A F Rd",  "V2A F Hs",  "V2A F Fm",  "V2A F St",
+    "V2A R1 Res", "V2A R1 Elev", "V2A R1 Pop", "V2A R1 C1", "V2A R1 C2", "V2A R1 C3", "V2A R1 C4", "V2A R1 PR", "V2A R1 PG", "V2A R1 PB", "V2A R1 Rd", "V2A R1 Hs", "V2A R1 Fm", "V2A R1 St",
+    "V2A R2 Res", "V2A R2 Elev", "V2A R2 Pop", "V2A R2 C1", "V2A R2 C2", "V2A R2 C3", "V2A R2 C4", "V2A R2 PR", "V2A R2 PG", "V2A R2 PB", "V2A R2 Rd", "V2A R2 Hs", "V2A R2 Fm", "V2A R2 St",
+    // Row 3: 1 Ahead
+    "V1A L2 Res", "V1A L2 Elev", "V1A L2 Pop", "V1A L2 C1", "V1A L2 C2", "V1A L2 C3", "V1A L2 C4", "V1A L2 PR", "V1A L2 PG", "V1A L2 PB", "V1A L2 Rd", "V1A L2 Hs", "V1A L2 Fm", "V1A L2 St",
+    "V1A L1 Res", "V1A L1 Elev", "V1A L1 Pop", "V1A L1 C1", "V1A L1 C2", "V1A L1 C3", "V1A L1 C4", "V1A L1 PR", "V1A L1 PG", "V1A L1 PB", "V1A L1 Rd", "V1A L1 Hs", "V1A L1 Fm", "V1A L1 St",
+    "V1A F Res",  "V1A F Elev",  "V1A F Pop",  "V1A F C1",  "V1A F C2",  "V1A F C3",  "V1A F C4",  "V1A F PR",  "V1A F PG",  "V1A F PB",  "V1A F Rd",  "V1A F Hs",  "V1A F Fm",  "V1A F St",
+    "V1A R1 Res", "V1A R1 Elev", "V1A R1 Pop", "V1A R1 C1", "V1A R1 C2", "V1A R1 C3", "V1A R1 C4", "V1A R1 PR", "V1A R1 PG", "V1A R1 PB", "V1A R1 Rd", "V1A R1 Hs", "V1A R1 Fm", "V1A R1 St",
+    "V1A R2 Res", "V1A R2 Elev", "V1A R2 Pop", "V1A R2 C1", "V1A R2 C2", "V1A R2 C3", "V1A R2 C4", "V1A R2 PR", "V1A R2 PG", "V1A R2 PB", "V1A R2 Rd", "V1A R2 Hs", "V1A R2 Fm", "V1A R2 St",
+    // Row 4: Same Row
+    "V0A L2 Res", "V0A L2 Elev", "V0A L2 Pop", "V0A L2 C1", "V0A L2 C2", "V0A L2 C3", "V0A L2 C4", "V0A L2 PR", "V0A L2 PG", "V0A L2 PB", "V0A L2 Rd", "V0A L2 Hs", "V0A L2 Fm", "V0A L2 St",
+    "V0A L1 Res", "V0A L1 Elev", "V0A L1 Pop", "V0A L1 C1", "V0A L1 C2", "V0A L1 C3", "V0A L1 C4", "V0A L1 PR", "V0A L1 PG", "V0A L1 PB", "V0A L1 Rd", "V0A L1 Hs", "V0A L1 Fm", "V0A L1 St",
+    "V0A R1 Res", "V0A R1 Elev", "V0A R1 Pop", "V0A R1 C1", "V0A R1 C2", "V0A R1 C3", "V0A R1 C4", "V0A R1 PR", "V0A R1 PG", "V0A R1 PB", "V0A R1 Rd", "V0A R1 Hs", "V0A R1 Fm", "V0A R1 St",
+    "V0A R2 Res", "V0A R2 Elev", "V0A R2 Pop", "V0A R2 C1", "V0A R2 C2", "V0A R2 C3", "V0A R2 C4", "V0A R2 PR", "V0A R2 PG", "V0A R2 PB", "V0A R2 Rd", "V0A R2 Hs", "V0A R2 Fm", "V0A R2 St",
+    // Row 5: 1 Behind
+    "V1B L2 Res", "V1B L2 Elev", "V1B L2 Pop", "V1B L2 C1", "V1B L2 C2", "V1B L2 C3", "V1B L2 C4", "V1B L2 PR", "V1B L2 PG", "V1B L2 PB", "V1B L2 Rd", "V1B L2 Hs", "V1B L2 Fm", "V1B L2 St",
+    "V1B L1 Res", "V1B L1 Elev", "V1B L1 Pop", "V1B L1 C1", "V1B L1 C2", "V1B L1 C3", "V1B L1 C4", "V1B L1 PR", "V1B L1 PG", "V1B L1 PB", "V1B L1 Rd", "V1B L1 Hs", "V1B L1 Fm", "V1B L1 St",
+    "V1B F Res",  "V1B F Elev",  "V1B F Pop",  "V1B F C1",  "V1B F C2",  "V1B F C3",  "V1B F C4",  "V1B F PR",  "V1B F PG",  "V1B F PB",  "V1B F Rd",  "V1B F Hs",  "V1B F Fm",  "V1B F St",
+    "V1B R1 Res", "V1B R1 Elev", "V1B R1 Pop", "V1B R1 C1", "V1B R1 C2", "V1B R1 C3", "V1B R1 C4", "V1B R1 PR", "V1B R1 PG", "V1B R1 PB", "V1B R1 Rd", "V1B R1 Hs", "V1B R1 Fm", "V1B R1 St",
+    "V1B R2 Res", "V1B R2 Elev", "V1B R2 Pop", "V1B R2 C1", "V1B R2 C2", "V1B R2 C3", "V1B R2 C4", "V1B R2 PR", "V1B R2 PG", "V1B R2 PB", "V1B R2 Rd", "V1B R2 Hs", "V1B R2 Fm", "V1B R2 St",
+    // Infrastructure Logic (Local)
     "Loc Road", "Loc House", "Loc Farm", "Loc Storage",
     "Target F1", "Target F2", "Target F3", "Target F4"
 ];

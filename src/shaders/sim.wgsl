@@ -144,7 +144,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     agents[idx].nearest_id_f4 = f4;
 
     // 1. Neural Net Processing
-    var inputs = array<f32, 188>();
+    var inputs = array<f32, 412>();
     inputs[0] = 1.0;
     inputs[1] = local_res_value / 1000.0;
     inputs[2] = local_population;
@@ -196,27 +196,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     inputs[64] = agents[idx].id_f4;
     inputs[65] = (*cell_ptr).pheno_r;
     inputs[66] = (*cell_ptr).pheno_g;
+    inputs[67] = (*cell_ptr).pheno_b;
     
-    inputs[179] = local_infra_roads / cfg.infra.max_infra;
-    inputs[180] = local_infra_housing / cfg.infra.max_infra;
-    inputs[181] = f32(atomicLoad(&(*cell_ptr).infra_farms)) / 1000.0 / cfg.infra.max_infra;
-    inputs[182] = f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra;
-    inputs[183] = 0.0;
-    
-    // Nearest Identity inputs
-    inputs[184] = agents[idx].nearest_id_f1;
-    inputs[185] = agents[idx].nearest_id_f2;
-    inputs[186] = agents[idx].nearest_id_f3;
-    inputs[187] = agents[idx].nearest_id_f4;
-
-    var input_idx = 67u;
+    var input_idx = 68u;
     let cos_h = cos(ah);
     let sin_h = sin(ah);
     let view_spacing = 8.0; 
 
-    // Unroll vision loop 3x3
-    for (var ly_i = 1; ly_i >= -1; ly_i -= 1) { 
-        for (var lx_i = -1; lx_i <= 1; lx_i += 1) { 
+    // --- 5x5 Vision Loop (3 rows ahead, 1 row behind) ---
+    for (var ly_i = 3; ly_i >= -1; ly_i -= 1) { 
+        for (var lx_i = -2; lx_i <= 2; lx_i += 1) { 
             if (lx_i == 0 && ly_i == 0) { continue; } 
             
             let fwd = f32(ly_i) * view_spacing;
@@ -271,6 +260,18 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
             input_idx += 14u;
         }
     }
+
+    // --- Local / Meta inputs (shifted to end) ---
+    inputs[403] = local_infra_roads / cfg.infra.max_infra;
+    inputs[404] = local_infra_housing / cfg.infra.max_infra;
+    inputs[405] = f32(atomicLoad(&(*cell_ptr).infra_farms)) / 1000.0 / cfg.infra.max_infra;
+    inputs[406] = f32(atomicLoad(&(*cell_ptr).infra_storage)) / 1000.0 / cfg.infra.max_infra;
+    
+    // Target Identity Features
+    inputs[407] = agents[idx].nearest_id_f1;
+    inputs[408] = agents[idx].nearest_id_f2;
+    inputs[409] = agents[idx].nearest_id_f3;
+    inputs[410] = agents[idx].nearest_id_f4;
 
     let hidden_count = agents[idx].hidden_count;
     var hidden1 = array<f32, 128>();
