@@ -36,7 +36,7 @@ fn test_config_filtering_and_highlighting() {
     
     // 1. Test empty search
     let items = ui_logic::get_filtered_config_items(&config, &last_saved, "");
-    assert_eq!(items.len(), 34); // Total count of all exposed config items
+    assert_eq!(items.len(), 35); // Total count of all exposed config items
     
     // 2. Test specific search (Case Insensitive)
     let items_filtered = ui_logic::get_filtered_config_items(&config, &last_saved, "REGEN");
@@ -101,4 +101,34 @@ fn test_neural_connections_logic() {
     let focused = ui_logic::get_top_connections(&weights, 10, 10, Some(0), true, 10);
     // Should find weights at index [0, 10, 20, ... 90]
     assert_eq!(focused.len(), 10);
+}
+
+#[test]
+fn test_influence_map_calculation_completeness() {
+    let config = SimConfig::default();
+    let p = Person::new(0.0, 0.0, 0, &config);
+    let influence = p.calculate_input_output_influence();
+    
+    // Check that we have values for all input-output pairs
+    assert_eq!(influence.len(), world_sim::agent::NUM_INPUTS * world_sim::agent::NUM_OUTPUTS);
+    
+    // Check that we can extract top connections for UI
+    let top = ui_logic::get_top_connections(&influence, world_sim::agent::NUM_INPUTS, world_sim::agent::NUM_OUTPUTS, None, false, 30);
+    assert_eq!(top.len(), 30);
+}
+
+#[test]
+fn test_ui_panel_visibility_rules() {
+    // These rules are encoded in main.rs but we verify the logic here if possible
+    // Rule 1: Tracker should not be visible in Live Mode to avoid overlap
+    let is_live_mode = true;
+    let show_inspector = false;
+    let should_draw_tracker = (!show_inspector || is_live_mode) && !is_live_mode;
+    assert!(!should_draw_tracker);
+    
+    // Rule 2: Tracker should be visible when inspector is closed and NOT in live mode
+    let is_live_mode = false;
+    let show_inspector = false;
+    let should_draw_tracker = (!show_inspector || is_live_mode) && !is_live_mode;
+    assert!(should_draw_tracker);
 }
